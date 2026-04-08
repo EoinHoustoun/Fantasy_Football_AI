@@ -1,5 +1,7 @@
 # Fantasy Football AI Planner
 
+![Fantasy Football AI Planner](docs/screenshot.png)
+
 A 16-page Fantasy Premier League analytics platform that combines statistical modelling and machine learning to drive data-driven transfer, captain, and chip decisions.
 
 ## What it does
