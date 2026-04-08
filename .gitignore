@@ -1,0 +1,10 @@
+.env
+data/cache/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.parquet
+*.pkl
+.streamlit/secrets.toml
+.claude/
