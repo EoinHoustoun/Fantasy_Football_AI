@@ -1,5 +1,4 @@
 .env
-data/cache/
 __pycache__/
 *.pyc
 *.pyo
@@ -8,3 +7,12 @@ __pycache__/
 *.pkl
 .streamlit/secrets.toml
 .claude/
+.pytest_cache/
+
+# Volatile API cache stays out of git, but two things are irreplaceable and must be kept:
+# - data/cache/archive/  : the full 2025-26 season harvested before the FPL July wipe
+# - perfect_season_*.json: MILP scenario results computed on that frozen season
+data/cache/*
+!data/cache/archive/
+!data/cache/archive/**
+!data/cache/perfect_season_*.json
