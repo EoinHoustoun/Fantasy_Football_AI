@@ -210,41 +210,40 @@ except Exception as e:  # noqa: BLE001 · surface any load failure to the UI
     st.info("Check your internet connection and try **🔄 Refresh Data**.")
 
 
-# ── Grouped navigation · 5 sidebar sections (was 20 pages / 6 groups) ──────────
-# Overhaul Phase 1: collapse to 5 logical tabs. Captain stays under My Team until
-# the unified timeline pitch absorbs captaincy; chips fold into Transfers; all
-# analytics under Analysis; the season-long tools under Season Lab.
+# ── Grouped navigation · 5 sections, 19 pages ─────────────────────────────────
+# Slimmed 2026-07: Dashboard removed (generic stats · better versions live in
+# Transfers + Value Lab); standalone Planner removed (the My Team pitch is the
+# planner now, Buy/Sell keeps the verdict engine). Scouting = who to buy next;
+# Data Science Lab = models, hindsight engines and season retrospectives.
 nav = st.navigation({
-    "Home": [
+    "This Week": [
         st.Page("views/home.py",               title="Home",        icon=":material/home:", default=True),
-    ],
-    "My Team": [
         st.Page("views/00_my_team.py",          title="My Team",     icon=":material/groups:"),
         st.Page("views/06_captain_picker.py",   title="Captain",     icon=":material/military_tech:"),
     ],
     "Transfers": [
         st.Page("views/02_transfer_suggestions.py", title="Transfers",    icon=":material/swap_horiz:"),
-        st.Page("views/03_transfer_planner.py",     title="Planner",      icon=":material/calendar_month:"),
         st.Page("views/07_buy_sell.py",             title="Buy / Sell",   icon=":material/payments:"),
+        st.Page("views/08_injuries.py",             title="Injuries",     icon=":material/medical_services:"),
+    ],
+    "Chips": [
         st.Page("views/09_wildcard.py",             title="Wildcard",     icon=":material/style:"),
         st.Page("views/13_free_hit.py",             title="Free Hit",     icon=":material/my_location:"),
         st.Page("views/14_chip_planner.py",         title="Chip Planner", icon=":material/casino:"),
     ],
-    "Analysis": [
-        st.Page("views/01_dashboard.py",           title="Dashboard",     icon=":material/dashboard:"),
+    "Scouting": [
         st.Page("views/04_differentials.py",       title="Differentials", icon=":material/diamond:"),
         st.Page("views/05_xg_underperformers.py",  title="xG Tracker",    icon=":material/bolt:"),
         st.Page("views/12_predictions.py",         title="Predictions",   icon=":material/insights:"),
         st.Page("views/10_ownership_trend.py",     title="Ownership",     icon=":material/trending_up:"),
-        st.Page("views/08_injuries.py",            title="Injuries",      icon=":material/medical_services:"),
     ],
-    "Season Lab": [
-        st.Page("views/11_gw_history.py",     title="GW History",     icon=":material/history:"),
-        st.Page("views/15_mini_league.py",    title="Mini-League",    icon=":material/leaderboard:"),
+    "Data Science Lab": [
         st.Page("views/16_perfect_season.py", title="Perfect Season", icon=":material/emoji_events:"),
         st.Page("views/17_value_lab.py",      title="Value Lab",      icon=":material/science:"),
-        st.Page("views/18_draft_2026_27.py",  title="26/27 Draft",    icon=":material/description:"),
         st.Page("views/19_playbook.py",       title="Playbook",       icon=":material/menu_book:"),
+        st.Page("views/18_draft_2026_27.py",  title="26/27 Draft",    icon=":material/description:"),
+        st.Page("views/11_gw_history.py",     title="GW History",     icon=":material/history:"),
+        st.Page("views/15_mini_league.py",    title="Mini-League",    icon=":material/leaderboard:"),
     ],
 })
 

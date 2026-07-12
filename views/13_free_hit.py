@@ -411,14 +411,3 @@ with col_table:
         tbl["Avg last 4"] = tbl["Avg last 4"].round(1)
     st.dataframe(tbl, use_container_width=True, hide_index=True)
 
-    # Position breakdown
-    pos_sum = optimal_xi.groupby("position")["predicted_pts"].sum().reindex(POS_ORDER).fillna(0)
-    opt = charts.donut_option(
-        labels=list(pos_sum.index),
-        values=[round(float(v), 1) for v in pos_sum.values],
-        colors=[POS_COLORS.get(p, "#00FF87") for p in pos_sum.index],
-    )
-    opt["title"] = {"text": "Points by position (optimal XI)",
-                    "textStyle": {"color": "#eef1f5", "fontSize": 12,
-                                  "fontWeight": "bold"}}
-    charts.render(opt, height="220px", key="fh_pos_donut")

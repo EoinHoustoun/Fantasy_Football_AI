@@ -291,3 +291,20 @@ FF/
 
 ---
 _Read `CLAUDE.md` for the design-system reference. Start each new session here for full context._
+
+## Session 2026-07-12 (evening) · Pitch planner, nav slim, graph audit
+- **My Team pitch = the planner.** Timeline scrubs into simulated future GWs
+  (SIM_HORIZON=5 · GW1-5 fixtures replay as GW39-43). Permanent ✕ on every kit
+  (transfer out), kit tap opens a Player Intel dialog. Working moves persist as
+  disk drafts (analytics/squad_planner.py · pitch links full-reload the page).
+  Save promotes draft to plan. FT banking 1/week +1 banked cap 5, −4/extra with
+  a red badge; strip shows transfers/free/bank/net-xP/saved state.
+- **Nav slimmed 21→19 pages, 6→5 groups.** Deleted 01_dashboard (generic
+  charts, better versions in Transfers/Value Lab) and 03_transfer_planner
+  (superseded by the pitch planner + Buy/Sell verdicts). New groups: This Week ·
+  Transfers · Chips · Scouting · Data Science Lab.
+- **Graph audit (all ~50 charts).** Every remaining chart maps to a decision;
+  removed the Free Hit position donut (adjacent grouped bars carry the same
+  answer with numbers); added the Net xP chip to the planner strip.
+- **Bug fixed:** animation/theme CSS was injected once per session, so every
+  rerun after the first dropped hover/count-up styling. Now injected per run.

@@ -1047,6 +1047,14 @@ with tab_pitch:
         fts   = planner.free_transfers_for(prev_plans, view_gw, _plan_first)
         used  = len(pending)
         cost  = planner.hit_cost(used, fts)
+
+        # What the moves actually buy: xP in minus xP out, net of the hit.
+        _xp_by_id = dict(zip(players_df_all["fpl_id"].astype(int),
+                             pd.to_numeric(players_df_all.get("ep_next"),
+                                           errors="coerce").fillna(0.0)))
+        xp_swing = sum(_xp_by_id.get(int(t["in_id"]), 0.0)
+                       - _xp_by_id.get(int(t["out_id"]), 0.0) for t in pending)
+        net_gain = xp_swing - cost
         bank_now = planner.bank_after(bank_m, prev_plans, view_gw - 1, _plan_first,
                                       extra_pending=pending)
         _saved = plans.get(view_gw, []) == pending
@@ -1081,6 +1089,8 @@ with tab_pitch:
             + _chipbox("Transfers", used, "#fff")
             + _chipbox("Free", fts, "#00FF87")
             + _chipbox("Bank", f"£{bank_now:.1f}m", "#04f5ff")
+            + (_chipbox("Net xP", f"{net_gain:+.1f}",
+                        "#00FF87" if net_gain >= 0 else "#FF4B4B") if used else "")
             + f'{_hit_html}</div></div>',
             unsafe_allow_html=True,
         )
