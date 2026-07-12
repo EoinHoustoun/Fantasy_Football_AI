@@ -8,7 +8,7 @@ Import render_badges() and call it with a player Series/dict.
 import pandas as pd
 from typing import Union
 
-# Defcon monster threshold — score above this gets the badge
+# Defcon monster threshold · score above this gets the badge
 DEFCON_MONSTER_THRESHOLD = 0.35
 
 
@@ -17,12 +17,12 @@ def render_badges(player: Union[pd.Series, dict], size: str = "sm") -> str:
     Return an HTML string of badge pills for a player's special attributes.
 
     Badges:
-      ⚽ Pen #1   — penalties_order == 1
-      2️⃣ Pen #2   — penalties_order == 2
-      🎯 Corners  — corners_order <= 2
-      🦶 FK       — freekicks_order <= 2
-      🛡️ DEFCON   — defcon_monster_score >= threshold
-      ⚠️ Mins     — avg_minutes < 60 (warning)
+      ⚽ Pen #1   · penalties_order == 1
+      2️⃣ Pen #2   · penalties_order == 2
+      🎯 Corners  · corners_order <= 2
+      🦶 FK       · freekicks_order <= 2
+      🛡️ DEFCON   · defcon_monster_score >= threshold
+      ⚠️ Mins     · avg_minutes < 60 (warning)
 
     Args:
         player: pd.Series or dict with player attributes
@@ -95,7 +95,7 @@ def minutes_multiplier(avg_minutes: float, power: float = 0.5, floor: float = 0.
 
     Args:
         avg_minutes: Mean minutes played per game
-        power: Exponent applied (0.5 = square root — rewards high mins strongly)
+        power: Exponent applied (0.5 = square root · rewards high mins strongly)
         floor: Minimum multiplier (prevents 0-min players collapsing score entirely)
     """
     raw = min(float(avg_minutes), 90.0) / 90.0

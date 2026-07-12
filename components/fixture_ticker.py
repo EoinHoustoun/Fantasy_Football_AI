@@ -72,12 +72,12 @@ def render_fixture_ticker(players_df: pd.DataFrame, top_n: int = 15) -> None:
                 marker = " 2x" if gw in dgw_gws else ""
                 z_row.append(fdr)
                 text_row.append(f"{opp[:3].upper()} ({h_a}){marker}")
-                hover_row.append(f"GW{gw}: {opp} ({h_a}) — FDR {fdr}{' — DOUBLE GW' if gw in dgw_gws else ''}")
+                hover_row.append(f"GW{gw}: {opp} ({h_a}) · FDR {fdr}{' · DOUBLE GW' if gw in dgw_gws else ''}")
             else:
                 z_row.append(6)  # use 6 to get a distinct grey for BGW
                 marker = "BGW" if gw in bgw_gws else "-"
                 text_row.append(marker)
-                hover_row.append(f"GW{gw}: {'Blank Gameweek — no fixture' if gw in bgw_gws else 'No fixture'}")
+                hover_row.append(f"GW{gw}: {'Blank Gameweek · no fixture' if gw in bgw_gws else 'No fixture'}")
         z_values.append(z_row)
         text_values.append(text_row)
         hover_texts.append(hover_row)
@@ -96,7 +96,7 @@ def render_fixture_ticker(players_df: pd.DataFrame, top_n: int = 15) -> None:
             [0.4,   FDR_COLORS[3]],
             [0.6,   FDR_COLORS[4]],
             [0.8,   FDR_COLORS[5]],
-            [1.0,   "#444444"],   # BGW — dark grey
+            [1.0,   "#444444"],   # BGW · dark grey
         ],
         zmin=1, zmax=6,
         showscale=False,
