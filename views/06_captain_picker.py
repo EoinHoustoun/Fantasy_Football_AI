@@ -8,7 +8,7 @@ Shows:
 """
 
 import streamlit as st
-import plotly.graph_objects as go
+from ui import charts
 import pandas as pd
 from typing import Optional, List, Dict, Any
 
@@ -311,39 +311,19 @@ def _mini_card(player: pd.Series, rank: int) -> str:
     """
 
 
-def score_breakdown_chart(top5: pd.DataFrame, title: str) -> go.Figure:
+def score_breakdown_chart(top5: pd.DataFrame, title: str, key: str) -> None:
     """Horizontal stacked bar showing captain score components for top 5."""
     components = ["c_form", "c_fixture", "c_xg", "c_setpiece"]
     labels     = ["Form", "Fixture", "xGI", "Set Pieces"]
     colors     = ["#00FF87", "#04f5ff", "#e90052", "#FFD700"]
 
     names = top5["web_name"].tolist()
-
-    fig = go.Figure()
-    for comp, label, color in zip(components, labels, colors):
-        vals = top5[comp].fillna(0).tolist()
-        fig.add_trace(go.Bar(
-            name=label,
-            y=names,
-            x=vals,
-            orientation="h",
-            marker_color=color,
-            hovertemplate=f"{label}: %{{x:.3f}}<extra></extra>",
-        ))
-
-    fig.update_layout(
-        barmode="stack",
-        title=title,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=240,
-        margin=dict(l=10, r=10, t=40, b=10),
-        legend=dict(orientation="h", y=-0.15, x=0),
-        xaxis=dict(showgrid=False, showticklabels=False),
-        yaxis=dict(autorange="reversed"),
-        font=dict(color="rgba(255,255,255,0.8)"),
-    )
-    return fig
+    series = [
+        (label, [round(float(v), 3) for v in top5[comp].fillna(0)], color)
+        for comp, label, color in zip(components, labels, colors)
+    ]
+    opt = charts.stacked_bars_option(names, series, horizontal=True, title=title)
+    charts.render(opt, height="240px", key=key)
 
 
 # ── Main layout ────────────────────────────────────────────────────────────────
@@ -441,8 +421,8 @@ if squad_df is not None:
 
         with col_chart:
             if len(squad_scored) > 1:
-                fig = score_breakdown_chart(squad_scored, "Captain Score Breakdown · Your Squad")
-                st.plotly_chart(fig, use_container_width=True)
+                score_breakdown_chart(squad_scored, "Captain Score Breakdown · Your Squad",
+                                      key="cap_breakdown_squad")
 
         st.markdown("#### Top 5 Captain Options (Your Squad)")
         cards_html = "".join(
@@ -488,8 +468,8 @@ if not diffs.empty:
 
     with col_d2:
         if len(diffs) > 1:
-            fig2 = score_breakdown_chart(diffs, "Differential Captain Score Breakdown")
-            st.plotly_chart(fig2, use_container_width=True)
+            score_breakdown_chart(diffs, "Differential Captain Score Breakdown",
+                                  key="cap_breakdown_diff")
 
     st.markdown("#### Top 5 Differential Options")
     diff_cards = "".join(
@@ -514,7 +494,7 @@ if squad_df is None:
         with col_g1:
             st.markdown(_hero_card(global_top5.iloc[0]), unsafe_allow_html=True)
         with col_g2:
-            fig3 = score_breakdown_chart(global_top5, "Captain Score Breakdown")
-            st.plotly_chart(fig3, use_container_width=True)
+            score_breakdown_chart(global_top5, "Captain Score Breakdown",
+                                  key="cap_breakdown_global")
         cards_g = "".join(_mini_card(global_top5.iloc[i], i+1) for i in range(len(global_top5)))
         st.markdown(cards_g, unsafe_allow_html=True)

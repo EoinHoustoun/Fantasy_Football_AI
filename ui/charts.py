@@ -193,6 +193,39 @@ def scatter_option(points: List[Dict[str, Any]], x_name: str = "", y_name: str =
     }
 
 
+def stacked_bars_option(categories: List[str],
+                        series: List[Tuple[str, List[float], str]],
+                        horizontal: bool = False,
+                        title: str = "") -> Dict[str, Any]:
+    """Stacked bars · e.g. score components per player. series = [(name, data, color)]."""
+    cat = _axis("category", [str(v) for v in categories])
+    val = _axis("value")
+    if horizontal:
+        cat["inverse"] = True
+        val["axisLabel"] = {"show": False}
+        val["splitLine"] = {"show": False}
+    opt: Dict[str, Any] = {
+        "backgroundColor": "transparent",
+        "grid": {"left": 90 if horizontal else 40, "right": 14,
+                 "top": 34 if title else 20, "bottom": 30},
+        "tooltip": _tooltip(),
+        "legend": {"bottom": 0, "textStyle": {"color": _MUT, "fontSize": 10,
+                                              "fontFamily": _FONT},
+                   "itemWidth": 10, "itemHeight": 10},
+        "xAxis": val if horizontal else cat,
+        "yAxis": cat if horizontal else val,
+        "series": [{
+            "name": nm, "type": "bar", "stack": "total", "data": data,
+            "itemStyle": {"color": col},
+            "barMaxWidth": 16, "emphasis": {"focus": "series"},
+        } for (nm, data, col) in series],
+    }
+    if title:
+        opt["title"] = {"text": title, "textStyle": {
+            "color": _TEXT, "fontSize": 13, "fontWeight": "bold"}}
+    return opt
+
+
 def multi_scatter_option(series: List[Tuple[str, str, List[Dict[str, Any]]]],
                          x_name: str = "", y_name: str = "") -> Dict[str, Any]:
     """Legended scatter/bubble chart, one series per group (e.g. position).
