@@ -1,11 +1,11 @@
-"""Gaffer's Briefing — a short natural-language read on the manager's gameweek.
+"""Gaffer's Briefing · a short natural-language read on the manager's gameweek.
 
 Takes the same structured facts the Home command cards already compute (captain,
 best transfer in, chip window, squad risks, deadline) and turns them into a punchy
 2-3 sentence manager's briefing via the local LLM.
 
 If Ollama is unavailable the LLM step returns None and we render a deterministic
-template briefing instead — the card always shows something useful. The prompt
+template briefing instead · the card always shows something useful. The prompt
 forbids inventing numbers: the model only rephrases the facts it is handed.
 """
 
@@ -18,13 +18,13 @@ from ai import llm
 _SYSTEM = (
     "You are an elite Fantasy Premier League assistant manager delivering a quick "
     "pre-deadline team talk. Tone: sharp, confident, encouraging, plain English. "
-    "Use ONLY the facts provided — never invent players, teams, or numbers. "
+    "Use ONLY the facts provided · never invent players, teams, or numbers. "
     "Write 2-3 short sentences, no lists, no markdown, no headings, under 65 words."
 )
 
 
 def _facts_block(ctx: Dict[str, Any]) -> str:
-    lines = [f"Gameweek: {ctx.get('gw', '—')}"]
+    lines = [f"Gameweek: {ctx.get('gw', '?')}"]
     if ctx.get("deadline_text"):
         lines.append(f"Deadline: {ctx['deadline_text']}")
     if ctx.get("captain"):
@@ -45,7 +45,7 @@ def _has_content(ctx: Dict[str, Any]) -> bool:
 
 
 def template_briefing(ctx: Dict[str, Any]) -> Optional[str]:
-    """Deterministic, instant briefing — grounded and always available (no LLM).
+    """Deterministic, instant briefing · grounded and always available (no LLM).
 
     Returns None only when there is genuinely nothing to say.
     """
@@ -61,7 +61,7 @@ def template_briefing(ctx: Dict[str, Any]) -> Optional[str]:
     if ctx.get("chip"):
         parts.append(str(ctx["chip"]).rstrip(".") + ".")
     risks = ctx.get("risks")
-    parts.append(f"Watch out: {risks}." if risks else "No injury worries in your XI — set and forget.")
+    parts.append(f"Watch out: {risks}." if risks else "No injury worries in your XI. Set and forget.")
     return " ".join(parts)
 
 

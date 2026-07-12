@@ -1,13 +1,13 @@
 """The single seam to the local LLM (Ollama).
 
-Every AI feature in the app calls `generate()` here — pages never import `ollama`
+Every AI feature in the app calls `generate()` here · pages never import `ollama`
 or hit the HTTP API directly. That keeps one place to swap models, change hosts,
 add caching, or fall back to cloud later.
 
 Design rules (see the memory reference `reference_ai_viz_integration_playbook`):
-  • Availability is detected once and cached — the UI feature-flags off it.
+  • Availability is detected once and cached · the UI feature-flags off it.
   • Any failure (server down, model missing, timeout, bad JSON) returns None /
-    an empty result, never raises — callers render a non-AI fallback.
+    an empty result, never raises · callers render a non-AI fallback.
   • Python 3.8: use typing.Optional/Dict, never `X | None`.
 """
 
@@ -40,7 +40,7 @@ def is_available(force: bool = False) -> bool:
     try:
         resp = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=2)
         up = resp.status_code == 200
-    except Exception as exc:  # noqa: BLE001 — availability probe must never raise
+    except Exception as exc:  # noqa: BLE001 · availability probe must never raise
         logger.info("Ollama not available: %s", exc)
         up = False
     _AVAILABILITY_CACHE["checked"] = True
@@ -62,7 +62,7 @@ def generate(
     Returns the response text (str), or a parsed dict when `as_json=True`.
     Returns None on any failure so callers can fall back cleanly.
 
-    `max_tokens` caps generation length (Ollama `num_predict`) — bounding it keeps
+    `max_tokens` caps generation length (Ollama `num_predict`) · bounding it keeps
     latency predictable on slower machines.
     """
     if not is_available():
@@ -93,7 +93,7 @@ def generate(
         )
         resp.raise_for_status()
         text = (resp.json() or {}).get("response", "").strip()
-    except Exception as exc:  # noqa: BLE001 — never propagate to the UI
+    except Exception as exc:  # noqa: BLE001 · never propagate to the UI
         logger.warning("Ollama generate failed: %s", exc)
         return None
 
@@ -103,6 +103,6 @@ def generate(
         return text
     try:
         return _json.loads(text)
-    except Exception as exc:  # noqa: BLE001 — malformed JSON degrades to None
+    except Exception as exc:  # noqa: BLE001 · malformed JSON degrades to None
         logger.warning("Ollama JSON parse failed: %s | raw=%s", exc, text[:200])
         return None

@@ -93,7 +93,7 @@ _THEME_CSS = f"""
 .ff-glow-gold {{ box-shadow: 0 0 24px rgba(255,215,0,0.20); }}
 .ff-hairline {{ height:1px; background: var(--ff-line); border:0; }}
 
-/* Professional icons (Material Symbols) for inline HTML — use ui.theme.icon() */
+/* Professional icons (Material Symbols) for inline HTML · use ui.theme.icon() */
 .mi {{
   font-family: 'Material Symbols Rounded'; font-weight: normal; font-style: normal;
   line-height: 1; vertical-align: middle; display: inline-block;
@@ -122,6 +122,29 @@ h2, h3 {{ letter-spacing:-0.01em !important; }}
 
 @media (prefers-reduced-motion: reduce) {{
   .ff-card-3d {{ transition:none; }}
+}}
+
+/* ── Mobile fit · phone-width tuning without touching page code ── */
+@media (max-width: 640px) {{
+  /* Reclaim horizontal space Streamlit reserves for desktop */
+  .stMainBlockContainer, [data-testid="stMainBlockContainer"],
+  .block-container {{
+    padding-left: 1rem !important; padding-right: 1rem !important;
+  }}
+  /* Custom heroes are inline-styled at 40-48px; cap what we can reach */
+  h1 {{ font-size: 1.7rem !important; }}
+  h2 {{ font-size: 1.3rem !important; }}
+  /* Big inline-styled display numbers and hero titles wrap instead of clipping */
+  [data-testid="stMarkdownContainer"] div {{
+    overflow-wrap: break-word;
+  }}
+  /* Stat strips and card rows built as flex always wrap on phones */
+  [data-testid="stMarkdownContainer"] .fplh-stagger,
+  [data-testid="stMarkdownContainer"] .fplh-animate-in {{
+    flex-wrap: wrap !important;
+  }}
+  /* Dataframes and wide tables scroll inside their own box */
+  [data-testid="stDataFrame"] {{ overflow-x: auto; }}
 }}
 </style>
 """

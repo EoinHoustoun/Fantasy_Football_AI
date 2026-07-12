@@ -98,6 +98,8 @@ Call `inject_global_animations()` at the top of every page. Provides:
 3. **Less text.** No paragraph descriptions on nav tiles. Section purpose explained by the section title + section content, not a sub-caption.
 4. **No duplicate sections.** If a dedicated page exists (e.g., Transfers, Captain), link to it · don't re-render a smaller copy inside another page.
 5. **Never call `st.rerun()` in a button handler.** Streamlit already reruns on click. Double-rerun caused a race with the animation overlay SVG mount (TypeError).
+6. **Streamlit strips `style` attributes that contain only CSS custom properties.** `<span style="--x:5">` arrives with no style attribute at all. Carry custom-property values in a per-instance `<style>` rule instead (see `animations.count_up`).
+7. **No em dashes anywhere.** UI copy, comments, commit messages. Use the mid-dot `·`, a comma, or a full stop.
 
 ## Stack
 - **Python 3.8** · always use `List`, `Dict`, `Optional`, `Union` from `typing`. Never `list[x]` or `dict[x]`.

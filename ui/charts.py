@@ -267,7 +267,7 @@ def band_fill_series(base: List[float], above: List[float],
     """Fill-between bands for category_lines_option (append to option['series']).
 
     base = min(line1, line2) per point; above/below = positive gaps. Stacked,
-    invisible lines — green tint where line1 wins, red where it trails.
+    invisible lines · green tint where line1 wins, red where it trails.
     """
     def _band(data: List[float], color: str) -> Dict[str, Any]:
         return {"type": "line", "data": data, "stack": "__band__",
