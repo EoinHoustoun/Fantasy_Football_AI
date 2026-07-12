@@ -20,7 +20,7 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
-from components.loading import LINES_SOLVER, LINES_SQUAD, fpl_loader
+from components.loading import LINES_SQUAD, fpl_loader
 
 from ui import charts
 from ui.charts import with_mark_line
@@ -621,13 +621,11 @@ with link_cols[2]:
 # ── Shared replacement panel (edit mode + future-GW planner) ─────────────────
 def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                        avail_budget: float, owned_ids: set,
-                       key_prefix: str = "repl", out_id: int = 0,
-                       xp_map=None):
+                       key_prefix: str = "repl"):
     """The axed banner + searchable, sortable list of affordable replacements.
 
-    Returns ("sign", row) the run a Sign button is pressed, ("compare", row)
-    when a head-to-head is requested, ("cancel", None) when the axe is
-    cancelled, else (None, None).
+    Returns ("sign", row) the run a Sign button is pressed, ("cancel", None)
+    when the axe is cancelled, else (None, None).
     """
     from components.team_identity import team_color as _team_color
 
@@ -651,8 +649,6 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
         & (players_df_all["status"] == "a")
         & (~players_df_all["fpl_id"].isin(owned_ids))
     ].copy()
-    if xp_map:   # planner mode · xP for the VIEWED week, not FPL's ep_next
-        pool["ep_next"] = pool["fpl_id"].astype(int).map(xp_map).fillna(0.0)
 
     _fdr_repl = _fdr_col if _fdr_col in pool.columns else next(
         (c for c in pool.columns if c.startswith("avg_fdr_next_")), None
@@ -701,17 +697,10 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
             cand = cand.sort_values("points_per_million", ascending=False)
         elif _sortby == "Cheapest":
             cand = cand.sort_values("price", ascending=True)
-        else:  # Best · form + xP + fixtures. Form and xP are player-level
-            # signals, so the list ranks PLAYERS, not clubs (fixture ease is
-            # club-level and used to clump the list by team).
+        else:  # Best (form + fixtures)
             _form_n = (cand["form"].fillna(0).astype(float) / 10.0).clip(0, 1)
             _fix_n = ((5.0 - cand[_fdr_repl].fillna(3).astype(float)) / 4.0).clip(0, 1) if _fdr_repl else 0.5
-            if "ep_next" in cand.columns:
-                _xp = pd.to_numeric(cand["ep_next"], errors="coerce").fillna(0.0)
-                _xp_n = (_xp / _xp.max()).clip(0, 1) if _xp.max() > 0 else 0.0
-            else:
-                _xp_n = 0.0
-            cand = cand.assign(_rank_score=0.45 * _form_n + 0.30 * _xp_n + 0.25 * _fix_n)
+            cand = cand.assign(_rank_score=0.4 * _form_n + 0.6 * _fix_n)
             cand = cand.sort_values("_rank_score", ascending=False)
 
     _total = len(cand)
@@ -758,152 +747,14 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
             </div>""",
             unsafe_allow_html=True,
         )
-        _bsign, _bcmp = st.columns([2.6, 1])
-        with _bsign:
-            if st.button(f"✅ Sign {pc['web_name'][:14]}",
-                         key=f"{key_prefix}_sign_{int(pc['fpl_id'])}",
-                         use_container_width=True):
-                result = ("sign", pc)
-        with _bcmp:
-            if st.button("⚖ vs", key=f"{key_prefix}_cmp_{int(pc['fpl_id'])}",
-                         use_container_width=True,
-                         help=f"Head-to-head: {out_name} vs {pc['web_name']}"):
-                result = ("compare", pc)
+        if st.button(f"✅ Sign {pc['web_name'][:14]}",
+                     key=f"{key_prefix}_sign_{int(pc['fpl_id'])}",
+                     use_container_width=True):
+            result = ("sign", pc)
 
     if st.button("Cancel axe", key=f"{key_prefix}_cancel"):
         result = ("cancel", None)
     return result
-
-
-@st.cache_data(ttl=900, show_spinner=False)
-def _xp_horizon_cached(first_gw: int, horizon: int, _players, _bootstrap):
-    """Shared multi-GW xP surface (analytics/xp_engine) · df indexed by fpl_id
-    with one column per GW. Fixtures are rebuilt with the sim weeks appended
-    (the session copy holds only real fixtures)."""
-    from analytics.xp_engine import project_horizon
-    from data.fetchers.fpl_api import get_fixtures_df
-    from data.processors.player_stats import _append_simulated_gw
-    fx = get_fixtures_df(bootstrap=_bootstrap)
-    if first_gw > 38:   # off-season sandbox · simulated future weeks
-        for off in range(horizon):
-            fx = _append_simulated_gw(fx, source_gw=1 + off, new_gw=first_gw + off)
-    return project_horizon(_players, fx, first_gw, horizon)
-
-
-def _xp_horizon():
-    """(horizon_df, first_gw, horizon) for the planner window, or None."""
-    from config import SIM_HORIZON
-    _cur = int(st.session_state.get("current_gw") or current_gw or 1)
-    first = _cur + 1
-    if first > 38 and not st.session_state.get("simulating_gw"):
-        return None
-    horizon = SIM_HORIZON if first > 38 else max(1, min(SIM_HORIZON, 39 - first))
-    try:
-        return (_xp_horizon_cached(first, horizon, players_df_all, bs),
-                first, horizon)
-    except Exception:  # noqa: BLE001 · projections are an enhancement, not a dependency
-        return None
-
-
-@st.dialog("Head to head", width="large")
-def _h2h_dialog(out_id: int, in_id: int) -> None:
-    """One-v-one · the player you're axing vs the player you'd sign."""
-    from components.team_identity import shirt_html as _sh, team_color as _tc
-    from ui.player_detail import radar_percentiles
-    from ui import charts as _ch
-
-    rows = {}
-    for pid in (out_id, in_id):
-        m = players_df_all[players_df_all["fpl_id"] == int(pid)]
-        if m.empty:
-            st.info("Player data unavailable.")
-            return
-        rows[pid] = m.iloc[0]
-    p_out, p_in = rows[out_id], rows[in_id]
-
-    def _head(r, accent, tag):
-        fx = _attach_short(r.get("upcoming_fixtures"))
-        pills = _fixture_pills(fx, n=5)
-        return (
-            f'<div style="border:1px solid {accent}55;border-top:3px solid {accent};'
-            f'border-radius:12px;padding:14px 16px;background:rgba(22,26,34,0.85);">'
-            f'<div style="font-size:10px;letter-spacing:0.16em;text-transform:uppercase;'
-            f'font-weight:900;color:{accent};margin-bottom:8px;">{tag}</div>'
-            f'<div style="display:flex;align-items:center;gap:12px;">'
-            f'{_sh(int(r.get("team_code", 1) or 1), is_gkp=str(r.get("position")) == "GKP", width=50)}'
-            f'<div><div style="font-family:\'Archivo\',sans-serif;font-size:20px;'
-            f'font-weight:900;color:#fff;">{r.get("web_name", "?")}</div>'
-            f'<div style="font-size:12px;color:rgba(255,255,255,0.55);">'
-            f'{r.get("team", "?")} · {r.get("position", "?")} · £{float(r.get("price", 0) or 0):.1f}m</div></div></div>'
-            f'<div style="margin-top:10px;">{pills}</div></div>'
-        )
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(_head(p_out, "#FF4B4B", "Out"), unsafe_allow_html=True)
-    with c2:
-        st.markdown(_head(p_in, "#00FF87", "In"), unsafe_allow_html=True)
-
-    # Stat-by-stat · winner highlighted per row
-    _stats = [("Form", "form", 1), ("xP next", "ep_next", 1),
-              ("Season pts", "total_points", 0), ("xGI/90", "fpl_xgi_per90", 2),
-              ("Minutes", "minutes", 0), ("Owned %", "ownership", 1),
-              ("Pts/£m", "points_per_million", 1)]
-    _rows_html = ""
-    for label, col, dp in _stats:
-        if col not in players_df_all.columns:
-            continue
-        vo = float(p_out.get(col, 0) or 0)
-        vi = float(p_in.get(col, 0) or 0)
-        co = "#FF4B4B" if vo > vi else "rgba(255,255,255,0.65)"
-        ci = "#00FF87" if vi > vo else "rgba(255,255,255,0.65)"
-        _rows_html += (
-            f'<div style="display:flex;align-items:center;padding:5px 0;'
-            f'border-bottom:1px solid rgba(255,255,255,0.05);">'
-            f'<div style="flex:1;text-align:right;font-weight:800;color:{co};'
-            f'font-family:\'Archivo\',sans-serif;">{vo:.{dp}f}</div>'
-            f'<div style="width:110px;text-align:center;font-size:10px;letter-spacing:0.12em;'
-            f'text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:700;">{label}</div>'
-            f'<div style="flex:1;font-weight:800;color:{ci};'
-            f'font-family:\'Archivo\',sans-serif;">{vi:.{dp}f}</div></div>'
-        )
-    _hz = _xp_horizon()
-    if _hz is not None:
-        _hdf, _hfirst, _hn = _hz
-        _vo5 = float(_hdf["xp_total"].get(int(out_id), 0.0))
-        _vi5 = float(_hdf["xp_total"].get(int(in_id), 0.0))
-        _co5 = "#FF4B4B" if _vo5 > _vi5 else "rgba(255,255,255,0.65)"
-        _ci5 = "#00FF87" if _vi5 > _vo5 else "rgba(255,255,255,0.65)"
-        _rows_html += (
-            f'<div style="display:flex;align-items:center;padding:5px 0;">'
-            f'<div style="flex:1;text-align:right;font-weight:800;color:{_co5};'
-            f'font-family:\'Archivo\',sans-serif;">{_vo5:.1f}</div>'
-            f'<div style="width:110px;text-align:center;font-size:10px;letter-spacing:0.12em;'
-            f'text-transform:uppercase;color:#FFD700;font-weight:800;">xP next {_hn} GWs</div>'
-            f'<div style="flex:1;font-weight:800;color:{_ci5};'
-            f'font-family:\'Archivo\',sans-serif;">{_vi5:.1f}</div></div>'
-        )
-    st.markdown(f'<div style="margin:12px 0 4px;">{_rows_html}</div>',
-                unsafe_allow_html=True)
-
-    # Verdict + radar overlay
-    _xp_gain = float(p_in.get("ep_next", 0) or 0) - float(p_out.get("ep_next", 0) or 0)
-    _price_d = float(p_out.get("price", 0) or 0) - float(p_in.get("price", 0) or 0)
-    _vcol = "#00FF87" if _xp_gain >= 0 else "#FF4B4B"
-    st.markdown(
-        f'<div style="text-align:center;padding:8px;font-size:13px;color:rgba(255,255,255,0.7);">'
-        f'This move buys <b style="color:{_vcol};">{_xp_gain:+.1f} xP</b> next GW and '
-        f'{"banks" if _price_d >= 0 else "costs"} '
-        f'<b style="color:#04f5ff;">£{abs(_price_d):.1f}m</b></div>',
-        unsafe_allow_html=True,
-    )
-    ind_o, val_o = radar_percentiles(players_df_all, p_out)
-    ind_i, val_i = radar_percentiles(players_df_all, p_in)
-    if len(ind_o) >= 3 and len(ind_o) == len(ind_i):
-        charts.render(_ch.radar_compare_option(ind_o, [
-            (str(p_out.get("web_name", "Out")), val_o, "#FF4B4B", 0.14),
-            (str(p_in.get("web_name", "In")), val_i, "#00FF87", 0.24),
-        ]), height="300px", key=f"h2h_{out_id}_{in_id}")
 
 
 # ── SQUAD ─────────────────────────────────────────────────────────────────────
@@ -1106,19 +957,29 @@ with tab_pitch:
     from analytics import squad_planner as planner
     from config import SIM_HORIZON
 
-    # ── Deep link (?gw=41 jumps the scrubber) ────────────────────────────────
+    # ── Clicks coming back from the interactive pitch (query-param links) ────
     _qp = st.query_params
-    if "gw" in _qp:
+    if "pitch_axe" in _qp:
         try:
-            st.session_state.pitch_gw = int(_qp["gw"])
+            st.session_state.planner_axe_id = int(_qp["pitch_axe"])
         except (TypeError, ValueError):
             pass
-        del _qp["gw"]
+        del _qp["pitch_axe"]
+    if "pitch_detail" in _qp:
+        try:
+            st.session_state.planner_detail_id = int(_qp["pitch_detail"])
+        except (TypeError, ValueError):
+            pass
+        del _qp["pitch_detail"]
 
     @st.dialog("Player intel", width="large")
     def _player_dialog(pid: int) -> None:
         from ui.player_detail import render_player_detail
         render_player_detail(pid, players_df_all, key_prefix="dlg")
+
+    _detail_id = st.session_state.pop("planner_detail_id", None)
+    if _detail_id:
+        _player_dialog(int(_detail_id))
 
     # ── Timeline scrubber · history ↔ current ↔ future plan ─────────────────
     # Scrub back through played gameweeks (actual points, to GW1), sit on the
@@ -1154,12 +1015,11 @@ with tab_pitch:
 
     if view_gw > _cur:
         # ══ PLANNER · a future gameweek, transfers made on the pitch ═════════
-        # Working moves (pending) live on DISK as a draft, because ✕/kit taps
-        # reload the page and would wipe session state.
+        _pend_key = f"pending_plan_{int(team_id)}_{view_gw}"
         plans = planner.load_plans(int(team_id))
-        drafts = planner.load_drafts(int(team_id))
-        pending = list(drafts[view_gw]) if view_gw in drafts \
-            else list(plans.get(view_gw, []))
+        if _pend_key not in st.session_state:
+            st.session_state[_pend_key] = list(plans.get(view_gw, []))
+        pending = st.session_state[_pend_key]
 
         # Squad after every EARLIER saved week, then this week's pending moves.
         prev_plans = {g: t for g, t in plans.items() if g < view_gw}
@@ -1174,94 +1034,13 @@ with tab_pitch:
         _in_ids = {int(t["in_id"]) for t in pending}
         eff_now["_is_new"] = eff_now["fpl_id"].astype(int).isin(_in_ids)
 
-        # Per-GW xP from the shared engine · the pitch shows THIS week's
-        # projection, not FPL's generic next-GW estimate.
-        _hz = _xp_horizon()
-        _xp_gw_map = {}
-        if _hz is not None:
-            from analytics.xp_engine import xp_for_gw
-            _xp_gw_map = xp_for_gw(_hz[0], view_gw)
-            if _xp_gw_map:
-                eff_now["ep_next"] = eff_now["fpl_id"].astype(int).map(
-                    _xp_gw_map).fillna(eff_now.get("ep_next"))
-
         # Transfer economy for THIS week
         fts   = planner.free_transfers_for(prev_plans, view_gw, _plan_first)
         used  = len(pending)
         cost  = planner.hit_cost(used, fts)
-
-        # What the moves actually buy: xP in minus xP out, net of the hit.
-        # Uses THIS week's projection when the engine has one.
-        if _xp_gw_map:
-            _xp_by_id = _xp_gw_map
-        else:
-            _xp_by_id = dict(zip(players_df_all["fpl_id"].astype(int),
-                                 pd.to_numeric(players_df_all.get("ep_next"),
-                                               errors="coerce").fillna(0.0)))
-        xp_swing = sum(_xp_by_id.get(int(t["in_id"]), 0.0)
-                       - _xp_by_id.get(int(t["out_id"]), 0.0) for t in pending)
-        net_gain = xp_swing - cost
         bank_now = planner.bank_after(bank_m, prev_plans, view_gw - 1, _plan_first,
                                       extra_pending=pending)
         _saved = plans.get(view_gw, []) == pending
-
-        # ── ✨ Optimise · write a suggested 5-week plan into the drafts ──────
-        @st.dialog("Suggested plan", width="large")
-        def _plan_summary_dialog(notes, plan_map, summary, first_gw_, horizon_):
-            st.markdown(
-                f'<div style="text-align:center;padding:4px 0 10px;">'
-                f'<span style="font-family:\'Archivo\',sans-serif;font-size:26px;'
-                f'font-weight:900;color:#00FF87;">+{summary["net"]:.1f} xP</span>'
-                f'<span style="font-size:12px;color:rgba(255,255,255,0.55);"> net over '
-                f'{horizon_} weeks · {summary["hits"]} hit{"s" if summary["hits"] != 1 else ""}'
-                f'</span></div>', unsafe_allow_html=True)
-            for n in notes:
-                st.markdown(
-                    f'<div style="background:rgba(255,255,255,0.03);border:1px solid '
-                    f'rgba(255,255,255,0.08);border-left:3px solid #FFD700;border-radius:8px;'
-                    f'padding:8px 12px;margin-bottom:5px;font-size:13px;color:'
-                    f'rgba(255,255,255,0.85);">{n}</div>', unsafe_allow_html=True)
-            st.caption("Written to the timeline as drafts · scrub through the weeks to "
-                       "review, tweak any move, then save week by week. Or:")
-            if st.button("💾 Save the entire plan", type="primary",
-                         use_container_width=True, key="opt_save_all"):
-                for g in range(first_gw_, first_gw_ + horizon_):
-                    planner.save_plan(int(team_id), g, plan_map.get(g, []))
-                    planner.clear_draft(int(team_id), g)
-                st.toast("Saved · the full suggested plan")
-                st.rerun()
-
-        _oc1, _oc2 = st.columns([1.6, 1])
-        with _oc1:
-            if st.button("✨ Optimise my next 5 weeks", key="optimise_plan",
-                         use_container_width=True,
-                         help="Suggests the best transfer path over the horizon: "
-                              "like-for-like swaps ranked by projected points, "
-                              "respecting budget, club limits, free-transfer "
-                              "banking and the -4 hit rule."):
-                _hz_opt = _xp_horizon()
-                if _hz_opt is None:
-                    st.warning("Projections unavailable right now.")
-                else:
-                    from analytics.plan_optimizer import suggest_plan
-                    _hdf, _hfirst, _hn = _hz_opt
-                    _base = squad_df.copy()
-                    if "team_id" not in _base.columns:
-                        _base = _base.merge(players_df_all[["fpl_id", "team_id"]],
-                                            on="fpl_id", how="left")
-                    with fpl_loader("Optimising your next 5 weeks", LINES_SOLVER):
-                        _plan_map, _notes, _sumry = suggest_plan(
-                            _base, players_df_all, _hdf, _hfirst, _hn, bank_m)
-                    for g in range(_hfirst, _hfirst + _hn):
-                        planner.save_draft(int(team_id), g, _plan_map.get(g, []))
-                    _plan_summary_dialog(_notes, _plan_map, _sumry, _hfirst, _hn)
-        with _oc2:
-            if st.button("🧹 Discard all drafts", key="optimise_clear",
-                         use_container_width=True,
-                         help="Drops every unsaved draft week · saved plans stay."):
-                for g in range(_plan_first, _plan_last + 1):
-                    planner.clear_draft(int(team_id), g)
-                st.rerun()
 
         _hit_html = (
             f'<div style="background:#FF4B4B;color:#fff;border-radius:8px;padding:6px 14px;'
@@ -1293,11 +1072,24 @@ with tab_pitch:
             + _chipbox("Transfers", used, "#fff")
             + _chipbox("Free", fts, "#00FF87")
             + _chipbox("Bank", f"£{bank_now:.1f}m", "#04f5ff")
-            + (_chipbox("Net xP", f"{net_gain:+.1f}",
-                        "#00FF87" if net_gain >= 0 else "#FF4B4B") if used else "")
             + f'{_hit_html}</div></div>',
             unsafe_allow_html=True,
         )
+
+        # ✕ on the pitch → open the replacement panel (or undo a pending signing)
+        _axe_id = st.session_state.pop("planner_axe_id", None)
+        if _axe_id is not None:
+            if int(_axe_id) in _in_ids:
+                st.session_state[_pend_key] = [
+                    t for t in pending if int(t["in_id"]) != int(_axe_id)]
+                st.rerun()
+            _row = eff_now[eff_now["fpl_id"].astype(int) == int(_axe_id)]
+            if not _row.empty:
+                _r = _row.iloc[0]
+                st.session_state.plan_swap_out = {
+                    "id": int(_axe_id), "name": str(_r["web_name"]),
+                    "pos": str(_r["position"]), "price": float(_r["price"]),
+                }
 
         _swap = st.session_state.get("plan_swap_out")
         if _swap:
@@ -1305,41 +1097,16 @@ with tab_pitch:
         else:
             _pcol = st.container()
         with _pcol:
-            _click = render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
-                                       title_right=f"GW{view_gw} plan")
-
-        # Handle a FRESH pitch click (the component re-reports its last value
-        # every rerun · the nonce dedupes).
-        if _click and _click.get("nonce") != st.session_state.get("_pitch_nonce"):
-            st.session_state._pitch_nonce = _click.get("nonce")
-            _cid = int(_click.get("id", 0) or 0)
-            if _click.get("action") == "detail" and _cid:
-                _player_dialog(_cid)
-            elif _click.get("action") == "axe" and _cid:
-                if _cid in _in_ids:
-                    # Axing a player you just signed = undo that move.
-                    planner.save_draft(int(team_id), view_gw, [
-                        t for t in pending if int(t["in_id"]) != _cid])
-                    st.rerun()
-                _row = eff_now[eff_now["fpl_id"].astype(int) == _cid]
-                if not _row.empty:
-                    _r = _row.iloc[0]
-                    st.session_state.plan_swap_out = {
-                        "id": _cid, "name": str(_r["web_name"]),
-                        "pos": str(_r["position"]), "price": float(_r["price"]),
-                    }
-                    st.rerun()
+            render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
+                              title_right=f"GW{view_gw} plan")
         if _swap:
             with _rcol:
                 _budget = bank_now + float(_swap["price"])
                 _owned = set(eff_now["fpl_id"].astype(int).tolist())
                 _action, _pick = _replacement_panel(
                     _swap["name"], _swap["pos"], float(_swap["price"]),
-                    _budget, _owned, key_prefix=f"plan{view_gw}",
-                    out_id=int(_swap["id"]), xp_map=_xp_gw_map or None)
-                if _action == "compare" and _pick is not None:
-                    _h2h_dialog(int(_swap["id"]), int(_pick["fpl_id"]))
-                elif _action == "sign" and _pick is not None:
+                    _budget, _owned, key_prefix=f"plan{view_gw}")
+                if _action == "sign" and _pick is not None:
                     pending.append({
                         "out_id":    int(_swap["id"]),
                         "out_name":  _swap["name"],
@@ -1349,10 +1116,10 @@ with tab_pitch:
                         "price_out": float(_swap["price"]),
                         "price_in":  float(_pick["price"]),
                     })
-                    planner.save_draft(int(team_id), view_gw, pending)
+                    st.session_state[_pend_key] = pending
                     st.session_state.pop("plan_swap_out", None)
-                    # No scribble overlay here: the planner needs st.rerun() so
-                    # the pitch above refreshes, and overlay + rerun race (rule 5).
+                    st.session_state._swap_anim = {"out": _swap["name"],
+                                                   "in": str(_pick["web_name"])}
                     st.rerun()
                 elif _action == "cancel":
                     st.session_state.pop("plan_swap_out", None)
@@ -1380,7 +1147,7 @@ with tab_pitch:
                 with _c2:
                     if st.button("↩", key=f"plan_undo_{view_gw}_{_i}", help="Undo this move"):
                         pending.pop(_i)
-                        planner.save_draft(int(team_id), view_gw, pending)
+                        st.session_state[_pend_key] = pending
                         st.rerun()
 
         _b1, _b2, _b3 = st.columns([1.4, 1, 1])
@@ -1388,20 +1155,19 @@ with tab_pitch:
             if st.button(f"💾 Save GW{view_gw} plan", key=f"plan_save_{view_gw}",
                          type="primary", disabled=_saved, use_container_width=True):
                 planner.save_plan(int(team_id), view_gw, pending)
-                planner.clear_draft(int(team_id), view_gw)
                 st.toast(f"Saved · GW{view_gw} plan ({used} transfer{'s' if used != 1 else ''})")
                 st.rerun()
         with _b2:
             if st.button("Reset to saved", key=f"plan_reset_{view_gw}",
                          disabled=_saved, use_container_width=True):
-                planner.clear_draft(int(team_id), view_gw)
+                st.session_state[_pend_key] = list(plans.get(view_gw, []))
                 st.rerun()
         with _b3:
             if st.button("Clear this week", key=f"plan_clear_{view_gw}",
                          disabled=not (pending or plans.get(view_gw)),
                          use_container_width=True):
                 planner.save_plan(int(team_id), view_gw, [])
-                planner.clear_draft(int(team_id), view_gw)
+                st.session_state[_pend_key] = []
                 st.rerun()
 
     elif _is_upcoming:
@@ -1538,10 +1304,8 @@ with tab_pitch:
 
                 _action, _pick = _replacement_panel(
                     out_name, out_pos, out_price, avail_budget, owned_ids,
-                    key_prefix="repl", out_id=int(swap_out_id))
-                if _action == "compare" and _pick is not None:
-                    _h2h_dialog(int(swap_out_id), int(_pick["fpl_id"]))
-                elif _action == "sign" and _pick is not None:
+                    key_prefix="repl")
+                if _action == "sign" and _pick is not None:
                     pending = st.session_state.get("pending_swaps", [])
                     pending.append({
                         "out_id":    int(swap_out_id),
@@ -1557,10 +1321,12 @@ with tab_pitch:
                     for k in ("swap_out_fpl_id", "swap_out_name",
                               "swap_out_position", "swap_out_price"):
                         st.session_state.pop(k, None)
+                    st.rerun()
                 elif _action == "cancel":
                     for k in ("swap_out_fpl_id", "swap_out_name",
                               "swap_out_position", "swap_out_price"):
                         st.session_state.pop(k, None)
+                    st.rerun()
 
     # ── Pending swaps ─────────────────────────────────────────────────────────
     pending_swaps = st.session_state.get("pending_swaps", [])

@@ -98,8 +98,6 @@ Call `inject_global_animations()` at the top of every page. Provides:
 3. **Less text.** No paragraph descriptions on nav tiles. Section purpose explained by the section title + section content, not a sub-caption.
 4. **No duplicate sections.** If a dedicated page exists (e.g., Transfers, Captain), link to it · don't re-render a smaller copy inside another page.
 5. **Never call `st.rerun()` in a button handler.** Streamlit already reruns on click. Double-rerun caused a race with the animation overlay SVG mount (TypeError).
-6. **Streamlit strips `style` attributes that contain only CSS custom properties.** `<span style="--x:5">` arrives with no style attribute at all. Carry custom-property values in a per-instance `<style>` rule instead (see `animations.count_up`).
-7. **No em dashes anywhere.** UI copy, comments, commit messages. Use the mid-dot `·`, a comma, or a full stop.
 
 ## Stack
 - **Python 3.8** · always use `List`, `Dict`, `Optional`, `Union` from `typing`. Never `list[x]` or `dict[x]`.
@@ -136,13 +134,12 @@ Call `inject_global_animations()` at the top of every page. Provides:
 | `docs/WORKFLOW.md` | Session log, data source matrix, full architecture |
 
 ## Navigation & pages
-Nav is **grouped via `st.navigation`** in `app.py` (Streamlit ≥1.36). Five
-sidebar sections (slimmed 2026-07; Dashboard + standalone Planner deleted):
-**This Week** (Home, My Team, Captain) · **Transfers** (Transfers, Buy/Sell,
-Injuries) · **Chips** (Wildcard, Free Hit, Chip Planner) · **Scouting**
-(Differentials, xG Tracker, Predictions, Ownership) · **Data Science Lab**
-(Perfect Season, Value Lab, Playbook, 26/27 Draft, GW History, Mini-League).
-The My Team pitch IS the transfer planner · do not re-add a planner page.
+Nav is **grouped via `st.navigation`** in `app.py` (Streamlit ≥1.36) · the old
+20-item flat sidebar is gone. Six sidebar sections: **This Week** (Home, My Team,
+Captain) · **Transfers** (Transfers, Planner, Buy/Sell) · **Chips** (Wildcard,
+Free Hit, Chip Planner) · **Analytics** (Dashboard, Differentials, xG Tracker,
+Predictions, Ownership) · **Season** (GW History, Mini-League, Injuries) · **Lab**
+(Perfect Season, Value Lab, 26/27 Draft, Playbook).
 
 **Page files live in `views/`, NOT `pages/`.** `pages/` is reserved by Streamlit's
 automatic multipage system and collides with `st.navigation` (symptom: doubled/broken
@@ -153,41 +150,12 @@ Never recreate a top-level `pages/` folder. `st.Page("views/…")` and
 **Rule: pages must NOT call `st.set_page_config`** · only the `app.py` router may.
 Adding it to a page raises a Streamlit error under `st.navigation`.
 
-Page files: `home` · `00_my_team` · `02_transfer_suggestions` ·
-`04_differentials` · `05_xg_underperformers` · `06_captain_picker` ·
-`07_buy_sell` · `08_injuries` · `09_wildcard` (✅ MILP) · `10_ownership_trend` ·
-`11_gw_history` · `12_predictions` · `13_free_hit` · `14_chip_planner` ·
-`15_mini_league` · `16_perfect_season` · `17_value_lab` · `18_draft_2026_27` ·
-`19_playbook`. (Deleted: `01_dashboard`, `03_transfer_planner`.)
-
-## My Team pitch planner (2026-07)
-The Pitch View timeline scrubs history (GW1..now) AND future planning weeks.
-Off-season, `SIM_HORIZON` (config) future GWs are simulated: GW1..5 fixtures
-replay as GW39..43. In a future week every kit gets a permanent ✕ (transfer
-out) and the kit opens a Player Intel dialog. Clicks are FLUID: the pitch
-renders through `components/pitch_click/` (a minimal bidirectional Streamlit
-component · data-ffaction/data-ffid elements report {action, id, nonce} over
-the websocket; dedupe on nonce). Never regress to `<a href="?...">` links ·
-they full-reload the app and wipe session state. `?gw=41` deep links still
-jump the scrubber. Working moves persist as DRAFTS on disk via
-`analytics/squad_planner.py` (`data/cache/squad_plans.json`, schema
-{plans, drafts}); Save promotes draft→plan. FT banking: 1/week, +1 per week
-with no saved transfers, cap 5; extras cost −4 (red badge). `effective_squad()`
-applies saved plans cumulatively when scrubbing forward.
-
-**xP comes from `analytics/xp_engine.py`** (per-player, per-GW horizon:
-form/ppg blend × minutes factor × per-fixture ease, DGW/BGW aware, calibrated
-to ep_next's scale) · the planner pitch, Net xP chip and replacement panel all
-show the VIEWED week's projection, and head-to-heads add an "xP next N GWs"
-row. **"✨ Optimise my next 5 weeks"** (`analytics/plan_optimizer.py`) greedily
-plans like-for-like swaps over the horizon (budget, ≤3/club, FT banking,
-hits only past a margin, bench-discounted, minutes-gated) and writes the
-result as timeline drafts with a summary dialog + save-all. The replacement panel
-ranks by player-level signals (form 0.45 + xP 0.30 + fixtures 0.25 · club-level
-FDR alone clumps the list by team); each candidate has ⚖ head-to-head vs the
-axed player (fixtures, winner-highlighted stats, xP/price verdict, radar
-overlay). Player radars always compare vs the ±£1m positional price band
-(`ui/player_detail.price_band_baseline`).
+Page files (unchanged names): `home` · `00_my_team` · `01_dashboard` ·
+`02_transfer_suggestions` · `03_transfer_planner` · `04_differentials` ·
+`05_xg_underperformers` · `06_captain_picker` · `07_buy_sell` · `08_injuries` ·
+`09_wildcard` (✅ MILP) · `10_ownership_trend` · `11_gw_history` · `12_predictions` ·
+`13_free_hit` · `14_chip_planner` · `15_mini_league` · `16_perfect_season` ·
+`17_value_lab` · `18_draft_2026_27` · `19_playbook`
 
 ## Data gotcha · player xG
 Understat matches by name and silently misses most players. `build_player_universe()` backfills `xg`/`xa` from FPL Opta season totals (joined at source, full coverage guaranteed). The stable player `code` is on the universe · always join archive data by `code`, never by name.
