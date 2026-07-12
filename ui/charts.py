@@ -193,6 +193,55 @@ def scatter_option(points: List[Dict[str, Any]], x_name: str = "", y_name: str =
     }
 
 
+def multi_line_option(series: List[Tuple[str, List[Tuple[float, float]], str]],
+                      x_name: str = "", y_name: str = "") -> Dict[str, Any]:
+    """Several lines on a numeric x axis. series = [(name, [(x, y), ...], color)].
+
+    Numeric x means the lines don't need aligned categories (e.g. one line
+    per GW 1-38, another with gaps).
+    """
+    ax_x = _axis("value")
+    ax_y = _axis("value")
+    ax_x["name"] = x_name
+    ax_y["name"] = y_name
+    ax_x["nameTextStyle"] = {"color": _MUT, "fontSize": 10}
+    ax_y["nameTextStyle"] = {"color": _MUT, "fontSize": 10}
+    ax_x["minInterval"] = 1
+    return {
+        "backgroundColor": "transparent",
+        "grid": {"left": 48, "right": 18, "top": 34, "bottom": 34},
+        "tooltip": _tooltip(),
+        "legend": {"top": 0, "left": 0,
+                   "textStyle": {"color": _MUT, "fontSize": 10, "fontFamily": _FONT},
+                   "itemWidth": 14, "itemHeight": 8},
+        "xAxis": ax_x, "yAxis": ax_y,
+        "series": [{
+            "name": nm, "type": "line",
+            "data": [[float(x), float(y)] for (x, y) in pts],
+            "symbol": "none", "smooth": False,
+            "lineStyle": {"color": col, "width": 2.5},
+            "itemStyle": {"color": col},
+            "emphasis": {"focus": "series"},
+        } for (nm, pts, col) in series],
+    }
+
+
+def with_vertical_marks(option: Dict[str, Any],
+                        marks: List[Tuple[float, str]],
+                        color: str = "rgba(233,0,82,0.4)",
+                        label_color: str = COLORS["magenta"],
+                        series_index: int = 0) -> Dict[str, Any]:
+    """Add dotted vertical event lines (e.g. chip weeks). marks = [(x, label)]."""
+    option["series"][series_index]["markLine"] = {
+        "silent": True, "symbol": "none",
+        "lineStyle": {"type": "dotted", "color": color, "width": 1},
+        "label": {"show": True, "position": "insideEndTop", "color": label_color,
+                  "fontSize": 9, "fontFamily": _FONT},
+        "data": [{"xAxis": x, "label": {"formatter": lbl}} for (x, lbl) in marks],
+    }
+    return option
+
+
 def stacked_bars_option(categories: List[str],
                         series: List[Tuple[str, List[float], str]],
                         horizontal: bool = False,

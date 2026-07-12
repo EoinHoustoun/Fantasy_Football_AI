@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
-import plotly.graph_objects as go
+from ui import charts
 import streamlit as st
 
 from components.animations import inject_global_animations
@@ -212,14 +212,11 @@ if mode == SET_AND_FORGET:
                        gw=g["gw"], prices=prices),
         stat_label="pts", title_right=f"GW{g['gw']}")
     weekly = pd.DataFrame(saf["per_gw"])
-    fig = go.Figure(go.Bar(x=weekly["gw"], y=weekly["points"],
-                           marker_color="#e90052", opacity=0.85))
-    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      font_color="#e2e2e2", height=260,
-                      xaxis=dict(title="Gameweek", gridcolor="rgba(255,255,255,0.06)"),
-                      yaxis=dict(title="GW points", gridcolor="rgba(255,255,255,0.06)"),
-                      margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    opt = charts.bar_option(x=list(weekly["gw"]),
+                            y=[round(float(v), 1) for v in weekly["points"]],
+                            color="#e90052")
+    opt["tooltip"]["formatter"] = "GW{b}: {c} pts"
+    charts.render(opt, height="260px", key="ps_saf_weekly")
 
 else:
     # ── Transfer-scenario view ────────────────────────────────────────────────
@@ -233,28 +230,16 @@ else:
     _section("The points race", "Cumulative net points, perfect vs reality.")
     gws = [g["gw"] for g in per_gw]
     perfect_cum = pd.Series([g["net_points"] for g in per_gw]).cumsum()
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=gws, y=perfect_cum, name=f"Perfect ({mode})",
-                             line=dict(color=accent, width=3)))
+    race = [(f"Perfect ({mode})", list(zip(gws, [float(v) for v in perfect_cum])),
+             accent)]
     if mine:
-        fig.add_trace(go.Scatter(x=[e["event"] for e in mine],
-                                 y=[e["total_points"] for e in mine],
-                                 name="Eoin (Vicario Kart)",
-                                 line=dict(color="#FF8C42", width=2)))
-    for g in per_gw:
-        if g["chips"]:
-            fig.add_vline(x=g["gw"], line=dict(color="rgba(233,0,82,0.4)",
-                                               dash="dot", width=1))
-            fig.add_annotation(x=g["gw"], y=float(perfect_cum.iloc[g["gw"] - 1]),
-                               text="+".join(g["chips"]), showarrow=False, yshift=18,
-                               font=dict(size=10, color="#e90052"))
-    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      font_color="#e2e2e2", height=420,
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                      xaxis=dict(title="Gameweek", gridcolor="rgba(255,255,255,0.06)"),
-                      yaxis=dict(title="Total points", gridcolor="rgba(255,255,255,0.06)"),
-                      margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+        race.append(("Eoin (Vicario Kart)",
+                     [(e["event"], e["total_points"]) for e in mine], "#FF8C42"))
+    opt = charts.multi_line_option(race, x_name="Gameweek", y_name="Total points")
+    chip_marks = [(g["gw"], "+".join(g["chips"])) for g in per_gw if g["chips"]]
+    if chip_marks:
+        charts.with_vertical_marks(opt, chip_marks)
+    charts.render(opt, height="420px", key=f"ps_race_{mode}")
 
     # stats strip
     n_transfers = sum(len(g["transfers_in"]) for g in per_gw)
