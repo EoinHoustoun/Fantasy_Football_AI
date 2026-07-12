@@ -270,8 +270,8 @@ def attach_dgw_bgw(
     for each player within the lookahead window.
 
     Adds:
-        has_dgw       : bool — has at least one DGW in lookahead window
-        has_bgw       : bool — has at least one BGW in lookahead window
+        has_dgw       : bool · has at least one DGW in lookahead window
+        has_bgw       : bool · has at least one BGW in lookahead window
         dgw_gameweeks : list of GW numbers where team plays twice
         bgw_gameweeks : list of GW numbers where team has no fixture
     """

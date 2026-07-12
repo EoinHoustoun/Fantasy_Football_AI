@@ -10,7 +10,7 @@ import json
 import time
 import logging
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict, Any
 
 import requests
 import pandas as pd
@@ -176,7 +176,7 @@ def get_current_gameweek(bootstrap: dict) -> int:
     Return the active gameweek for transfer planning purposes.
 
     If the 'current' event is already finished (all matches played),
-    return the next event instead — so FDR/scoring windows look forward,
+    return the next event instead · so FDR/scoring windows look forward,
     not at already-played fixtures.
     """
     current = None
@@ -188,7 +188,7 @@ def get_current_gameweek(bootstrap: dict) -> int:
     if current is not None and not current["finished"]:
         return current["id"]
 
-    # Current GW is finished (or missing) — use the next one
+    # Current GW is finished (or missing) · use the next one
     for event in bootstrap["events"]:
         if event["is_next"]:
             return event["id"]
@@ -197,6 +197,47 @@ def get_current_gameweek(bootstrap: dict) -> int:
     if current is not None:
         return current["id"]
     return 1
+
+
+def get_season_phase(bootstrap: dict) -> Dict[str, Any]:
+    """Classify where we are in the FPL calendar so the UI can frame the data
+    honestly (live vs final vs projection) · key during the summer changeover.
+
+    Returns: phase ("preseason"|"inseason"|"offseason"|"unknown"), live (bool),
+    title (short label), note (one-line explanation), next_deadline (ISO or None).
+    """
+    events = bootstrap.get("events", []) if bootstrap else []
+    if not events:
+        return {"phase": "unknown", "live": False, "title": "Status unknown",
+                "note": "No gameweek calendar available.", "next_deadline": None}
+
+    total = len(events)
+    n_finished = sum(1 for e in events if e.get("finished"))
+    nxt = next((e for e in events if e.get("is_next")), None)
+    cur = next((e for e in events if e.get("is_current")), None)
+    next_deadline = (nxt or {}).get("deadline_time")
+
+    # Off-season: the whole calendar has been played and nothing is upcoming.
+    if n_finished >= total and not nxt:
+        return {"phase": "offseason", "live": False,
+                "title": "Off-season · 2025-26 complete",
+                "note": "Showing final 2025-26 data plus 2026-27 projections. Live "
+                        "gameweek data returns when FPL launches the new season.",
+                "next_deadline": None}
+
+    # Pre-season: a fresh calendar is loaded, nothing played yet, GW1 upcoming.
+    if n_finished == 0 and nxt:
+        return {"phase": "preseason", "live": True,
+                "title": f"Pre-season · GW{nxt['id']} deadline set",
+                "note": "New season is live · prices are set and the first deadline "
+                        "is approaching. Projections now firm up with real data.",
+                "next_deadline": next_deadline}
+
+    # In-season.
+    gw = (cur or nxt or {}).get("id")
+    return {"phase": "inseason", "live": True,
+            "title": f"Gameweek {gw} live" if gw else "Season live",
+            "note": "Live gameweek data.", "next_deadline": next_deadline}
 
 
 def get_players_df(bootstrap: Optional[dict] = None) -> pd.DataFrame:
@@ -212,8 +253,10 @@ def get_players_df(bootstrap: Optional[dict] = None) -> pd.DataFrame:
     if bootstrap is None:
         bootstrap = fetch_bootstrap()
 
-    # Build team ID -> name lookup
-    teams = {t["id"]: t["name"] for t in bootstrap["teams"]}
+    # Build team ID -> name/code/short_name lookups
+    teams       = {t["id"]: t["name"] for t in bootstrap["teams"]}
+    team_codes  = {t["id"]: t["code"] for t in bootstrap["teams"]}
+    team_shorts = {t["id"]: t["short_name"] for t in bootstrap["teams"]}
 
     players_raw = bootstrap["elements"]
     records = []
@@ -225,9 +268,12 @@ def get_players_df(bootstrap: Optional[dict] = None) -> pd.DataFrame:
 
         records.append({
             "fpl_id":          p["id"],
+            "code":            p["code"],   # FIFA-stable, joins to the archive
             "name":            f"{p['first_name']} {p['second_name']}",
             "web_name":        p["web_name"],
             "team":            teams.get(p["team"], "Unknown"),
+            "team_short":      team_shorts.get(p["team"], "?"),
+            "team_code":       team_codes.get(p["team"], 0),
             "team_id":         p["team"],
             "position":        POSITIONS.get(p["element_type"], "UNK"),
             "price":           price,
@@ -250,6 +296,8 @@ def get_players_df(bootstrap: Optional[dict] = None) -> pd.DataFrame:
             "chance_of_playing_next_round": p.get("chance_of_playing_next_round"),
             "ep_this":          float(p.get("ep_this") or 0),
             "ep_next":          float(p.get("ep_next") or 0),
+            "fpl_xg":           float(p.get("expected_goals") or 0),
+            "fpl_xa":           float(p.get("expected_assists") or 0),
             "fpl_xg_per90":     float(p.get("expected_goals_per_90") or 0),
             "fpl_xa_per90":     float(p.get("expected_assists_per_90") or 0),
             "fpl_xgi_per90":    float(p.get("expected_goal_involvements_per_90") or 0),

@@ -6,10 +6,10 @@ It merges data from all available sources into one clean DataFrame
 that every page in the UI renders from.
 
 Sources merged here:
-  1. FPL API          — always available
-  2. Understat        — merged when available (xG, xA)
-  3. FBRef            — merged when available (advanced stats)
-  4. Fantasy Football Hub — merged when available (premium)
+  1. FPL API          · always available
+  2. Understat        · merged when available (xG, xA)
+  3. FBRef            · merged when available (advanced stats)
+  4. Fantasy Football Hub · merged when available (premium)
 """
 
 import logging
@@ -35,18 +35,39 @@ from config import FIXTURE_LOOKAHEAD
 logger = logging.getLogger(__name__)
 
 
+def _append_simulated_gw(fixtures_df: pd.DataFrame, source_gw: int, new_gw: int) -> pd.DataFrame:
+    """Clone one gameweek's fixtures under a new gameweek number, marked as
+    not-yet-played. Used for the off-season sandbox: replays GW1's fixtures as a
+    synthetic 'next gameweek' so fixture/FDR-based planning tools work again."""
+    if fixtures_df is None or "gameweek" not in fixtures_df.columns:
+        return fixtures_df
+    clone = fixtures_df[fixtures_df["gameweek"] == source_gw].copy()
+    if clone.empty:
+        return fixtures_df
+    clone["gameweek"] = new_gw
+    for col, val in (("finished", False), ("home_goals", None), ("away_goals", None)):
+        if col in clone.columns:
+            clone[col] = val
+    return pd.concat([fixtures_df, clone], ignore_index=True)
+
+
 def build_player_universe(
     bootstrap: Optional[dict] = None,
     understat_df: Optional[pd.DataFrame] = None,
     fbref_df: Optional[pd.DataFrame] = None,
     ffhub_df: Optional[pd.DataFrame] = None,
+    simulate_gw: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Build the full player universe DataFrame used across all app pages.
 
     Merges FPL base data with optional enrichment sources.
-    If an enrichment source is None, those columns will be absent or NaN —
+    If an enrichment source is None, those columns will be absent or NaN -
     the app degrades gracefully rather than crashing.
+
+    `simulate_gw` (off-season sandbox): when set, GW1's fixtures are cloned as
+    that gameweek and used as the planning target, so upcoming-fixtures / FDR /
+    DGW tools have a "next gameweek" to work against even after the season ends.
 
     Returns a DataFrame with one row per player.
     """
@@ -58,7 +79,26 @@ def build_player_universe(
     fixtures_df = get_fixtures_df(bootstrap=bootstrap)
     current_gw = get_current_gameweek(bootstrap)
 
-    logger.info(f"Loaded {len(players_df)} players, GW{current_gw}")
+    # Off-season form fallback. FPL 'form' = avg points over the last 30 days, so
+    # in the summer (no recent matches) it is 0.0 for every player and all
+    # form-based ranking goes flat. When form carries no signal, fall back to
+    # season-long points_per_game so transfers/captain/pick-team stay meaningful.
+    # Self-heals: once the new season plays a few GWs, real form returns and this
+    # no longer triggers. `form_is_fallback` flags when the substitution happened.
+    _form_num = pd.to_numeric(players_df.get("form"), errors="coerce").fillna(0.0)
+    if float(_form_num.max() or 0.0) == 0.0 and "points_per_game" in players_df.columns:
+        players_df["form"] = pd.to_numeric(players_df["points_per_game"], errors="coerce").fillna(0.0)
+        players_df["form_is_fallback"] = True
+        logger.info("Off-season: 'form' is all-zero → using points_per_game as the form signal")
+    else:
+        players_df["form_is_fallback"] = False
+
+    if simulate_gw is not None:
+        fixtures_df = _append_simulated_gw(fixtures_df, source_gw=1, new_gw=simulate_gw)
+        current_gw = simulate_gw
+
+    logger.info(f"Loaded {len(players_df)} players, GW{current_gw}"
+                f"{' (simulated)' if simulate_gw is not None else ''}")
 
     # ── 2. Fixture difficulty ──────────────────────────────────────────────────
     players_df = attach_fixture_difficulty(players_df, fixtures_df, current_gw, FIXTURE_LOOKAHEAD)
@@ -79,7 +119,7 @@ def build_player_universe(
                         f"converged={_dc['converged']})"
                     )
             except Exception as _dc_err:
-                logger.warning(f"DC ratings unavailable ({_dc_err}) — using Understat only")
+                logger.warning(f"DC ratings unavailable ({_dc_err}) · using Understat only")
             players_df = attach_composite_fixture_difficulty(
                 players_df, fixtures_df, current_gw, _team_stats, FIXTURE_LOOKAHEAD,
                 dc_ratings=_dc,
@@ -88,7 +128,7 @@ def build_player_universe(
         else:
             raise ValueError("empty team stats")
     except Exception as _e:
-        logger.warning(f"Composite FDR unavailable ({_e}) — falling back to raw FDR")
+        logger.warning(f"Composite FDR unavailable ({_e}) · falling back to raw FDR")
         _fdr_col = f"avg_fdr_next_{FIXTURE_LOOKAHEAD}"
         players_df[f"composite_att_fdr_next_{FIXTURE_LOOKAHEAD}"] = players_df.get(_fdr_col, pd.Series(3.0, index=players_df.index))
         players_df[f"composite_def_fdr_next_{FIXTURE_LOOKAHEAD}"] = players_df.get(_fdr_col, pd.Series(3.0, index=players_df.index))
@@ -102,9 +142,23 @@ def build_player_universe(
         players_df = _merge_understat(players_df, understat_df)
         logger.info("Understat xG data merged")
     else:
-        logger.info("Understat data not available — xG columns will be empty")
+        logger.info("Understat data not available · xG columns will be empty")
         for col in ["xg", "xa", "xg_per90", "xa_per90", "npxg", "xg_gap"]:
             players_df[col] = None
+
+    # ── 3a. FPL Opta xG backfill ───────────────────────────────────────────────
+    # Understat matches by name and misses most players; FPL's own season
+    # totals (expected_goals/expected_assists) cover the ENTIRE league.
+    # Understat values win where present, Opta fills every gap.
+    if "fpl_xg" in players_df.columns:
+        for us_col, fpl_col in (("xg", "fpl_xg"), ("xa", "fpl_xa")):
+            if us_col not in players_df.columns:
+                players_df[us_col] = None
+            players_df[us_col] = pd.to_numeric(
+                players_df[us_col], errors="coerce").fillna(players_df[fpl_col])
+        players_df["xg_gap"] = players_df["xg"] - players_df["goals_scored"]
+        n_xg = int((pd.to_numeric(players_df["xg"], errors="coerce") > 0).sum())
+        logger.info(f"xG coverage after Opta backfill: {n_xg} players")
 
     # ── 3b. Vaastav rolling xGI (last 4 GWs) ──────────────────────────────────
     try:
@@ -327,7 +381,7 @@ def _compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
     # Points per million (recalculate after merge in case price changed)
     df["points_per_million"] = (df["total_points"] / df["price"]).round(2)
 
-    # Transfer balance (net transfers this GW — positive = being bought)
+    # Transfer balance (net transfers this GW · positive = being bought)
     df["transfer_balance"] = df["transfers_in_event"] - df["transfers_out_event"]
 
     return df

@@ -1,5 +1,5 @@
 """
-Captain Picker — GW recommendation for who to captain.
+Captain Picker · GW recommendation for who to captain.
 
 Shows:
   • Hero card for the #1 captain pick (with armband graphic)
@@ -13,8 +13,9 @@ import pandas as pd
 from typing import Optional, List, Dict, Any
 
 from components.badges import render_badges
+from components.team_identity import shirt_html, team_color
 
-st.set_page_config(page_title="Captain Picker — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
@@ -85,7 +86,7 @@ def score_captains(players_df: pd.DataFrame, fdr_map: Dict[int, float]) -> pd.Da
     df["c_fixture"] = norm(5.0 - df["next_gw_fdr"])          # low FDR = good
     df["c_xg"]      = norm(df["fpl_xgi_per90"].fillna(0).astype(float))
 
-    # ── Minutes multiplier (not just a component — scales the whole score) ────
+    # ── Minutes multiplier (not just a component · scales the whole score) ────
     # Use avg_minutes from DEFCON stats when available, else estimate from totals.
     if "avg_minutes" in df.columns and df["avg_minutes"].notna().any():
         avg_mins = df["avg_minutes"].fillna(45.0).clip(0, 90)
@@ -96,7 +97,7 @@ def score_captains(players_df: pd.DataFrame, fdr_map: Dict[int, float]) -> pd.Da
     df["c_minutes"]       = (avg_mins / 90.0).round(3)          # kept for display
     df["mins_multiplier"] = ((avg_mins / 90.0) ** 0.5).clip(lower=0.45, upper=1.0)
 
-    # ── Set piece bonus (before multiplier — penalty taker gets captain boost) ─
+    # ── Set piece bonus (before multiplier · penalty taker gets captain boost) ─
     import numpy as np
     _nan = pd.Series(float("nan"), index=df.index)
     pen_order = pd.to_numeric(
@@ -114,10 +115,12 @@ def score_captains(players_df: pd.DataFrame, fdr_map: Dict[int, float]) -> pd.Da
           .fillna(1.0)
     )
 
+    # Fixture-weighted captain score: fixture is the strongest influence,
+    # followed by form, then xGI. Set-piece bonus stacks on top.
     base_score = (
-        df["c_form"]     * 0.45 +
-        df["c_fixture"]  * 0.30 +
-        df["c_xg"]       * 0.25 +
+        df["c_fixture"]  * 0.50 +
+        df["c_form"]     * 0.30 +
+        df["c_xg"]       * 0.20 +
         df["c_setpiece"]
     )
     df["captain_score"] = (base_score * df["mins_multiplier"] * dgw_mult).round(4)
@@ -131,8 +134,8 @@ def score_captains(players_df: pd.DataFrame, fdr_map: Dict[int, float]) -> pd.Da
 # ── HTML components ────────────────────────────────────────────────────────────
 
 def _shirt_url(team_code: int, is_gkp: bool) -> str:
-    t = "2" if is_gkp else "1"
-    return f"{SHIRT_BASE}/shirt_{team_code}_{t}-66.png"
+    suffix = "_1" if is_gkp else ""
+    return f"{SHIRT_BASE}/shirt_{team_code}{suffix}-66.png"
 
 
 def _hero_card(player: pd.Series, rank: int = 1) -> str:
@@ -140,7 +143,7 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
     code    = int(player.get("team_code", 1) or 1)
     is_gkp  = str(player.get("position", "")) == "GKP"
     shirt   = _shirt_url(code, is_gkp)
-    fallback = f"{SHIRT_BASE}/shirt_1_1-66.png"
+    fallback = f"{SHIRT_BASE}/shirt_1-66.png"
     name    = str(player.get("web_name", "?"))
     team    = str(player.get("team", ""))
     pos     = str(player.get("position", ""))
@@ -161,7 +164,7 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
 
     badges_html = render_badges(player, size="sm")
     avg_mins    = float(player.get("avg_minutes", 0) or 0)
-    mins_str    = f"{avg_mins:.0f}" if avg_mins > 0 else "—"
+    mins_str    = f"{avg_mins:.0f}" if avg_mins > 0 else "-"
 
     fdr_color = {1: "#00FF87", 2: "#00FF87", 3: "#FFA500", 4: "#FF6B6B", 5: "#FF4B4B"}.get(int(fdr), "#FFA500")
 
@@ -195,7 +198,7 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
 
       <!-- Shirt -->
       <div style="text-align:center; flex-shrink:0; padding-left:12px;">
-        <img src="{shirt}" width="80" onerror="this.src='{fallback}'" />
+        {shirt_html(code, is_gkp, width=80)}
       </div>
 
       <!-- Info -->
@@ -242,7 +245,7 @@ def _mini_card(player: pd.Series, rank: int) -> str:
     code    = int(player.get("team_code", 1) or 1)
     is_gkp  = str(player.get("position", "")) == "GKP"
     shirt   = _shirt_url(code, is_gkp)
-    fallback = f"{SHIRT_BASE}/shirt_1_1-66.png"
+    fallback = f"{SHIRT_BASE}/shirt_1-66.png"
     name    = str(player.get("web_name", "?"))
     team    = str(player.get("team", ""))
     form    = float(player.get("form", 0) or 0)
@@ -252,6 +255,7 @@ def _mini_card(player: pd.Series, rank: int) -> str:
     own     = float(player.get("ownership", 0) or 0)
     pos     = str(player.get("position", ""))
     pos_col = POS_COLORS.get(pos, "#888")
+    tcol    = team_color(player.get("team_short"))
     fdr_color = {1: "#00FF87", 2: "#00FF87", 3: "#FFA500", 4: "#FF6B6B", 5: "#FF4B4B"}.get(int(fdr), "#FFA500")
     border_col = "#FFD700" if rank == 1 else "#silver" if rank == 2 else "rgba(255,255,255,0.15)"
     rank_labels = {1: "🥇", 2: "🥈", 3: "🥉", 4: "4th", 5: "5th"}
@@ -264,6 +268,7 @@ def _mini_card(player: pd.Series, rank: int) -> str:
     <div style="
         background:rgba(255,255,255,0.04);
         border:1px solid {border_col};
+        border-left:3px solid {tcol};
         border-radius:12px;
         padding:14px 16px;
         display:flex;
@@ -273,7 +278,7 @@ def _mini_card(player: pd.Series, rank: int) -> str:
         margin-bottom:8px;
     ">
       <div style="font-size:18px; width:28px; text-align:center; flex-shrink:0;">{rank_labels.get(rank, str(rank))}</div>
-      <img src="{shirt}" width="42" onerror="this.src='{fallback}'" style="flex-shrink:0;"/>
+      {shirt_html(code, is_gkp, width=42)}
       <div style="flex:1; min-width:0;">
         <div style="font-size:15px; font-weight:800; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
           {name}{dgw_tag}
@@ -399,7 +404,7 @@ if squad_df is not None:
         tc = players_df[["fpl_id", "team_code"]].drop_duplicates()
         squad_scored = squad_scored.merge(tc, on="fpl_id", how="left")
 
-    st.markdown(f"### Your Captain — GW{captain_gw}")
+    st.markdown(f"### Your Captain · GW{captain_gw}")
 
     if not squad_scored.empty:
         top = squad_scored.iloc[0]
@@ -420,10 +425,10 @@ if squad_df is not None:
             elif fdr_v <= 3:
                 reasons.append(f"good fixture (FDR {fdr_v:.0f}/5)")
             if bool(top.get("has_dgw", False)):
-                reasons.append("Double Gameweek — 2 chances to score")
+                reasons.append("Double Gameweek · 2 chances to score")
             xgi = float(top.get("fpl_xgi_per90", 0) or 0)
             if xgi >= 0.6:
-                reasons.append(f"elite xGI ({xgi:.2f}/90 — haul threat)")
+                reasons.append(f"elite xGI ({xgi:.2f}/90 · haul threat)")
             if not reasons:
                 reasons.append("best composite score across form, fixture & xG")
 
@@ -436,7 +441,7 @@ if squad_df is not None:
 
         with col_chart:
             if len(squad_scored) > 1:
-                fig = score_breakdown_chart(squad_scored, "Captain Score Breakdown — Your Squad")
+                fig = score_breakdown_chart(squad_scored, "Captain Score Breakdown · Your Squad")
                 st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("#### Top 5 Captain Options (Your Squad)")
@@ -449,8 +454,8 @@ if squad_df is not None:
     st.markdown("---")
 
 # ── Section 2: Differential Captains ─────────────────────────────────────────
-st.markdown(f"### Differential Captains — GW{captain_gw}")
-st.caption(f"High-ceiling players owned by fewer than {diff_threshold}% — go against the template.")
+st.markdown(f"### Differential Captains · GW{captain_gw}")
+st.caption(f"High-ceiling players owned by fewer than {diff_threshold}% · go against the template.")
 
 diffs = scored[scored["ownership"] <= diff_threshold].copy()
 
@@ -497,7 +502,7 @@ else:
 
 # ── Section 3: If no squad loaded, show global top 5 ─────────────────────────
 if squad_df is None:
-    st.markdown(f"### Top 5 Captain Picks (All Players) — GW{captain_gw}")
+    st.markdown(f"### Top 5 Captain Picks (All Players) · GW{captain_gw}")
     st.caption("Enter your team ID in the sidebar to see picks from your squad only.")
     global_top5 = scored.head(5)
     if "team_code" not in global_top5.columns:

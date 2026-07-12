@@ -1,5 +1,5 @@
 """
-Ownership Trend — visual-only tracking of how player ownership has moved
+Ownership Trend · visual-only tracking of how player ownership has moved
 across the season, using vaastav GW-by-GW data.
 
 Shows:
@@ -15,7 +15,7 @@ import pandas as pd
 import numpy as np
 from typing import Optional, List
 
-st.set_page_config(page_title="Ownership Trend — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
 
@@ -168,7 +168,7 @@ def _sparkline_chart(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 st.title("📈 Ownership Trend")
-st.caption("Who's been bought and sold across the season — visualised.")
+st.caption("Who's been bought and sold across the season · visualised.")
 
 with st.spinner("Loading ownership data..."):
     players_df, current_gw = load_universe()
@@ -181,7 +181,7 @@ if gw_raw is None:
 gw_own = _ownership_series(gw_raw, players_df)
 
 if gw_own is None or gw_own.empty:
-    st.error("Could not process ownership data — vaastav columns may have changed.")
+    st.error("Could not process ownership data · vaastav columns may have changed.")
     st.stop()
 
 movers = _ownership_change(gw_own, current_gw)
@@ -301,7 +301,7 @@ selected_players = st.multiselect(
 if selected_players:
     pos_map = dict(zip(players_df["web_name"], players_df["position"]))
     color_map = {p: POS_COLORS.get(pos_map.get(p, "MID"), "#00FF87") for p in selected_players}
-    fig_search = _sparkline_chart(gw_own, selected_players, "Ownership Trend — Selected Players",
+    fig_search = _sparkline_chart(gw_own, selected_players, "Ownership Trend · Selected Players",
                                    color_map=color_map, height=380)
     st.plotly_chart(fig_search, use_container_width=True)
 else:

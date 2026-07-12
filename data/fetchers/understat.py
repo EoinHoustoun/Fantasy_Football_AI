@@ -11,12 +11,23 @@ import asyncio
 import json
 import logging
 import time
+from datetime import date
 from pathlib import Path
 from typing import Optional, List, Dict
 
 import pandas as pd
 
 from config import CACHE_DIR, CACHE_TTL
+
+
+def _current_season() -> str:
+    """Return the active EPL season year (Understat format, e.g. '2025' for 2025-26).
+
+    Understat labels seasons by their starting calendar year. The EPL season
+    typically starts in August; treat July (month >= 7) as a safe cutover.
+    """
+    today = date.today()
+    return str(today.year if today.month >= 7 else today.year - 1)
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +51,10 @@ def _is_fresh() -> bool:
     return (time.time() - CACHE_FILE.stat().st_mtime) < CACHE_TTL["understat"]
 
 
-async def _fetch_understat_async(season: str = "2024") -> List[dict]:
+async def _fetch_understat_async(season: Optional[str] = None) -> List[dict]:
     """Async fetch from Understat for all EPL players in a season."""
+    if season is None:
+        season = _current_season()
     try:
         from understat import Understat
         import aiohttp
@@ -49,13 +62,22 @@ async def _fetch_understat_async(season: str = "2024") -> List[dict]:
         logger.error("understat or aiohttp package not installed. Run: pip install understat aiohttp")
         return []
 
-    async with aiohttp.ClientSession() as session:
+    # macOS framework Pythons often lack root certs · use certifi's bundle
+    import ssl
+    try:
+        import certifi
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ssl_ctx = ssl.create_default_context()
+    connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+
+    async with aiohttp.ClientSession(connector=connector) as session:
         understat = Understat(session)
         players = await understat.get_league_players("epl", season)
         return players
 
 
-def fetch_understat_players(season: str = "2024") -> Optional[pd.DataFrame]:
+def fetch_understat_players(season: Optional[str] = None) -> Optional[pd.DataFrame]:
     """
     Fetch all EPL player xG data from Understat.
 
@@ -63,6 +85,9 @@ def fetch_understat_players(season: str = "2024") -> Optional[pd.DataFrame]:
         player_name, xg, xa, npxg, goals, assists, minutes, shots, key_passes
     Returns None if fetch fails.
     """
+    if season is None:
+        season = _current_season()
+
     # Check cache first
     if _is_fresh():
         logger.debug("Understat cache hit")
@@ -121,7 +146,9 @@ def _to_dataframe(raw: List[dict]) -> pd.DataFrame:
     return df
 
 
-async def _fetch_league_results_async(season: str = "2024") -> list:
+async def _fetch_league_results_async(season: Optional[str] = None) -> list:
+    if season is None:
+        season = _current_season()
     try:
         from understat import Understat
         import aiohttp
@@ -132,7 +159,7 @@ async def _fetch_league_results_async(season: str = "2024") -> list:
         return await understat.get_league_results("epl", season)
 
 
-def fetch_understat_team_stats(season: str = "2024", last_n: int = 6) -> Optional[pd.DataFrame]:
+def fetch_understat_team_stats(season: Optional[str] = None, last_n: int = 6) -> Optional[pd.DataFrame]:
     """
     Compute per-team recent xGC and xGA from Understat match results.
 
@@ -140,6 +167,8 @@ def fetch_understat_team_stats(season: str = "2024", last_n: int = 6) -> Optiona
     Based on last_n completed matches per team.
     Cached for 6 hours.
     """
+    if season is None:
+        season = _current_season()
     cache_ttl = 6 * 3600
     if TEAM_STATS_CACHE.exists() and (time.time() - TEAM_STATS_CACHE.stat().st_mtime) < cache_ttl:
         logger.debug("Team stats cache hit")

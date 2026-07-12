@@ -269,8 +269,8 @@ def fetch_dixon_coles_ratings(force: bool = False) -> Optional[Dict]:
         "n_matches": 874,
     }
 
-    attacks[team]  — positive = dangerous offence
-    defenses[team] — positive = leaky defence (concedes more)
+    attacks[team]  · positive = dangerous offence
+    defenses[team] · positive = leaky defence (concedes more)
     """
     if not force and _cache_valid():
         cached = _load_cache()
@@ -281,7 +281,7 @@ def fetch_dixon_coles_ratings(force: bool = False) -> Optional[Dict]:
     logger.info("Fitting Dixon-Coles model from football-data.co.uk...")
     df = _load_match_data()
     if df.empty:
-        logger.warning("No match data — DC ratings unavailable")
+        logger.warning("No match data · DC ratings unavailable")
         return None
 
     raw = _fit_dixon_coles(df)

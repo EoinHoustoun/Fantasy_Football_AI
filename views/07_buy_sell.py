@@ -1,5 +1,5 @@
 """
-Buy / Sell Pairing — for each player in your squad, find their best replacement.
+Buy / Sell Pairing · for each player in your squad, find their best replacement.
 
 Shows: Sell X → Buy Y cards with projected pts/GW gain, fixture comparison,
 and key stats side-by-side. Simple, opinionated, action-ready.
@@ -11,10 +11,10 @@ import pandas as pd
 from typing import Optional, List
 
 from components.badges import render_badges
+from components.team_identity import shirt_url, shirt_fallback_url, badge_url, team_color
 
-st.set_page_config(page_title="Buy / Sell — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
-SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
 
 
@@ -68,16 +68,17 @@ def find_best_replacement(
     return candidates.sort_values("transfer_score", ascending=False).iloc[0]
 
 
-def _shirt_url(team_code: int, is_gkp: bool) -> str:
-    t = "2" if is_gkp else "1"
-    return f"{SHIRT_BASE}/shirt_{team_code}_{t}-66.png"
+def _shirt_with_crest(code: int, is_gkp: bool) -> str:
+    """52px kit image. (Crest omitted · PL crest CDN unreliable; the kit carries
+    club identity.)"""
+    return (
+        f'<img src="{shirt_url(code, is_gkp)}" width="52" '
+        f'onerror="this.src=\'{shirt_fallback_url(is_gkp)}\'"/>'
+    )
 
 
 def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> str:
     """Render a sell→buy pairing card as HTML."""
-    def shirt(code, gkp): return _shirt_url(int(code or 1), gkp)
-    fallback = f"{SHIRT_BASE}/shirt_1_1-66.png"
-
     sell_code = int(sell.get("team_code", 1) or 1)
     buy_code  = int(buy.get("team_code", 1) or 1)
     sell_gkp  = str(sell.get("position", "")) == "GKP"
@@ -142,7 +143,7 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
         <!-- SELL side -->
         <div style="flex:1;background:rgba(255,75,75,0.08);border:1px solid rgba(255,75,75,0.25);border-radius:10px;padding:14px;text-align:center;">
           <div style="font-size:11px;color:#FF4B4B;font-weight:700;letter-spacing:2px;margin-bottom:8px;">SELL</div>
-          <img src="{shirt(sell_code, sell_gkp)}" width="52" onerror="this.src='{fallback}'"/>
+          {_shirt_with_crest(sell_code, sell_gkp)}
           <div style="font-size:16px;font-weight:800;color:#fff;margin-top:6px;">{sell.get("web_name","?")}{status_note}</div>
           <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:10px;">{sell.get("team","")} · £{sell_price:.1f}m</div>
           <div style="display:flex;justify-content:center;gap:18px;">
@@ -158,7 +159,7 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
         <!-- BUY side -->
         <div style="flex:1;background:rgba(0,255,135,0.08);border:1px solid rgba(0,255,135,0.3);border-radius:10px;padding:14px;text-align:center;">
           <div style="font-size:11px;color:#00FF87;font-weight:700;letter-spacing:2px;margin-bottom:8px;">BUY</div>
-          <img src="{shirt(buy_code, buy_gkp)}" width="52" onerror="this.src='{fallback}'"/>
+          {_shirt_with_crest(buy_code, buy_gkp)}
           <div style="font-size:16px;font-weight:800;color:#fff;margin-top:6px;">{buy.get("web_name","?")}{dgw_tag}</div>
           <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:6px;">{buy.get("team","")} · £{buy_price:.1f}m · {buy_own:.1f}% owned</div>
           <div style="margin-bottom:8px;">{buy_badges}</div>
@@ -188,7 +189,7 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 st.title("💰 Buy / Sell")
-st.caption("For every player in your squad — find your best upgrade and see the net gain instantly.")
+st.caption("For every player in your squad · find your best upgrade and see the net gain instantly.")
 
 with st.spinner("Loading..."):
     players_df, bootstrap = load_universe()
@@ -223,7 +224,7 @@ except Exception as e:
 bank_m = entry_history.get("bank", 0) / 10
 team_name = team_info.get("name", f"Team {team_id}")
 
-st.markdown(f"### {team_name} — Transfer Pairings")
+st.markdown(f"### {team_name} · Transfer Pairings")
 
 # Merge team_code onto squad
 if "team_code" not in squad_df.columns:
@@ -296,6 +297,30 @@ m2.metric("Best PPG gain",          f"+{best_ppg['ppg_gain']:.1f} pts/GW",
           f"{best_ppg['sell'].get('web_name','?')} → {best_ppg['buy'].get('web_name','?')}")
 m3.metric("Best fixture improvement", f"{best_fix['fdr_delta']:+.1f} FDR",
           f"{best_fix['sell'].get('web_name','?')} → {best_fix['buy'].get('web_name','?')}")
+
+st.markdown("---")
+
+# ── Upgrade-impact chart · projected PPG gain of every swap at a glance ─────────
+st.markdown("##### Upgrade impact")
+st.caption("Projected points-per-gameweek gain for each swap. Green = upgrade, red = downgrade.")
+_labels = [f"{p['sell'].get('web_name','?')} → {p['buy'].get('web_name','?')}" for p in pairings]
+_gains  = [p["ppg_gain"] for p in pairings]
+_colors = ["#00FF87" if g > 0 else "#FF4B4B" for g in _gains]
+_impact = go.Figure(go.Bar(
+    x=_gains, y=_labels, orientation="h",
+    marker=dict(color=_colors),
+    text=[f"{g:+.1f}" for g in _gains], textposition="outside",
+    hovertemplate="%{y}<br>%{x:+.1f} PPG/GW<extra></extra>",
+))
+_impact.update_layout(
+    height=max(200, 34 * len(pairings) + 50), margin=dict(l=10, r=24, t=6, b=10),
+    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(color="rgba(255,255,255,0.7)", size=11),
+    xaxis=dict(title="PPG gain per GW", gridcolor="rgba(255,255,255,0.06)",
+               zeroline=True, zerolinecolor="rgba(255,255,255,0.25)"),
+    yaxis=dict(autorange="reversed"),
+)
+st.plotly_chart(_impact, use_container_width=True)
 
 st.markdown("---")
 

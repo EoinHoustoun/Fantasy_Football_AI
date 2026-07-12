@@ -1,48 +1,207 @@
-# FPL Analytics App — Claude Onboarding
+# FPL Analytics App · Claude Onboarding
 
-Fantasy Premier League analytics web app for data-driven transfer, captain, and team selection decisions.
+Fantasy Premier League analytics web app. Data-driven transfer, captain, and team-selection decisions. Streamlit + Python 3.8.
 
-## Run the App
+**Read `docs/WORKFLOW.md` for current session history, architecture depth, data sources, and known bugs.** This file is the short briefing.
+
+## Run
 ```bash
-streamlit run app.py        # http://localhost:8501
-# If port busy:
-streamlit run app.py --server.port 8502
+streamlit run app.py                       # http://localhost:8501
+streamlit run app.py --server.port 8510    # the user's current dev port
 ```
 
-## Full Project Detail
-Read `docs/WORKFLOW.md` for current status, next priorities, architecture, and all data source details.
+## How to work on this project
+
+The user wants the app at **10/10 quality**. Three expert hats, always:
+
+1. **Product Designer** · simple, scannable UIs. Less words, more visuals. Strong hierarchy.
+2. **Data Scientist** · real signal, real numbers. Verify the math. Flag when data is stale or wrong.
+3. **AI / Full-stack Engineer** · clean Streamlit patterns, no flaky components, reproducible fixes.
+
+### Priorities, in order
+1. **Fix things that are broken.** Broken numbers > ugly UI. Always triage this first.
+2. **Aesthetics second.** Use the design system below · never invent a one-off style.
+3. **Real assets.** When adding imagery, use kits, team crests, PL logo (in `assets/prem_symbol.jpg`). No stock emoji-only fluff when a real image exists.
+
+### Working cadence
+- **Section by section.** The user redesigns one page at a time · don't parallel-rewrite the whole app.
+- **Overhauls are allowed to be big.** When the user asks for an overhaul, commit fully: drop redundant sections, restructure, don't patch.
+- **Ask before destructive changes.** But within aesthetic/layout scope, make the call · the user prefers confident direction over checklist questions.
+
+## Design system
+
+This is binding. If you invent a new colour or spacing, you're drifting · stop and re-use tokens below.
+
+### Colours
+```
+Background         #151922   (primary)
+Secondary BG       #1e2430
+Card BG            rgba(22,26,34,0.85)
+Card border        rgba(255,255,255,0.08)
+Text primary       #eef1f5
+Text muted         rgba(255,255,255,0.5)
+Text very muted    rgba(255,255,255,0.4)
+
+Accents:
+  Mint (primary)   #00FF87   · positive, captain-not, "score" numbers
+  Gold             #FFD700   · captain, premium, top-pick emphasis
+  Cyan             #04f5ff   · secondary info, xP / xGI
+  Red              #FF4B4B   · danger, sell, high FDR 5
+  Orange           #FF8C42 / #FFA500 · warnings, FDR 4
+  Magenta          #e90052   · MID position, highlights
+  FWD Orange       #FF7B00
+
+Position chips   GKP #00FF87 · DEF #04f5ff · MID #e90052 · FWD #FF7B00
+FDR colours      1/2 green · 3 yellow #FFD60A · 4 orange #FF8C42 · 5 red #FF4B4B
+```
+
+### Typography
+- Font: `'Inter','SF Pro Display',sans-serif`
+- Hero title: **40–48px, weight 900, letter-spacing -1.2px**
+- Section heading (underline style): **11px, weight 800, letter-spacing 0.22em, uppercase**
+- Stat number: **18–28px, weight 900**
+- Stat label: **10–11px, weight 800, letter-spacing 0.1–0.18em, uppercase**
+- Body: **13–14px, line-height 1.5**
+
+### Cards
+- Base: `rgba(22,26,34,0.85)` + `1px solid rgba(255,255,255,0.08)` + radius **10–18px**
+- Padding: **16–28px** depending on card size
+- Accent strategy: top-border 3px in the accent colour (nav tiles, decision cards) OR left-border 3px (alert cards)
+- Hover lift via `.fplh-card-hover` utility (defined in `components/animations.py`)
+
+### Layout
+- Section headers use a **muted underline** treatment: 11px uppercase tracked label + flex-grow hairline divider
+- Responsive card grid: `grid-template-columns:repeat(auto-fill,minmax(320–340px,1fr)); gap:14px`
+- Stat strips inside hero: flex gap 10px, min-width 120px per tile
+- Never use `st.metric` for a custom hero · build tiles as HTML to match the system
+
+### Images / assets
+- **Club visuals go through `components/team_identity.py`** · `shirt_html(team_code, is_gkp, width)` (the standard shirt+crest block), `shirt_url`, `badge_url(team_code)` (PL crest CDN `resources.premierleague.com/premierleague/badges/50/t{code}.png`), and `team_color`/`team_color_pair` (palette in `config.TEAM_COLORS`, keyed by `team_short`). Never re-declare a local shirt helper · import from here. Render badges with `onerror` hide so a CDN hiccup degrades gracefully.
+- **Gotcha: analytics engines whitelist columns.** Crests need `team_code` and colours need `team_short` on the rendered row. Several engines prune columns (`differentials.get_differentials`, `xg_divergence`, `transfer_engine.get_transfer_targets`, `points_model` predictions) · both `team_code` and `team_short` are now in those whitelists. If crests all show one club or colours fall back to green, a new/edited engine dropped those columns.
+- PL lion logo lives at `assets/prem_symbol.jpg`. Loaded via `_pl_logo_data_url()` in `pages/home.py` (base64 cached).
+- Player shirts served from FPL CDN: **outfield** `shirt_{code}-66.png`, **goalkeeper** `shirt_{code}_1-66.png`. Helper in every page that renders players. *Do not invert the suffix* · the `_2` suffix does not exist and was the source of the "everyone in a keeper kit" bug.
+- When the user gives us new imagery (team kits, player headshots), drop into `assets/` and base64-embed via a cached helper · don't rely on Streamlit static serving.
+
+### Animations (module: `components/animations.py`)
+Call `inject_global_animations()` at the top of every page. Provides:
+- `.fplh-animate-in` · fade-in-up entrance
+- `.fplh-stagger > *` · staggered children entrance (use on grid wrappers)
+- `.fplh-card-hover` · lift + green border on hover
+- `.fplh-captain-pulse` · infinite gold glow (captain badge)
+- `.fplh-pop` · scale-in pop
+- `scribble_swap_overlay(out, in)` · full-screen SVG scribble shown on squad swaps
+- `confetti_burst()` · celebration overlay (not wired yet; use for captain-confirm moments)
+
+### Rules that prevent UI drift
+1. **Rounded everything to 2dp.** Every numeric column on every page.
+2. **Short names.** Players truncated with ellipsis, no wrapping. 10–12 chars cap on cards.
+3. **Less text.** No paragraph descriptions on nav tiles. Section purpose explained by the section title + section content, not a sub-caption.
+4. **No duplicate sections.** If a dedicated page exists (e.g., Transfers, Captain), link to it · don't re-render a smaller copy inside another page.
+5. **Never call `st.rerun()` in a button handler.** Streamlit already reruns on click. Double-rerun caused a race with the animation overlay SVG mount (TypeError).
 
 ## Stack
-- **Python 3.8** — CRITICAL: always use `List`, `Dict`, `Optional`, `Union` from `typing`. Never `list[x]` or `dict[x]` syntax.
-- **Streamlit** + **Plotly** for UI/charts
-- **No database** — JSON file cache with TTL in `data/cache/` (safe to delete to force cold fetch)
-- All weights, thresholds, scoring constants → `config.py`
+- **Python 3.8** · always use `List`, `Dict`, `Optional`, `Union` from `typing`. Never `list[x]` or `dict[x]`.
+- **Streamlit + Plotly** for UI/charts (plot backgrounds always `rgba(0,0,0,0)`)
+- **No database.** JSON cache with TTL in `data/cache/` · safe to delete for cold fetch.
+- **All weights, thresholds, scoring constants → `config.py`.**
 
-## Key Files
+## Key files
 | File | Purpose |
 |------|---------|
-| `app.py` | Entry point |
-| `config.py` | All constants — tune here after each GW |
-| `data/processors/player_stats.py` | Central data merge (FPL + Understat + vaastav) |
-| `analytics/transfer_engine.py` | Transfer scoring, ceiling model, recommendations |
-| `data/fetchers/fpl_api.py` | FPL API + file cache |
-| `docs/WORKFLOW.md` | Full session history, next steps, architecture detail |
+| `app.py` | **Router / entrypoint** · owns the sole `set_page_config`, global CSS, shared data-load into `session_state`, sidebar branding, and `st.navigation` (6 grouped sections). Calls `nav.run()`. |
+| `pages/home.py` | Home landing · GW hero + deadline countdown + live-pulse strip (moved out of `app.py`) |
+| `config.py` | Tunable constants (weights, thresholds, lookahead) + `TEAM_COLORS` club palette |
+| `components/team_identity.py` | **Single source for club visuals** · `shirt_url`, `badge_url` (PL crest CDN), `team_color`/`team_color_pair`. Replaces the shirt helper previously copy-pasted across ~9 pages. |
+| `components/loading.py` | **Themed loader** · `fpl_loader(title, messages)` context manager (rolling-football overlay + rotating status lines). Use with `@st.cache_data(show_spinner=False)` so the raw default spinner never leaks a function name. Message pools: `LINES_SQUAD/SOLVER/MODEL/GENERIC`. |
+| `components/animations.py` | Global CSS + scribble overlay + confetti |
+| `components/pitch_view.py` | FPL-style pitch with captain pulse |
+| `components/player_table.py` | Styled DataFrame (2dp everywhere) |
+| `components/badges.py` | Set-piece / DEFCON pill badges |
+| `data/fetchers/fpl_api.py` | FPL API + `team_code` / `team_short` propagation |
+| `data/fetchers/understat.py` | Understat with **dynamic season** (auto-derives from date) |
+| `data/fetchers/fbref.py` | FBRef with **dynamic season** |
+| `data/processors/player_stats.py` | Central data merge |
+| `analytics/transfer_engine.py` | Transfer scoring + ceiling + recommendation |
+| `analytics/differentials.py` | Smarter tagged differentials model |
+| `analytics/xg_divergence.py` | xG under/overperformers |
+| `data/processors/archive.py` | 10-season historical archive (gw_archive + season_summary parquet) |
+| `analytics/squad_milp.py` | Exact single-period squad MILP (PuLP) · use over greedy for new work |
+| `analytics/perfect_season.py` | Hindsight-optimal season MILP (set-and-forget + transfers + chips) |
+| `analytics/price_predictor.py` | Next-season start-price model (XGBoost on season-pairs) |
+| `analytics/season_projection.py` | Next-season points projector (fitted minutes + pp90 carryover) |
+| `analytics/playbook.py` | Empirical strategy answers (formation, defenders, hits, minutes, horizons) |
+| `assets/defender_roles_2025_26.json` | Curated CB/FB labels (user-editable; refresh each season) |
+| `docs/WORKFLOW.md` | Session log, data source matrix, full architecture |
 
-## Pages (all live)
-`00_my_team` · `01_dashboard` · `02_transfer_suggestions` · `03_transfer_planner` · `04_differentials` · `05_xg_underperformers` · `06_captain_picker` · `07_buy_sell` · `08_injuries` · `09_wildcard` · `10_ownership_trend` · `11_gw_history`
+## Navigation & pages
+Nav is **grouped via `st.navigation`** in `app.py` (Streamlit ≥1.36) · the old
+20-item flat sidebar is gone. Six sidebar sections: **This Week** (Home, My Team,
+Captain) · **Transfers** (Transfers, Planner, Buy/Sell) · **Chips** (Wildcard,
+Free Hit, Chip Planner) · **Analytics** (Dashboard, Differentials, xG Tracker,
+Predictions, Ownership) · **Season** (GW History, Mini-League, Injuries) · **Lab**
+(Perfect Season, Value Lab, 26/27 Draft, Playbook).
 
-## Team Details
-- Default team ID: **38148** ("Vicario Kart")
-- GW31, rank ~1.26M, bank £0.3m
+**Page files live in `views/`, NOT `pages/`.** `pages/` is reserved by Streamlit's
+automatic multipage system and collides with `st.navigation` (symptom: doubled/broken
+sidebar + a "st.navigation was called in an app with a pages/ directory" warning).
+Never recreate a top-level `pages/` folder. `st.Page("views/…")` and
+`st.page_link("views/…")` reference paths relative to the `app.py` entrypoint.
 
-## Coding Conventions
-- Analytics modules in `analytics/` — no Streamlit imports, pure Python
-- Pages in `pages/` — UI only, call analytics/data functions
-- Components in `components/` — reusable Plotly/Streamlit widgets
-- Always use FPL terminology (GW, FDR, xG, PPM, DGW, BGW, etc.)
-- Keep `docs/WORKFLOW.md` updated at end of each session
+**Rule: pages must NOT call `st.set_page_config`** · only the `app.py` router may.
+Adding it to a page raises a Streamlit error under `st.navigation`.
 
-## Next Priorities
-1. Fantasy Football Hub integration (awaiting credentials)
-2. Bench Boost / Triple Captain chip planner
-3. Mini-league tracker (enter league ID, see rival squads + rank lines)
+Page files (unchanged names): `home` · `00_my_team` · `01_dashboard` ·
+`02_transfer_suggestions` · `03_transfer_planner` · `04_differentials` ·
+`05_xg_underperformers` · `06_captain_picker` · `07_buy_sell` · `08_injuries` ·
+`09_wildcard` (✅ MILP) · `10_ownership_trend` · `11_gw_history` · `12_predictions` ·
+`13_free_hit` · `14_chip_planner` · `15_mini_league` · `16_perfect_season` ·
+`17_value_lab` · `18_draft_2026_27` · `19_playbook`
+
+## Data gotcha · player xG
+Understat matches by name and silently misses most players. `build_player_universe()` backfills `xg`/`xa` from FPL Opta season totals (joined at source, full coverage guaranteed). The stable player `code` is on the universe · always join archive data by `code`, never by name.
+
+## Season Lab data (do NOT delete)
+`data/cache/archive/` holds the one-shot 2025-26 FPL API harvest (the API wiped this data at the 2026-27 launch) plus the 10-season archive. Rebuild archive: `python scripts/build_archive.py`. Perfect Season rerun: `python scripts/run_perfect_season.py`. The generic `data/cache/` purge advice does NOT apply to `data/cache/archive/`.
+
+## Team
+- Default team ID: **38148** ("Vicario Kart"), manager Eoin Houstoun
+- Track the private mini-league (not the public `Spurs & Ireland` type ones · those are league_type `s`, the user wants `c`)
+
+## Credentials
+`.env` file at project root (gitignored). Keys:
+- `FPL_TEAM_ID=38148`
+- `FFH_EMAIL=` / `FFH_PASSWORD=` · **awaiting user fill**. Once provided, build `data/fetchers/ffhub.py` and wire into `build_player_universe()`.
+- `FPL_EMAIL=` / `FPL_PASSWORD=` · optional, unlocks private-league endpoints.
+
+## Known data gotchas (verify against current code)
+- **Season is dynamic.** `understat.py` and `fbref.py` both derive the active season from today's date. If caches look stale after season rollover, delete `data/cache/` contents.
+- **`team_code` must be on `players_df`.** Fix is in `get_players_df()` · added `team_code` + `team_short` at source. Shirt rendering depends on it; without it, every player falls back to Arsenal's shirt.
+- **Analytics engines whitelist output columns.** `differentials`, `xg_divergence`, `transfer_engine.get_transfer_targets`, `points_model` prune columns · `team_code` + `team_short` must stay in those lists or crests/colours break. (Fixed; watch when editing.)
+- **Kit URL convention.** See Design System § Images. The `_1` suffix is **GK only**.
+- **Off-season `form` is 0 for everyone.** FPL's `form` = avg points over the last 30 days; in the summer with no recent matches the API returns 0.0 for all players. Not an app bug. **Fixed:** `build_player_universe` substitutes `points_per_game` for `form` when the whole column is zero (flagged `form_is_fallback=True`); self-heals when real form returns. So all form-based ranking stays meaningful off-season.
+- **Off-season has no "next gameweek".** The `🧪 Simulate GW39` sidebar toggle (in `app.py`, default on when `season_phase=='offseason'`) makes `build_player_universe(simulate_gw=39)` clone GW1 fixtures as GW39 so fixture/FDR tools work. `session_state.current_gw` stays REAL for squad fetch; only the universe fixtures are simulated. Turn off when the real season launches.
+
+## Recent architecture (2026-07 overhaul)
+- **`app.py` is a `st.navigation` router** · 6 grouped sidebar sections; page files live in **`views/`** (NOT `pages/` · reserved name collides with `st.navigation`). Pages must not call `set_page_config`.
+- **`components/team_identity.py`** · `shirt_url`/`shirt_html`, `team_color`/`team_dot` (crests removed: PL crest CDN unreachable → team-colour dots instead).
+- **`components/loading.py`** · `fpl_loader()` themed spinner.
+- **`views/home.py`** · GW command center (captain/transfer/chip/risk cards) + honest season/sim banner.
+- **`views/03_transfer_planner.py`** · real planner: sell→buy verdicts (strong/positive/lateral/negative/avoid) + multi-move plan with hit costs, reuses `transfer_engine.score_players`.
+- **`views/00_my_team.py`** · "✏️ Lineup" tab (subs/captain + live xP) and enhanced "🔁 Pick Team / Transfers" edit mode (search + sort + full replacement list).
+- **`views/18_draft_2026_27.py`** · Minutes-First Target Board (nailed value / premium / rotation-risk / enabler lanes + scout questions).
+
+## Current priorities (pulled from user)
+Done in the 2026-07 overhaul: grouped nav, team-identity/crest→dot visual rollout (all card pages), honest season framing, GW39 off-season sandbox, Minutes-First Target Board, Transfer Planner with verdicts, My Team Lineup editor + enhanced Pick Team transfers, fun loaders, keeper-kit + white-circle bug fixes.
+
+Open / next up:
+1. Mobile responsiveness · fixed-width HTML cards for phone viewing.
+3. When 2026-27 launches: re-run Target Board with real prices + promoted clubs; refresh `defender_roles` file; turn off GW39 sim.
+4. Wire FFHub once credentials arrive (biggest accuracy upgrade).
+5. Mini-league: default to **private** leagues (league_type `c`), toggle for public.
+
+## Do not
+- Write Co-Authored-By / AI attribution in git commits.
+- Use the work GitHub (`Eoin-Houstoun`) · this is a personal project, use `EoinHoustoun`.
+- Invent new design tokens.
+- Re-render dashboards that already live on a dedicated page · link instead.
+- Call `st.rerun()` inside a button handler.

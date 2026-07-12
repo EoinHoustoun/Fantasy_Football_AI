@@ -9,7 +9,7 @@ GitHub repository. This gives us:
 
 GitHub: https://github.com/vaastav/Fantasy-Premier-League
 
-Data is read directly from raw GitHub URLs — no scraping needed.
+Data is read directly from raw GitHub URLs · no scraping needed.
 Cached locally for 48 hours.
 """
 
@@ -29,16 +29,25 @@ VAASTAV_BASE   = "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-Leag
 CACHE_TTL      = 48 * 3600   # 48 hours
 CURRENT_SEASON = "2025-26"   # ← update each season
 
+# All seasons available in the vaastav repo, oldest first.
+SEASONS = [
+    "2016-17", "2017-18", "2018-19", "2019-20", "2020-21",
+    "2021-22", "2022-23", "2023-24", "2024-25", "2025-26",
+]
+
 
 def _cache_path(key: str) -> str:
     return str(CACHE_DIR / f"vaastav_{key}.parquet")
 
 
-def _is_fresh(key: str) -> bool:
+def _is_fresh(key: str, season: Optional[str] = None) -> bool:
     from pathlib import Path
     p = Path(_cache_path(key))
     if not p.exists():
         return False
+    # Completed seasons never change · cache forever.
+    if season is not None and season != CURRENT_SEASON:
+        return True
     return (time.time() - p.stat().st_mtime) < CACHE_TTL
 
 
@@ -64,7 +73,7 @@ def fetch_current_season_summary(season: str = CURRENT_SEASON) -> Optional[pd.Da
     FPL API is more current for live data.
     """
     key = f"season_{season.replace('-', '_')}"
-    if _is_fresh(key):
+    if _is_fresh(key, season):
         return pd.read_parquet(_cache_path(key))
 
     url = f"{VAASTAV_BASE}/data/{season}/players_raw.csv"
@@ -86,7 +95,7 @@ def fetch_gw_history(season: str = CURRENT_SEASON) -> Optional[pd.DataFrame]:
     Returns long-format DataFrame: one row per (player, gameweek).
     """
     key = f"gw_history_{season.replace('-', '_')}"
-    if _is_fresh(key):
+    if _is_fresh(key, season):
         return pd.read_parquet(_cache_path(key))
 
     url = f"{VAASTAV_BASE}/data/{season}/gws/merged_gw.csv"
@@ -96,6 +105,46 @@ def fetch_gw_history(season: str = CURRENT_SEASON) -> Optional[pd.DataFrame]:
 
     df.to_parquet(_cache_path(key))
     logger.info(f"Vaastav GW history: {len(df)} rows for {season}")
+    return df
+
+
+def fetch_players_raw(season: str) -> Optional[pd.DataFrame]:
+    """
+    Fetch players_raw.csv for a season · the per-player master table.
+
+    Crucially contains `id` (the season-local element id) and `code`
+    (the FIFA player code, stable across every season AND the live FPL
+    API), which is the join key for cross-season identity.
+    """
+    key = f"players_raw_{season.replace('-', '_')}"
+    if _is_fresh(key, season):
+        return pd.read_parquet(_cache_path(key))
+
+    url = f"{VAASTAV_BASE}/data/{season}/players_raw.csv"
+    df = _fetch_csv(url)
+    if df is None:
+        return None
+
+    df.to_parquet(_cache_path(key))
+    logger.info(f"Vaastav players_raw: {len(df)} players for {season}")
+    return df
+
+
+def fetch_master_team_list() -> Optional[pd.DataFrame]:
+    """
+    Fetch the repo-level master team list (columns: season, team, team_name).
+    Needed for 2016-19 seasons which ship no per-season teams.csv.
+    """
+    key = "master_team_list"
+    if _is_fresh(key, season="2016-17"):  # static file · never expires
+        return pd.read_parquet(_cache_path(key))
+
+    url = f"{VAASTAV_BASE}/data/master_team_list.csv"
+    df = _fetch_csv(url)
+    if df is None:
+        return None
+
+    df.to_parquet(_cache_path(key))
     return df
 
 
@@ -156,12 +205,12 @@ def fetch_defcon_stats(
     Minimum games filter prevents small-sample perfect scores skewing the list.
 
     Returns one row per player with:
-      defcon_cbit_per_game  — mean CBIT per game (recent, EWM-weighted)
-      defcon_pct            — % of recent games hitting threshold
-      defcon_consistency    — 1 - CV (rewards 9,12,10,11 over 1,18,1,20)
-      defcon_monster_score  — pct × consistency
-      defcon_threshold      — threshold used (position-dependent)
-      defcon_games          — qualifying games in window
+      defcon_cbit_per_game  · mean CBIT per game (recent, EWM-weighted)
+      defcon_pct            · % of recent games hitting threshold
+      defcon_consistency    · 1 - CV (rewards 9,12,10,11 over 1,18,1,20)
+      defcon_monster_score  · pct × consistency
+      defcon_threshold      · threshold used (position-dependent)
+      defcon_games          · qualifying games in window
     """
     gw_df = fetch_gw_history(season)
     if gw_df is None:
@@ -233,7 +282,7 @@ def fetch_defcon_stats(
                 "position":             pos,
             })
 
-        # Exponential recency weighting — recent games count more (halflife=4 GWs)
+        # Exponential recency weighting · recent games count more (halflife=4 GWs)
         weights       = pd.Series(range(n)).apply(lambda i: 0.5 ** ((n - 1 - i) / 4.0))
         weights      /= weights.sum()
         weighted_mean = float((cbit.values * weights.values).sum())

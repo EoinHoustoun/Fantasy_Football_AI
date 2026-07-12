@@ -2,7 +2,7 @@
 Injury & Availability Tracker.
 
 Shows:
-  • Your squad — any players flagged as injured, doubtful, or suspended
+  • Your squad · any players flagged as injured, doubtful, or suspended
   • Full league: all players with availability concerns, grouped by status
   • Suggested replacements for your injured starters
 """
@@ -12,7 +12,7 @@ import plotly.express as px
 import pandas as pd
 from typing import Optional, List
 
-st.set_page_config(page_title="Injuries — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 STATUS_CONFIG = {
     "i": {"label": "Injured",    "color": "#FF4B4B", "emoji": "🚑", "bg": "rgba(255,75,75,0.08)",   "border": "rgba(255,75,75,0.4)"},
@@ -27,7 +27,7 @@ POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=900, show_spinner=False)   # 15 min cache — news changes fast
+@st.cache_data(ttl=900, show_spinner=False)   # 15 min cache · news changes fast
 def load_universe():
     from data.fetchers.fpl_api import fetch_bootstrap
     from data.fetchers.understat import fetch_understat_players
@@ -47,8 +47,9 @@ def load_squad(team_id: int, gw: int):
 
 
 def _shirt_url(team_code: int, is_gkp: bool) -> str:
-    t = "2" if is_gkp else "1"
-    return f"{SHIRT_BASE}/shirt_{team_code}_{t}-66.png"
+    # GK kit is the ONLY one with a suffix (_1); outfield has no suffix.
+    suffix = "_1" if is_gkp else ""
+    return f"{SHIRT_BASE}/shirt_{team_code}{suffix}-66.png"
 
 
 def _player_alert_card(player: pd.Series, show_shirt: bool = True) -> str:
@@ -185,7 +186,7 @@ if squad_df is not None:
         n_starters = squad_flagged[~squad_flagged["on_bench"]].shape[0]
         n_bench    = squad_flagged[squad_flagged["on_bench"]].shape[0]
         if n_starters > 0:
-            st.warning(f"⚠️ **{n_starters} starting XI player(s)** with concerns — check before GW{current_gw + 1}!")
+            st.warning(f"⚠️ **{n_starters} starting XI player(s)** with concerns · check before GW{current_gw + 1}!")
 
         starters_flagged = squad_flagged[~squad_flagged["on_bench"]].sort_values("status")
         bench_flagged    = squad_flagged[squad_flagged["on_bench"]].sort_values("status")
@@ -224,7 +225,7 @@ else:
         orientation="h",
         color="flagged",
         color_continuous_scale=["#FFA500", "#FF4B4B"],
-        title="Players with Availability Concerns — by Team",
+        title="Players with Availability Concerns · by Team",
         labels={"flagged": "Count", "team": "Team"},
     )
     fig.update_layout(
@@ -249,13 +250,13 @@ else:
         if group.empty:
             continue
 
-        with st.expander(f"{cfg['emoji']} {cfg['label']} — {len(group)} players", expanded=(status_code in ["i", "s"])):
+        with st.expander(f"{cfg['emoji']} {cfg['label']} · {len(group)} players", expanded=(status_code in ["i", "s"])):
             # High-ownership ones first
             high_own = group[group["ownership"] >= 5.0]
             low_own  = group[group["ownership"] < 5.0]
 
             if not high_own.empty:
-                st.markdown("*Highly owned (5%+) — transfer decisions needed:*")
+                st.markdown("*Highly owned (5%+) · transfer decisions needed:*")
                 for _, p in high_own.iterrows():
                     st.markdown(_player_alert_card(p), unsafe_allow_html=True)
 

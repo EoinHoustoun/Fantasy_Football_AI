@@ -1,5 +1,5 @@
 """
-GW History — your gameweek points history vs the global average.
+GW History · your gameweek points history vs the global average.
 
 Shows:
   • Line chart: your GW score vs global average each week
@@ -16,7 +16,7 @@ import numpy as np
 import requests
 from typing import Optional
 
-st.set_page_config(page_title="GW History — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ def _fill_between_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> go.Figu
 
 
 def _rank_chart(hist_df: pd.DataFrame) -> go.Figure:
-    """Overall rank progression — inverted so better rank = higher on chart."""
+    """Overall rank progression · inverted so better rank = higher on chart."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=hist_df["gw"].tolist(),

@@ -1,5 +1,5 @@
 """
-Free Hit Optimizer — finds the highest-scoring 15-man squad for a specific GW
+Free Hit Optimizer · finds the highest-scoring 15-man squad for a specific GW
 using ML predictions, then compares it position-by-position to your current team.
 """
 
@@ -9,7 +9,7 @@ import plotly.express as px
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Free Hit — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
@@ -60,8 +60,9 @@ def get_next_gw(bootstrap: dict, current_gw: int) -> int:
 # ── HTML helpers ───────────────────────────────────────────────────────────────
 
 def _shirt_url(team_code: int, is_gkp: bool) -> str:
-    t = "2" if is_gkp else "1"
-    return f"{SHIRT_BASE}/shirt_{team_code}_{t}-66.png"
+    # GK kit is the ONLY one with a suffix (_1); outfield has no suffix.
+    suffix = "_1" if is_gkp else ""
+    return f"{SHIRT_BASE}/shirt_{team_code}{suffix}-66.png"
 
 
 def _squad_grid_html(squad: pd.DataFrame, players_df: pd.DataFrame, title: str, accent: str) -> str:
@@ -286,7 +287,7 @@ st.markdown("---")
 
 # ── Comparison section ────────────────────────────────────────────────────────
 if comparison:
-    st.markdown(f"### {team_name} vs Optimal Free Hit — GW{target_gw}")
+    st.markdown(f"### {team_name} vs Optimal Free Hit · GW{target_gw}")
     bd = comparison["breakdown"]
 
     # Delta cards
@@ -326,12 +327,12 @@ if comparison:
     with col_yours:
         your_xi = comparison["your_xi"]
         st.markdown(
-            _squad_grid_html(your_xi, players_df, f"Your Current XI — {comparison['your_total']:.1f} pts", "#04f5ff"),
+            _squad_grid_html(your_xi, players_df, f"Your Current XI · {comparison['your_total']:.1f} pts", "#04f5ff"),
             unsafe_allow_html=True,
         )
     with col_opt:
         st.markdown(
-            _squad_grid_html(comparison["optimal_xi"], players_df, f"Optimal Free Hit XI — {comparison['optimal_total']:.1f} pts", "#00FF87"),
+            _squad_grid_html(comparison["optimal_xi"], players_df, f"Optimal Free Hit XI · {comparison['optimal_total']:.1f} pts", "#00FF87"),
             unsafe_allow_html=True,
         )
 
@@ -386,14 +387,14 @@ else:
     st.info("Enter your FPL Team ID in the sidebar to compare the optimal team against your current squad.")
 
 # ── Optimal squad standalone ───────────────────────────────────────────────────
-st.markdown(f"### Optimal Free Hit Squad — GW{target_gw}")
+st.markdown(f"### Optimal Free Hit Squad · GW{target_gw}")
 st.caption(f"Best 15 players within £{budget:.1f}m · Squad cost: £{total_cost:.1f}m")
 
 col_grid, col_table = st.columns([1, 1])
 
 with col_grid:
     st.markdown(
-        _squad_grid_html(optimal_xi, players_df, f"Starting XI — {opt_total:.1f} predicted pts", "#00FF87"),
+        _squad_grid_html(optimal_xi, players_df, f"Starting XI · {opt_total:.1f} predicted pts", "#00FF87"),
         unsafe_allow_html=True,
     )
     # Bench
@@ -401,7 +402,7 @@ with col_grid:
     if not bench.empty:
         bench_total = float(bench["predicted_pts"].sum())
         st.markdown(
-            _squad_grid_html(bench, players_df, f"Bench — {bench_total:.1f} predicted pts", "rgba(255,255,255,0.3)"),
+            _squad_grid_html(bench, players_df, f"Bench · {bench_total:.1f} predicted pts", "rgba(255,255,255,0.3)"),
             unsafe_allow_html=True,
         )
 

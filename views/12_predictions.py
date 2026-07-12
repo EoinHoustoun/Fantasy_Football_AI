@@ -1,5 +1,5 @@
 """
-GW Points Predictions — ML model trained on this season's GW-by-GW data.
+GW Points Predictions · ML model trained on this season's GW-by-GW data.
 
 Model: Random Forest trained on vaastav historical data (GW1 → current).
 Features: rolling pts, rolling xGI, rolling minutes, form, price, was_home, position.
@@ -12,7 +12,9 @@ import plotly.express as px
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Predictions — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
+
+from components.team_identity import team_dot
 
 POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
@@ -66,6 +68,7 @@ def _prediction_card(player: pd.Series, rank: int, mae: float) -> str:
     """Render a single player prediction card."""
     name    = str(player.get("web_name", "?"))
     team    = str(player.get("team", ""))
+    tshort  = player.get("team_short")
     pos     = str(player.get("position", ""))
     price   = float(player.get("price", 0) or 0)
     pts     = float(player.get("predicted_pts", 0) or 0)
@@ -95,6 +98,7 @@ def _prediction_card(player: pd.Series, rank: int, mae: float) -> str:
         margin-bottom:8px;
     ">
       <div style="font-size:20px;width:32px;text-align:center;flex-shrink:0;">{rank_str}</div>
+      {team_dot(tshort, size=14)}
       <div style="flex:1;min-width:0;">
         <div style="font-size:15px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</div>
         <div style="font-size:11px;color:rgba(255,255,255,0.4);">
@@ -171,17 +175,17 @@ m1, m2, m3, m4 = st.columns(4)
 m1.metric(
     "RMSE",
     f"{rmse:.2f} pts",
-    help="Root Mean Squared Error — penalises big misses more heavily than small ones.",
+    help="Root Mean Squared Error · penalises big misses more heavily than small ones.",
 )
 m2.metric(
     "MAE",
     f"{mae:.2f} pts",
-    help="Mean Absolute Error — on average, predictions are this many points off.",
+    help="Mean Absolute Error · on average, predictions are this many points off.",
 )
 m3.metric(
     "R²",
     f"{r2:.3f}",
-    help="Proportion of variance explained. FPL is inherently noisy — 0.28 is solid.",
+    help="Proportion of variance explained. FPL is inherently noisy · 0.28 is solid.",
 )
 m4.metric(
     "Prediction range",
@@ -191,11 +195,11 @@ m4.metric(
 
 # Friendly interpretation
 if mae < 1.5:
-    interp_col, interp_txt = "#00FF87", f"On average predictions are **{mae:.1f} pts off** per player per GW — a solid baseline."
+    interp_col, interp_txt = "#00FF87", f"On average predictions are **{mae:.1f} pts off** per player per GW · a solid baseline."
 elif mae < 2.5:
-    interp_col, interp_txt = "#FFA500", f"Predictions average **{mae:.1f} pts off** — decent for FPL's inherent randomness."
+    interp_col, interp_txt = "#FFA500", f"Predictions average **{mae:.1f} pts off** · decent for FPL's inherent randomness."
 else:
-    interp_col, interp_txt = "#FF4B4B", f"Average error of **{mae:.1f} pts** — use predictions directionally, not literally."
+    interp_col, interp_txt = "#FF4B4B", f"Average error of **{mae:.1f} pts** · use predictions directionally, not literally."
 
 st.markdown(
     f"<div style='padding:10px 16px;background:rgba(255,255,255,0.03);"
@@ -325,7 +329,7 @@ if team_id and team_id > 0:
         st.sidebar.warning("Could not load squad.")
 
 if squad_df is not None:
-    st.markdown(f"### Your Squad — GW{captain_gw} Predictions")
+    st.markdown(f"### Your Squad · GW{captain_gw} Predictions")
     owned_names = set(squad_df["web_name"].tolist())
     squad_preds = predictions[predictions["web_name"].isin(owned_names)].copy()
 
@@ -352,7 +356,7 @@ if squad_df is not None:
     st.markdown("---")
 
 # ── Global top predictions ─────────────────────────────────────────────────────
-st.markdown(f"### Top Predicted Players — GW{captain_gw}")
+st.markdown(f"### Top Predicted Players · GW{captain_gw}")
 
 preds_filtered = predictions.copy()
 if pos_filter != "All":
@@ -378,7 +382,7 @@ if not preds_filtered.empty:
             orientation="h",
             color_discrete_map=POS_COLORS,
             error_x=preds_filtered.head(15)["predicted_pts"] * 0.35,
-            title=f"Top 15 Predicted — GW{captain_gw}",
+            title=f"Top 15 Predicted · GW{captain_gw}",
             labels={"predicted_pts": "Predicted pts", "web_name": ""},
         )
         fig_top.update_layout(
@@ -441,7 +445,7 @@ if player_errors is not None and not player_errors.empty:
         under["Predicted avg"]  = under["Predicted avg"].round(1)
         under["Under by (pts)"] = under["Under by (pts)"].round(1)
         st.dataframe(under, use_container_width=True, hide_index=True)
-        st.caption("These players regularly outperform their rolling stats — maybe set pieces, penalties, or squad role improved.")
+        st.caption("These players regularly outperform their rolling stats · maybe set pieces, penalties, or squad role improved.")
 
 st.markdown("---")
 
@@ -458,7 +462,7 @@ _defcon_cols = ["defcon_cbit_per_game", "defcon_pct", "defcon_consistency", "def
 _has_defcon  = all(c in players_df.columns for c in _defcon_cols[:4])
 
 if not _has_defcon:
-    st.info("DEFCON stats not yet available — they load with the player data. Try refreshing.")
+    st.info("DEFCON stats not yet available · they load with the player data. Try refreshing.")
 else:
     _dc_pos_filter = st.radio(
         "Position",
@@ -534,15 +538,15 @@ contribution component. This approximates clearances + blocks + interceptions + 
 **Hit Rate:** % of recent games where adjusted BPS hit the position threshold (DEF: 8, MID/FWD: 10).
 
 **Consistency:** 1 − coefficient of variation. A player scoring 9,12,10,11 scores higher
-than one scoring 2,18,1,20 even if both average the same — you can't rely on the spiky player.
+than one scoring 2,18,1,20 even if both average the same · you can't rely on the spiky player.
 
-**Monster Score = Hit Rate × Consistency** — the overall signal for likely DEFCON bonus points.
+**Monster Score = Hit Rate × Consistency** · the overall signal for likely DEFCON bonus points.
             """)
 
 st.markdown("---")
 
 # ── Full predictions table ─────────────────────────────────────────────────────
-with st.expander(f"📋 Full predictions table — GW{captain_gw} ({len(predictions)} players)"):
+with st.expander(f"📋 Full predictions table · GW{captain_gw} ({len(predictions)} players)"):
     display = predictions[[
         "web_name", "team", "position", "price", "ownership",
         "predicted_pts", "next_gw_fdr", "roll_pts_4", "form",

@@ -1,5 +1,5 @@
 """
-Chip Planner — Bench Boost & Triple Captain timing.
+Chip Planner · Bench Boost & Triple Captain timing.
 
 For each remaining GW projects your squad's scores and recommends
 the optimal GW to play each chip.
@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import pandas as pd
 from typing import List, Dict
 
-st.set_page_config(page_title="Chip Planner — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 # ── Data helpers ───────────────────────────────────────────────────────────────
 
@@ -194,7 +194,7 @@ st.markdown(
     "<div style='padding:20px 0 4px;'>"
     "<div style='font-size:30px;font-weight:900;color:#FFD700;'>🎯 Chip Planner</div>"
     "<div style='font-size:14px;color:rgba(255,255,255,0.4);margin-top:4px;'>"
-    "Optimal gameweek to play Bench Boost &amp; Triple Captain — based on your squad's projected scores."
+    "Optimal gameweek to play Bench Boost &amp; Triple Captain · based on your squad's projected scores."
     "</div></div>",
     unsafe_allow_html=True,
 )
@@ -265,7 +265,7 @@ with h1:
             float(best_bb_row["bench_total"]),
             f"Bench: {squad_df[squad_df['on_bench']]['web_name'].str.cat(sep=' · ')}",
             "#04f5ff",
-            "DGW week — maximum bench coverage" if best_bb_row["has_dgw"] else "",
+            "DGW week · maximum bench coverage" if best_bb_row["has_dgw"] else "",
         )
     else:
         st.info("Bench Boost already played.")
@@ -278,7 +278,7 @@ with h2:
             float(best_tc_row["tc_extra"]),
             f"Captain: {best_tc_row['captain']} ({best_tc_row['captain_score']:.1f} projected)",
             "#FFD700",
-            "DGW — triple the double!" if best_tc_row["has_dgw"] else "",
+            "DGW · triple the double!" if best_tc_row["has_dgw"] else "",
         )
     else:
         st.info("Triple Captain already played.")
@@ -289,13 +289,13 @@ st.markdown("---")
 tab_bb, tab_tc = st.tabs(["📊 Bench Boost Analysis", "👑 Triple Captain Analysis"])
 
 with tab_bb:
-    st.caption("Total projected points including bench — higher = better GW to play Bench Boost.")
+    st.caption("Total projected points including bench · higher = better GW to play Bench Boost.")
     _bar_chart(gw_df, "bb_total", int(best_bb_row["GW"]), "Bench Boost Value by GW", "#04f5ff")
 
-    st.markdown("#### Bench Breakdown — Best GW")
+    st.markdown("#### Bench Breakdown · Best GW")
     xi_col, bench_col = st.columns([3, 1])
     with xi_col:
-        st.markdown(f"**Starting XI — GW{int(best_bb_row['GW'])}**")
+        st.markdown(f"**Starting XI · GW{int(best_bb_row['GW'])}**")
         _squad_cards(squad_df, int(best_bb_row["GW"]), fixtures_df, on_bench=False)
     with bench_col:
         st.markdown("**Bench**")
@@ -324,7 +324,7 @@ with tab_tc:
     )
     _bar_chart(gw_df, "tc_extra", int(best_tc_row["GW"]), "Triple Captain Extra Value by GW", "#FFD700")
 
-    st.markdown("#### Captain Candidates — Best GW")
+    st.markdown("#### Captain Candidates · Best GW")
     _squad_cards(squad_df, int(best_tc_row["GW"]), fixtures_df, on_bench=False)
 
     st.markdown("#### Best Captain per GW")

@@ -1,8 +1,8 @@
 """
-FPL Points Prediction Model — XGBoost with Optuna hyperparameter tuning.
+FPL Points Prediction Model · XGBoost with Optuna hyperparameter tuning.
 
 Training data: vaastav GW-by-GW history (this season).
-Features (all computed using ONLY past data — no lookahead):
+Features (all computed using ONLY past data · no lookahead):
     roll_pts_4      Mean points over last 4 GWs
     roll_xgi_4      Sum xGI over last 4 GWs
     roll_xgc_4      Sum xGC over last 4 GWs
@@ -15,9 +15,9 @@ Features (all computed using ONLY past data — no lookahead):
     is_gkp/def/mid/fwd  Position one-hot
 
 Tuning: Optuna minimises RMSE on TimeSeriesSplit CV (3 folds, 50 trials).
-        Tuned params cached to disk — only re-tunes if cache >24h old.
+        Tuned params cached to disk · only re-tunes if cache >24h old.
 
-RMSE evaluated on temporal holdout (last 30% of GWs) — out-of-sample.
+RMSE evaluated on temporal holdout (last 30% of GWs) · out-of-sample.
 """
 
 import logging
@@ -53,16 +53,16 @@ SQUAD_TOTAL    = 15
 MAX_PER_TEAM   = 3
 
 FEATURES = [
-    "roll_pts_4",       # EWM avg points — recency-weighted
-    "roll_xgi_4",       # EWM sum xGI — recency-weighted
-    "roll_xgc_4",       # EWM sum xGC — recency-weighted
-    "roll_mins_4",      # EWM avg minutes — recency-weighted
-    "roll_starts_4",    # EWM start rate — recency-weighted
+    "roll_pts_4",       # EWM avg points · recency-weighted
+    "roll_xgi_4",       # EWM sum xGI · recency-weighted
+    "roll_xgc_4",       # EWM sum xGC · recency-weighted
+    "roll_mins_4",      # EWM avg minutes · recency-weighted
+    "roll_starts_4",    # EWM start rate · recency-weighted
     "roll_xp_4",        # EWM avg expected points
-    "roll_bps_4",       # EWM avg BPS — captures defensive + bonus contributions
-    "roll_cs_4",        # EWM clean sheets (DEF=6pts, MID=1pt — separated from xGI)
-    "roll_goals_4",     # EWM goals (DEF goals=6pts — separated since xGI treats all equal)
-    "roll_cbit_4",      # EWM CBIT (clearances+blocks+interceptions+tackles) — actual DEFCON signal
+    "roll_bps_4",       # EWM avg BPS · captures defensive + bonus contributions
+    "roll_cs_4",        # EWM clean sheets (DEF=6pts, MID=1pt · separated from xGI)
+    "roll_goals_4",     # EWM goals (DEF goals=6pts · separated since xGI treats all equal)
+    "roll_cbit_4",      # EWM CBIT (clearances+blocks+interceptions+tackles) · actual DEFCON signal
     "cum_ppg",
     "price_m",
     "was_home",
@@ -75,7 +75,7 @@ FEATURES = [
 def _build_rolling_features(gw_df: pd.DataFrame) -> pd.DataFrame:
     df = gw_df.sort_values(["name", "GW"]).copy()
 
-    # Exponentially-weighted moving average — recent GWs count more.
+    # Exponentially-weighted moving average · recent GWs count more.
     # halflife=2 means a game 2 GWs ago carries ~50% the weight of the latest game.
     # shift(1) ensures no lookahead (we only use past data to predict current GW).
     def _ewm(series: pd.Series) -> pd.Series:
@@ -322,7 +322,7 @@ def predict_next_gw(
 
     latest["name_lower"] = latest["name"].str.lower().str.strip()
     result = latest.merge(
-        fpl_idx[["web_name", "team", "team_id", "position", "price",
+        fpl_idx[["web_name", "team", "team_id", "team_code", "team_short", "position", "price",
                  "ownership", "status", "form", "total_points",
                  "fpl_xgi_per90"]].reset_index(),
         on="name_lower", how="left", suffixes=("_v", ""),
@@ -330,7 +330,7 @@ def predict_next_gw(
     result["web_name"] = result["web_name"].fillna(result["name"])
     result["status"]   = result["status"].fillna("a")
 
-    keep = ["web_name", "team", "team_id", "position", "price", "ownership",
+    keep = ["web_name", "team", "team_id", "team_code", "team_short", "position", "price", "ownership",
             "status", "predicted_pts", "base_predicted_pts", "next_gw_fdr",
             "form", "total_points", "fpl_xgi_per90",
             "roll_pts_4", "roll_xgi_4", "roll_mins_4"]

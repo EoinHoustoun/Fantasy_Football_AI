@@ -12,7 +12,7 @@ import pandas as pd
 import requests
 from typing import List, Dict, Optional
 
-st.set_page_config(page_title="Mini-League — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; FPL-Analytics/1.0)"}
 
@@ -137,7 +137,7 @@ def _cumulative_chart(df: pd.DataFrame, highlight: Optional[str] = None) -> go.F
         ))
 
     fig.update_layout(
-        title="Cumulative Points — Season",
+        title="Cumulative Points · Season",
         xaxis_title="Gameweek",
         yaxis_title="Cumulative Points",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -269,7 +269,7 @@ st.markdown(
     "<div style='padding:20px 0 4px;'>"
     "<div style='font-size:30px;font-weight:900;color:#04f5ff;'>🏅 Mini-League Tracker</div>"
     "<div style='font-size:14px;color:rgba(255,255,255,0.4);margin-top:4px;'>"
-    "See every manager's season journey — cumulative points, rank progression &amp; head-to-head."
+    "See every manager's season journey · cumulative points, rank progression &amp; head-to-head."
     "</div></div>",
     unsafe_allow_html=True,
 )
@@ -283,33 +283,54 @@ with st.sidebar:
         min_value=1,
         value=int(FPL_TEAM_ID or 1),
         step=1,
-        help="Your FPL team ID — used to auto-load your leagues.",
+        help="Your FPL team ID · used to auto-load your leagues.",
     )
 
     st.markdown("---")
     st.markdown("### Select League")
 
-    my_leagues = fetch_my_leagues(team_id)
-    league_id  = None
+    # Fetch both private (user-created) and system (official/region/team) leagues
+    all_leagues = fetch_my_leagues(team_id)
+    private_leagues = [l for l in all_leagues if l.get("league_type") == "c"]
+    system_leagues  = [l for l in all_leagues if l.get("league_type") == "s"]
 
-    if my_leagues:
-        league_options = {l["name"]: l["id"] for l in my_leagues}
+    show_public = st.toggle(
+        "Include public / region leagues",
+        value=False,
+        help="Off by default · these are FPL-official leagues like country, team supporters.",
+    )
+
+    visible_leagues = private_leagues + (system_leagues if show_public else [])
+
+    league_id  = None
+    if visible_leagues:
+        def _label(l):
+            tag = "🔒 Private" if l.get("league_type") == "c" else "🌐 Public"
+            return f"{tag} · {l['name']}"
+
+        league_options = {_label(l): l["id"] for l in visible_leagues}
         selected_name  = st.selectbox(
             "Your leagues",
             options=list(league_options.keys()),
-            help="All classic leagues you're in — private leagues listed first.",
+            index=0,
+            help="Private leagues listed first. Toggle above to include public leagues.",
         )
         league_id = league_options[selected_name]
         st.caption(f"League ID: {league_id}")
+    elif private_leagues == [] and not show_public:
+        st.info(
+            "No private leagues found on this team. "
+            "Toggle **Include public / region leagues** above, or paste a league ID below."
+        )
     else:
-        st.caption("Could not load your leagues — enter ID manually below.")
+        st.caption("Could not load leagues · enter ID manually below.")
 
     manual_id = st.number_input(
         "Or enter league ID manually",
         min_value=0,
         value=0,
         step=1,
-        help="fantasy.premierleague.com/leagues/**XXXXXX**/standings/c",
+        help="Paste the number from fantasy.premierleague.com/leagues/**XXXXXX**/standings/c",
     )
     if manual_id > 0:
         league_id = manual_id

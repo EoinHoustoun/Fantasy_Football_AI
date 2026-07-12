@@ -1,5 +1,5 @@
 """
-Dashboard page — GW snapshot and team overview.
+Dashboard page · GW snapshot and team overview.
 """
 
 import streamlit as st
@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-st.set_page_config(page_title="Dashboard — FPL Hub", layout="wide")
+# set_page_config is owned by the app.py router (st.navigation)
 
 st.title("📊 Dashboard")
 st.caption("Current gameweek snapshot and league overview.")
@@ -51,17 +51,24 @@ with col4:
 st.markdown("---")
 
 # ── Charts ─────────────────────────────────────────────────────────────────────
-# Minimum minutes threshold: 20% of season played so far
+# Minimum minutes threshold for scatter: 20% of season played so far
 MIN_SEASON_PCT = 0.20
 min_minutes = int(current_gw * 90 * MIN_SEASON_PCT)
 qualified = players_df[players_df["minutes"] >= min_minutes].copy()
+
+# Stricter threshold for the points-per-position chart: 10+ full-game
+# equivalents (90-minute blocks) so squad players and cameo scorers don't
+# distort the per-position averages.
+PPG_MIN_GAMES = 10
+ppg_min_minutes = PPG_MIN_GAMES * 90
+ppg_qualified = players_df[players_df["minutes"] >= ppg_min_minutes].copy()
 
 col_left, col_right = st.columns(2)
 
 with col_left:
     st.markdown("#### Avg Points per Game by Position")
-    st.caption(f"Players with ≥{min_minutes} mins ({int(MIN_SEASON_PCT*100)}% of season, GW{current_gw})")
-    pos_avg = qualified.groupby("position")["points_per_game"].mean().reset_index()
+    st.caption(f"Players with ≥{PPG_MIN_GAMES} games played (≥{ppg_min_minutes} mins)")
+    pos_avg = ppg_qualified.groupby("position")["points_per_game"].mean().reset_index()
     pos_avg.columns = ["position", "avg_ppg"]
     pos_avg = pos_avg.sort_values("avg_ppg", ascending=False)
     # Order: GKP, DEF, MID, FWD for display
@@ -82,7 +89,7 @@ with col_left:
     st.plotly_chart(fig, use_container_width=True)
 
 with col_right:
-    st.markdown("#### Points per £m — Season Value")
+    st.markdown("#### Points per £m · Season Value")
     st.caption(f"Players with ≥{min_minutes} mins. Bubble size = ownership %")
     fig2 = px.scatter(
         qualified,

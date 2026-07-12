@@ -4,10 +4,10 @@ Transfer suggestion engine.
 Scores every player as a potential transfer target using a weighted composite
 of form, fixture ease, xG potential, value, ownership trend, and minutes security.
 
-All weights are tunable in config.py — adjust them after each GW
+All weights are tunable in config.py · adjust them after each GW
 to reflect what's been predictive.
 
-This module is UI-free and has no Streamlit imports — fully testable in isolation.
+This module is UI-free and has no Streamlit imports · fully testable in isolation.
 """
 
 import pandas as pd
@@ -103,7 +103,7 @@ def score_players(
     df["mins_multiplier"] = ((avg_mins / 90.0) ** 0.5).clip(lower=0.45, upper=1.0)
 
     # ── Set piece bonus (flat addition before multiplier) ─────────────────────
-    # Penalty taker #1 is the biggest bonus — direct route to 6+ pts.
+    # Penalty taker #1 is the biggest bonus · direct route to 6+ pts.
     _nan = pd.Series(np.nan, index=df.index)
     pen_order  = pd.to_numeric(df["penalties_order"]  if "penalties_order"  in df.columns else _nan, errors="coerce")
     corn_order = pd.to_numeric(df["corners_order"]    if "corners_order"    in df.columns else _nan, errors="coerce")
@@ -118,7 +118,7 @@ def score_players(
 
     # ── Composite score ───────────────────────────────────────────────────────
     # Minutes is now a multiplier on the whole score, not an additive component.
-    # This means a player who only plays 60 mins gets an ~18% score haircut —
+    # This means a player who only plays 60 mins gets an ~18% score haircut -
     # far more impactful than the old 0.05-weighted additive term.
     base_score = (
         df["score_form"]            * w.get("form", 0.25) +
@@ -149,7 +149,7 @@ def get_transfer_targets(
 
     Args:
         players_df: Output of build_player_universe()
-        position: "GKP", "DEF", "MID", or "FWD" — or None for all
+        position: "GKP", "DEF", "MID", or "FWD" · or None for all
         max_price: Maximum price in £m
         min_price: Minimum price in £m
         exclude_team_ids: List of team IDs to exclude (e.g. teams you already have 3 of)
@@ -174,7 +174,7 @@ def get_transfer_targets(
         df = df[~df["team_id"].isin(exclude_team_ids)]
 
     display_cols = [
-        "web_name", "team", "position", "price", "ownership",
+        "web_name", "team", "team_code", "team_short", "position", "price", "ownership",
         "form", "total_points", "points_per_million",
         f"avg_fdr_next_{FIXTURE_LOOKAHEAD}",
         "transfer_score",
@@ -199,7 +199,7 @@ def apply_free_hit_adjustment(
     """
     Recalculate season_avg_fdr and remaining_fixtures excluding the Free Hit GW.
 
-    Your regular squad doesn't play in the Free Hit week — that GW is played
+    Your regular squad doesn't play in the Free Hit week · that GW is played
     with a completely different temporary team, so it must not count towards
     regular-squad season projections or fixture difficulty averages.
     """
@@ -351,7 +351,7 @@ def build_transfer_reasoning(row: pd.Series) -> str:
 
     form = float(row.get("form", 0) or 0)
     if form >= 8:
-        reasons.append(f"exceptional form — {form:.1f} pts/game recently")
+        reasons.append(f"exceptional form · {form:.1f} pts/game recently")
     elif form >= 6:
         reasons.append(f"strong form ({form:.1f} pts/game)")
     elif form >= 4.5:
@@ -382,7 +382,7 @@ def build_transfer_reasoning(row: pd.Series) -> str:
 
     ceiling = float(row.get("ceiling_pts", 0) or 0)
     if ceiling >= TWENTY_PLUS_THRESHOLD:
-        reasons.append(f"20+ point ceiling — genuine haul threat ({ceiling:.0f} ceiling score)")
+        reasons.append(f"20+ point ceiling · genuine haul threat ({ceiling:.0f} ceiling score)")
     elif ceiling >= HAUL_THRESHOLD:
         reasons.append(f"strong haul potential ({ceiling:.0f} ceiling score)")
 
@@ -417,10 +417,10 @@ def get_top_recommendation(
     Return the #1 transfer recommendation (or top 3 if scores are close).
 
     Returns a dict:
-        top      : pd.Series — the #1 player row (with all enriched columns)
+        top      : pd.Series · the #1 player row (with all enriched columns)
         close    : list of dicts [{player, reasoning}, ...] for top 3 if close
-        is_close : bool — True if top 3 scores are within TRANSFER_CLOSE_MARGIN
-        free_hit : bool — whether this is Free Hit mode (no budget/ownership filter)
+        is_close : bool · True if top 3 scores are within TRANSFER_CLOSE_MARGIN
+        free_hit : bool · whether this is Free Hit mode (no budget/ownership filter)
     """
     is_free_hit = free_hit_gw is not None
 

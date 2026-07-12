@@ -13,6 +13,7 @@ Falls back gracefully if unavailable.
 
 import logging
 import time
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -25,13 +26,20 @@ logger = logging.getLogger(__name__)
 CACHE_FILE = CACHE_DIR / "fbref_players.parquet"
 
 
+def _current_season() -> str:
+    """Return the active EPL season in FBRef format, e.g. '2025-2026'."""
+    today = date.today()
+    start = today.year if today.month >= 7 else today.year - 1
+    return f"{start}-{start + 1}"
+
+
 def _is_fresh() -> bool:
     if not CACHE_FILE.exists():
         return False
     return (time.time() - CACHE_FILE.stat().st_mtime) < CACHE_TTL["fbref"]
 
 
-def fetch_fbref_players(season: str = "2024-2025") -> Optional[pd.DataFrame]:
+def fetch_fbref_players(season: Optional[str] = None) -> Optional[pd.DataFrame]:
     """
     Fetch EPL player advanced stats from FBRef.
 
@@ -39,8 +47,10 @@ def fetch_fbref_players(season: str = "2024-2025") -> Optional[pd.DataFrame]:
         player_name, progressive_carries, progressive_passes,
         key_passes, pressures, xg, xa (per 90 stats)
 
-    Returns None if fetch fails — app degrades gracefully.
+    Returns None if fetch fails · app degrades gracefully.
     """
+    if season is None:
+        season = _current_season()
     if _is_fresh():
         logger.debug("FBRef cache hit")
         return pd.read_parquet(CACHE_FILE)
@@ -48,7 +58,7 @@ def fetch_fbref_players(season: str = "2024-2025") -> Optional[pd.DataFrame]:
     try:
         import soccerdata as sd
     except ImportError:
-        logger.info("soccerdata not installed — install with: pip install soccerdata")
+        logger.info("soccerdata not installed · install with: pip install soccerdata")
         return _try_direct_scrape(season)
 
     try:
@@ -72,7 +82,7 @@ def fetch_fbref_players(season: str = "2024-2025") -> Optional[pd.DataFrame]:
 def _merge_fbref_tables(passing: pd.DataFrame, possession: pd.DataFrame) -> pd.DataFrame:
     """Merge passing and possession tables into a unified per-player DataFrame."""
     try:
-        # FBRef tables have multi-level columns — flatten them
+        # FBRef tables have multi-level columns · flatten them
         if isinstance(passing.columns, pd.MultiIndex):
             passing.columns = ["_".join(filter(None, c)).strip() for c in passing.columns]
         if isinstance(possession.columns, pd.MultiIndex):
@@ -90,7 +100,7 @@ def _merge_fbref_tables(passing: pd.DataFrame, possession: pd.DataFrame) -> pd.D
         passing["name_key"] = passing[name_col].str.lower().str.strip()
         possession["name_key"] = possession[name_col].str.lower().str.strip()
 
-        # Extract useful columns — column names vary by FBRef version
+        # Extract useful columns · column names vary by FBRef version
         prog_passes_col = next((c for c in passing.columns if "prog" in c.lower() and "pass" in c.lower()), None)
         key_passes_col  = next((c for c in passing.columns if "key" in c.lower() and "pass" in c.lower()), None)
         prog_carries_col = next((c for c in possession.columns if "prog" in c.lower() and "carr" in c.lower()), None)
@@ -126,7 +136,7 @@ def _try_direct_scrape(season: str) -> Optional[pd.DataFrame]:
         import requests
         from bs4 import BeautifulSoup
 
-        time.sleep(4)  # FBRef rate limit — be polite
+        time.sleep(4)  # FBRef rate limit · be polite
         url = "https://fbref.com/en/comps/9/passing/Premier-League-Stats"
         resp = requests.get(
             url,

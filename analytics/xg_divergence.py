@@ -4,7 +4,7 @@ xG underperformance / overperformance tracker.
 Identifies players whose actual goal/assist output significantly diverges
 from their expected goals (xG) and expected assists (xA).
 
-Players with xG >> actual goals are "due" — statistically likely to score
+Players with xG >> actual goals are "due" · statistically likely to score
 soon as regression to the mean kicks in.
 
 Players with actual goals >> xG may be overperforming and could regress.
@@ -70,7 +70,7 @@ def get_xg_underperformers(
     ).round(3)
 
     display_cols = [
-        "web_name", "team", "position", "price", "ownership",
+        "web_name", "team", "team_code", "team_short", "position", "price", "ownership",
         "xg", "goals_scored", "xg_gap",
         "xa", "assists",
         "form", "minutes",
@@ -94,7 +94,7 @@ def get_xg_overperformers(
     """
     Return players who have scored significantly more goals than their xG suggests.
 
-    These players may be due a regression — useful for identifying who to sell.
+    These players may be due a regression · useful for identifying who to sell.
 
     Args:
         min_goals: Minimum actual goals scored to qualify
@@ -118,7 +118,7 @@ def get_xg_overperformers(
     ].copy()
 
     display_cols = [
-        "web_name", "team", "position", "price", "ownership",
+        "web_name", "team", "team_code", "team_short", "position", "price", "ownership",
         "xg", "goals_scored", "overperformance_gap", "form",
     ]
     available_cols = [c for c in display_cols if c in df.columns]
