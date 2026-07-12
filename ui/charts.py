@@ -132,15 +132,26 @@ def radar_option(indicators: List[Dict[str, Any]], values: List[float],
 
 
 def bar_option(x: List[Any], y: List[float], color: str = COLORS["mint"],
-               horizontal: bool = False, name: str = "") -> Dict[str, Any]:
-    """A single-series bar chart (vertical by default; horizontal for rankings)."""
+               horizontal: bool = False, name: str = "",
+               colors: Optional[List[str]] = None) -> Dict[str, Any]:
+    """A single-series bar chart (vertical by default; horizontal for rankings).
+
+    `colors` gives each bar its own colour (e.g. green above average, red below);
+    it wins over `color` when provided.
+    """
     cat = _axis("category", [str(v) for v in x])
     val = _axis("value")
     grid = {"left": 90, "right": 18, "top": 16, "bottom": 22} if horizontal \
         else {"left": 40, "right": 14, "top": 16, "bottom": 26}
+    radius = [0, 3, 3, 0] if horizontal else [3, 3, 0, 0]
+    data: List[Any] = y if colors is None else [
+        {"value": v, "itemStyle": {"color": colors[i % len(colors)],
+                                   "borderRadius": radius}}
+        for i, v in enumerate(y)
+    ]
     series = {
-        "name": name, "type": "bar", "data": y,
-        "itemStyle": {"color": color, "borderRadius": ([0, 3, 3, 0] if horizontal else [3, 3, 0, 0])},
+        "name": name, "type": "bar", "data": data,
+        "itemStyle": {"color": color, "borderRadius": radius},
         "barMaxWidth": 18, "emphasis": {"focus": "series"},
     }
     opt = {"backgroundColor": "transparent", "grid": grid, "tooltip": _tooltip(), "series": [series]}
@@ -237,6 +248,23 @@ def heatmap_option(x: List[str], y: List[str], matrix: List[List[float]],
                     "label": {"show": False},
                     "emphasis": {"itemStyle": {"borderColor": "#fff", "borderWidth": 1}}}],
     }
+
+
+def with_mark_line(option: Dict[str, Any], value: float, label: str = "",
+                   color: str = "rgba(255,255,255,0.35)",
+                   series_index: int = 0) -> Dict[str, Any]:
+    """Add a dashed horizontal reference line (e.g. a season average) to a series.
+
+    Mutates and returns `option` so it chains: render(with_mark_line(opt, avg)).
+    """
+    option["series"][series_index]["markLine"] = {
+        "silent": True, "symbol": "none",
+        "lineStyle": {"type": "dashed", "color": color, "width": 1.2},
+        "label": {"show": bool(label), "formatter": label, "position": "insideEndTop",
+                  "color": "rgba(255,255,255,0.7)", "fontSize": 10, "fontFamily": _FONT},
+        "data": [{"yAxis": value}],
+    }
+    return option
 
 
 def render(option: Dict[str, Any], height: str = "260px",

@@ -18,8 +18,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+
+from ui import charts
+from ui.charts import with_mark_line
 
 from components.animations import (
     inject_global_animations,
@@ -1228,35 +1230,15 @@ try:
             unsafe_allow_html=True,
         )
 
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=hist_df["event"],
-            y=hist_df["net_points"],
-            marker_color=[
-                "#00FF87" if p >= season_avg else "#FF4B4B"
-                for p in hist_df["net_points"]
-            ],
-            marker_line_width=0,
-            hovertemplate="GW%{x}: %{y} pts<extra></extra>",
-        ))
-        fig.add_hline(
-            y=season_avg, line_dash="dash",
-            line_color="rgba(255,255,255,0.35)",
-            annotation_text=f"Avg: {season_avg:.1f}",
-            annotation_position="top right",
-            annotation_font_color="rgba(255,255,255,0.7)",
+        opt = charts.bar_option(
+            x=list(hist_df["event"]),
+            y=[int(p) for p in hist_df["net_points"]],
+            colors=["#00FF87" if p >= season_avg else "#FF4B4B"
+                    for p in hist_df["net_points"]],
         )
-        fig.update_layout(
-            xaxis_title="Gameweek", yaxis_title="Net Points",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2",
-            height=280, showlegend=False,
-            xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-            yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-            margin=dict(t=20, l=10, r=10, b=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        opt["tooltip"]["formatter"] = "GW{b}: {c} pts"
+        charts.render(with_mark_line(opt, season_avg, f"Avg: {season_avg:.1f}"),
+                      height="280px", key="mt_net_points")
 
 except Exception as e:
     st.warning(f"Could not load points history: {e}")
