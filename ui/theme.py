@@ -151,11 +151,12 @@ h2, h3 {{ letter-spacing:-0.01em !important; }}
 
 
 def inject_theme() -> None:
-    """Inject the elevated global CSS once. Safe to call repeatedly."""
-    if st.session_state.get("_ff_theme_injected"):
-        return
+    """Inject the elevated global CSS. Safe to call repeatedly.
+
+    Runs on EVERY rerun · Streamlit removes elements that aren't re-emitted,
+    so guarding with session state kills the theme after the first interaction.
+    """
     st.markdown(_THEME_CSS, unsafe_allow_html=True)
-    st.session_state["_ff_theme_injected"] = True
 
 
 def icon(name: str, size: int = 18, color: str = "currentColor") -> str:

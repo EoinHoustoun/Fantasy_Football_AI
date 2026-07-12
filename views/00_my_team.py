@@ -618,6 +618,145 @@ with link_cols[2]:
     st.page_link("views/02_transfer_suggestions.py", label="All transfer targets →")
 
 
+# ── Shared replacement panel (edit mode + future-GW planner) ─────────────────
+def _replacement_panel(out_name: str, out_pos: str, out_price: float,
+                       avail_budget: float, owned_ids: set,
+                       key_prefix: str = "repl"):
+    """The axed banner + searchable, sortable list of affordable replacements.
+
+    Returns ("sign", row) the run a Sign button is pressed, ("cancel", None)
+    when the axe is cancelled, else (None, None).
+    """
+    from components.team_identity import team_color as _team_color
+
+    st.markdown(
+        f"""<div style="padding:12px 16px;
+            background:linear-gradient(135deg,rgba(255,75,75,0.10),rgba(0,0,0,0.4));
+            border:1px dashed #FF4B4B;border-radius:10px;margin-bottom:10px;" class="fplh-animate-in">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.12em;
+             text-transform:uppercase;font-weight:700;">Axed</div>
+        <div style="font-size:20px;font-weight:900;color:#fff;font-family:'Archivo',sans-serif;
+             text-decoration:line-through #FF4B4B 3px;">{out_name}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:3px;">
+         {out_pos} · £{out_price:.2f}m · budget £{avail_budget:.2f}m</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    pool = players_df_all[
+        (players_df_all["position"] == out_pos)
+        & (players_df_all["price"] <= avail_budget + 0.01)
+        & (players_df_all["status"] == "a")
+        & (~players_df_all["fpl_id"].isin(owned_ids))
+    ].copy()
+
+    _fdr_repl = _fdr_col if _fdr_col in pool.columns else next(
+        (c for c in pool.columns if c.startswith("avg_fdr_next_")), None
+    )
+    _xg_col  = next((c for c in ("xg", "fpl_xg", "expected_goals")
+                     if c in pool.columns), None)
+    _xgi_col = next((c for c in ("xgi", "fpl_xgi_per90", "expected_goal_involvements_per_90")
+                     if c in pool.columns), None)
+
+    _search = st.text_input("Search", key=f"{key_prefix}_search",
+                            placeholder="filter by name…", label_visibility="collapsed")
+    _f1, _f2 = st.columns(2)
+    with _f1:
+        _clubs = ["All clubs"] + sorted(pool["team"].dropna().unique().tolist())
+        _club = st.selectbox("Club", _clubs, key=f"{key_prefix}_club",
+                             label_visibility="collapsed")
+    with _f2:
+        _opts = ["Best (form+fixtures)", "Total points", "Form", "xP next GW"]
+        if _xg_col:  _opts.append("xG")
+        if _xgi_col: _opts.append("xGI/90")
+        _opts += ["Best fixtures", "Value", "Cheapest"]
+        _sortby = st.selectbox("Sort", _opts, key=f"{key_prefix}_sort",
+                               label_visibility="collapsed")
+    _show_all = st.toggle("Show every affordable option", key=f"{key_prefix}_show_all")
+
+    cand = pool
+    if _search:
+        cand = cand[cand["web_name"].str.contains(_search, case=False, na=False)]
+    if _club != "All clubs":
+        cand = cand[cand["team"] == _club]
+
+    if not cand.empty:
+        if _sortby == "Total points" and "total_points" in cand.columns:
+            cand = cand.sort_values("total_points", ascending=False)
+        elif _sortby == "Form":
+            cand = cand.sort_values("form", ascending=False)
+        elif _sortby == "xP next GW" and "ep_next" in cand.columns:
+            cand = cand.sort_values("ep_next", ascending=False)
+        elif _sortby == "xG" and _xg_col:
+            cand = cand.sort_values(_xg_col, ascending=False)
+        elif _sortby == "xGI/90" and _xgi_col:
+            cand = cand.sort_values(_xgi_col, ascending=False)
+        elif _sortby == "Best fixtures" and _fdr_repl:
+            cand = cand.sort_values(_fdr_repl, ascending=True)
+        elif _sortby == "Value" and "points_per_million" in cand.columns:
+            cand = cand.sort_values("points_per_million", ascending=False)
+        elif _sortby == "Cheapest":
+            cand = cand.sort_values("price", ascending=True)
+        else:  # Best (form + fixtures)
+            _form_n = (cand["form"].fillna(0).astype(float) / 10.0).clip(0, 1)
+            _fix_n = ((5.0 - cand[_fdr_repl].fillna(3).astype(float)) / 4.0).clip(0, 1) if _fdr_repl else 0.5
+            cand = cand.assign(_rank_score=0.4 * _form_n + 0.6 * _fix_n)
+            cand = cand.sort_values("_rank_score", ascending=False)
+
+    _total = len(cand)
+    cand = (cand if _show_all else cand.head(20)).reset_index(drop=True)
+    st.markdown(
+        f"<div style='margin:8px 0 6px;font-size:12px;color:rgba(255,255,255,0.6);'>"
+        f"{_total} option{'s' if _total != 1 else ''} within £{avail_budget:.1f}m"
+        f"{' · top 20' if not _show_all and _total > 20 else ''}</div>",
+        unsafe_allow_html=True,
+    )
+    if cand.empty:
+        st.info("No affordable replacements match those filters.")
+
+    result = (None, None)
+    for _, pc in cand.iterrows():
+        _tc = _team_color(pc.get("team_short"))
+        _xg_stat = ""
+        if _xg_col:
+            _xg_stat = (
+                f"<div style='text-align:center;'><div style='font-size:12px;font-weight:800;"
+                f"color:#e90052;'>{float(pc.get(_xg_col, 0) or 0):.1f}</div>"
+                f"<div style='font-size:9px;color:rgba(255,255,255,0.4);'>xG</div></div>"
+            )
+        st.markdown(
+            f"""<div class="fplh-card-hover" style="
+                background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);
+                border-left:3px solid {_tc};border-radius:9px;padding:9px 12px;margin-bottom:5px;
+                display:flex;justify-content:space-between;align-items:center;gap:10px;">
+              <div style="min-width:0;">
+                <div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;
+                     overflow:hidden;text-overflow:ellipsis;">{pc['web_name']}</div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.5);">
+                 {pc['team']} · £{float(pc['price']):.1f}m</div>
+              </div>
+              <div style="display:flex;gap:9px;align-items:center;flex-shrink:0;">
+                <div style="text-align:center;"><div style="font-size:12px;font-weight:800;color:#00FF87;">
+                     {float(pc.get('form', 0) or 0):.1f}</div>
+                     <div style="font-size:9px;color:rgba(255,255,255,0.4);">FORM</div></div>
+                <div style="text-align:center;"><div style="font-size:12px;font-weight:800;color:#04f5ff;">
+                     {float(pc.get('ep_next', 0) or 0):.1f}</div>
+                     <div style="font-size:9px;color:rgba(255,255,255,0.4);">xP</div></div>
+                {_xg_stat}
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        if st.button(f"✅ Sign {pc['web_name'][:14]}",
+                     key=f"{key_prefix}_sign_{int(pc['fpl_id'])}",
+                     use_container_width=True):
+            result = ("sign", pc)
+
+    if st.button("Cancel axe", key=f"{key_prefix}_cancel"):
+        result = ("cancel", None)
+    return result
+
+
 # ── SQUAD ─────────────────────────────────────────────────────────────────────
 st.markdown(
     '<div style="margin:30px 0 12px;display:flex;align-items:center;gap:14px;">'
@@ -815,14 +954,53 @@ with tab_pitch:
 
     from components.pitch_view import render_pitch_view, render_squad_pitch
     from components.loading import LINES_SQUAD, fpl_loader
+    from analytics import squad_planner as planner
+    from config import SIM_HORIZON
 
-    # ── Timeline scrubber ─────────────────────────────────────────────────────
-    # One pitch across the season: scrub back through played gameweeks (actual
-    # points, all the way to GW1) or sit on the current one (the pick team, xP).
+    # ── Clicks coming back from the interactive pitch (query-param links) ────
+    # These are full page reloads (session resets), so the link carries the
+    # viewed GW and drafts live on disk via squad_planner.
+    _qp = st.query_params
+    if "gw" in _qp:
+        try:
+            st.session_state.pitch_gw = int(_qp["gw"])
+        except (TypeError, ValueError):
+            pass
+        del _qp["gw"]
+    if "pitch_axe" in _qp:
+        try:
+            st.session_state.planner_axe_id = int(_qp["pitch_axe"])
+        except (TypeError, ValueError):
+            pass
+        del _qp["pitch_axe"]
+    if "pitch_detail" in _qp:
+        try:
+            st.session_state.planner_detail_id = int(_qp["pitch_detail"])
+        except (TypeError, ValueError):
+            pass
+        del _qp["pitch_detail"]
+
+    @st.dialog("Player intel", width="large")
+    def _player_dialog(pid: int) -> None:
+        from ui.player_detail import render_player_detail
+        render_player_detail(pid, players_df_all, key_prefix="dlg")
+
+    _detail_id = st.session_state.pop("planner_detail_id", None)
+    if _detail_id:
+        _player_dialog(int(_detail_id))
+
+    # ── Timeline scrubber · history ↔ current ↔ future plan ─────────────────
+    # Scrub back through played gameweeks (actual points, to GW1), sit on the
+    # current one (pick team), or scrub FORWARD into planning weeks: transfer
+    # players on the pitch itself, save the plan, bank free transfers.
     _events = {int(e["id"]): e for e in bs.get("events", [])}
-    _max_gw = int(current_gw) if current_gw else 1
+    _cur = int(current_gw) if current_gw else 1
+    _sim_on = bool(st.session_state.get("simulating_gw"))
+    _plan_first = _cur + 1
+    _plan_last = (_cur + SIM_HORIZON) if _sim_on else min(38, _cur + SIM_HORIZON)
+    _max_gw = max(_cur, _plan_last)
     if "pitch_gw" not in st.session_state:
-        st.session_state.pitch_gw = _max_gw
+        st.session_state.pitch_gw = _cur
     st.session_state.pitch_gw = max(1, min(_max_gw, int(st.session_state.pitch_gw)))
 
     def _nudge_gw(delta: int) -> None:
@@ -841,9 +1019,168 @@ with tab_pitch:
     view_gw = int(st.session_state.pitch_gw)
 
     _finished = bool(_events.get(view_gw, {}).get("finished", False))
-    _is_upcoming = (view_gw == _max_gw) and not _finished
+    _is_upcoming = (view_gw == _cur) and not _finished
 
-    if _is_upcoming:
+    if view_gw > _cur:
+        # ══ PLANNER · a future gameweek, transfers made on the pitch ═════════
+        # Working moves (pending) live on DISK as a draft, because ✕/kit taps
+        # reload the page and would wipe session state.
+        plans = planner.load_plans(int(team_id))
+        drafts = planner.load_drafts(int(team_id))
+        pending = list(drafts[view_gw]) if view_gw in drafts \
+            else list(plans.get(view_gw, []))
+
+        # Squad after every EARLIER saved week, then this week's pending moves.
+        prev_plans = {g: t for g, t in plans.items() if g < view_gw}
+        eff_base = planner.effective_squad(
+            squad_df, players_df_all, prev_plans,
+            up_to_gw=view_gw - 1, first_gw=_plan_first)
+        eff_now = planner.effective_squad(
+            eff_base, players_df_all, {view_gw: pending},
+            up_to_gw=view_gw, first_gw=view_gw)
+        if "upcoming_fixtures" in eff_now.columns:
+            eff_now["upcoming_fixtures"] = eff_now["upcoming_fixtures"].apply(_attach_short)
+        _in_ids = {int(t["in_id"]) for t in pending}
+        eff_now["_is_new"] = eff_now["fpl_id"].astype(int).isin(_in_ids)
+
+        # Transfer economy for THIS week
+        fts   = planner.free_transfers_for(prev_plans, view_gw, _plan_first)
+        used  = len(pending)
+        cost  = planner.hit_cost(used, fts)
+        bank_now = planner.bank_after(bank_m, prev_plans, view_gw - 1, _plan_first,
+                                      extra_pending=pending)
+        _saved = plans.get(view_gw, []) == pending
+
+        _hit_html = (
+            f'<div style="background:#FF4B4B;color:#fff;border-radius:8px;padding:6px 14px;'
+            f'font-weight:900;font-size:15px;font-family:\'Archivo\',sans-serif;'
+            f'box-shadow:0 0 18px rgba(255,75,75,0.45);">−{cost} pts hit</div>'
+        ) if cost > 0 else ""
+        _save_dot = ("#00FF87" if _saved else "#FFA500")
+        _save_txt = ("Saved" if _saved else "Unsaved changes")
+
+        def _chipbox(label, value, color="#fff"):
+            return (f'<div style="text-align:center;padding:6px 14px;">'
+                    f'<div style="font-size:18px;font-weight:900;color:{color};'
+                    f'font-family:\'Archivo\',sans-serif;">{value}</div>'
+                    f'<div style="font-size:9px;letter-spacing:0.14em;color:rgba(255,255,255,0.5);'
+                    f'text-transform:uppercase;font-weight:800;">{label}</div></div>')
+
+        st.markdown(
+            f'<div class="fplh-animate-in" style="display:flex;align-items:center;gap:8px;'
+            f'flex-wrap:wrap;justify-content:space-between;margin:4px 0 10px;padding:8px 14px;'
+            f'background:linear-gradient(135deg,rgba(255,215,0,0.07),rgba(0,0,0,0.35));'
+            f'border:1px solid rgba(255,215,0,0.30);border-radius:12px;">'
+            f'<div style="display:flex;align-items:center;gap:10px;">'
+            f'<span style="background:#FFD700;color:#000;border-radius:6px;padding:3px 10px;'
+            f'font-size:11px;font-weight:900;letter-spacing:0.08em;">PLANNING · GW{view_gw}</span>'
+            f'<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;'
+            f'color:rgba(255,255,255,0.6);"><span style="width:7px;height:7px;border-radius:50%;'
+            f'background:{_save_dot};"></span>{_save_txt}</span></div>'
+            f'<div style="display:flex;align-items:center;gap:2px;">'
+            + _chipbox("Transfers", used, "#fff")
+            + _chipbox("Free", fts, "#00FF87")
+            + _chipbox("Bank", f"£{bank_now:.1f}m", "#04f5ff")
+            + f'{_hit_html}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        # ✕ on the pitch → open the replacement panel (or undo a pending signing)
+        _axe_id = st.session_state.pop("planner_axe_id", None)
+        if _axe_id is not None:
+            if int(_axe_id) in _in_ids:
+                planner.save_draft(int(team_id), view_gw, [
+                    t for t in pending if int(t["in_id"]) != int(_axe_id)])
+                st.rerun()
+            _row = eff_now[eff_now["fpl_id"].astype(int) == int(_axe_id)]
+            if not _row.empty:
+                _r = _row.iloc[0]
+                st.session_state.plan_swap_out = {
+                    "id": int(_axe_id), "name": str(_r["web_name"]),
+                    "pos": str(_r["position"]), "price": float(_r["price"]),
+                }
+
+        _swap = st.session_state.get("plan_swap_out")
+        if _swap:
+            _pcol, _rcol = st.columns([1.35, 1], gap="large")
+        else:
+            _pcol = st.container()
+        with _pcol:
+            render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
+                              title_right=f"GW{view_gw} plan")
+        if _swap:
+            with _rcol:
+                _budget = bank_now + float(_swap["price"])
+                _owned = set(eff_now["fpl_id"].astype(int).tolist())
+                _action, _pick = _replacement_panel(
+                    _swap["name"], _swap["pos"], float(_swap["price"]),
+                    _budget, _owned, key_prefix=f"plan{view_gw}")
+                if _action == "sign" and _pick is not None:
+                    pending.append({
+                        "out_id":    int(_swap["id"]),
+                        "out_name":  _swap["name"],
+                        "in_id":     int(_pick["fpl_id"]),
+                        "in_name":   str(_pick["web_name"]),
+                        "position":  _swap["pos"],
+                        "price_out": float(_swap["price"]),
+                        "price_in":  float(_pick["price"]),
+                    })
+                    planner.save_draft(int(team_id), view_gw, pending)
+                    st.session_state.pop("plan_swap_out", None)
+                    # No scribble overlay here: the planner needs st.rerun() so
+                    # the pitch above refreshes, and overlay + rerun race (rule 5).
+                    st.rerun()
+                elif _action == "cancel":
+                    st.session_state.pop("plan_swap_out", None)
+                    st.rerun()
+
+        # This week's moves + save controls
+        if pending:
+            st.markdown(
+                "<div style='margin-top:12px;font-size:13px;font-weight:800;color:#fff;'>"
+                f"GW{view_gw} moves</div>", unsafe_allow_html=True)
+            for _i, _t in enumerate(pending):
+                _c1, _c2 = st.columns([10, 1])
+                with _c1:
+                    st.markdown(
+                        f"<div style='background:rgba(255,255,255,0.03);border:1px solid "
+                        f"rgba(255,255,255,0.08);border-left:3px solid #00FF87;border-radius:8px;"
+                        f"padding:8px 12px;margin-bottom:5px;'>"
+                        f"<span style='color:rgba(255,255,255,0.45);text-decoration:line-through;'>"
+                        f"{_t['out_name']}</span>"
+                        f"<span style='color:rgba(255,255,255,0.5);margin:0 8px;'>→</span>"
+                        f"<span style='color:#00FF87;font-weight:800;'>{_t['in_name']}</span>"
+                        f"<span style='font-size:11px;color:rgba(255,255,255,0.4);margin-left:8px;'>"
+                        f"£{_t['price_out']:.1f}m → £{_t['price_in']:.1f}m</span></div>",
+                        unsafe_allow_html=True)
+                with _c2:
+                    if st.button("↩", key=f"plan_undo_{view_gw}_{_i}", help="Undo this move"):
+                        pending.pop(_i)
+                        planner.save_draft(int(team_id), view_gw, pending)
+                        st.rerun()
+
+        _b1, _b2, _b3 = st.columns([1.4, 1, 1])
+        with _b1:
+            if st.button(f"💾 Save GW{view_gw} plan", key=f"plan_save_{view_gw}",
+                         type="primary", disabled=_saved, use_container_width=True):
+                planner.save_plan(int(team_id), view_gw, pending)
+                planner.clear_draft(int(team_id), view_gw)
+                st.toast(f"Saved · GW{view_gw} plan ({used} transfer{'s' if used != 1 else ''})")
+                st.rerun()
+        with _b2:
+            if st.button("Reset to saved", key=f"plan_reset_{view_gw}",
+                         disabled=_saved, use_container_width=True):
+                planner.clear_draft(int(team_id), view_gw)
+                st.rerun()
+        with _b3:
+            if st.button("Clear this week", key=f"plan_clear_{view_gw}",
+                         disabled=not (pending or plans.get(view_gw)),
+                         use_container_width=True):
+                planner.save_plan(int(team_id), view_gw, [])
+                planner.clear_draft(int(team_id), view_gw)
+                st.rerun()
+
+    elif _is_upcoming:
         st.markdown(_mode_pill(f"Upcoming · GW{view_gw}", "your pick team · projected xP & fixtures",
                                "#04f5ff"), unsafe_allow_html=True)
         render_pitch_view(squad_df)
@@ -973,143 +1310,28 @@ with tab_pitch:
                 out_pos  = st.session_state.get("swap_out_position", "MID")
                 out_price = float(st.session_state.get("swap_out_price", 0.0))
                 avail_budget = bank_m + budget_boost + out_price
-
-                st.markdown(
-                    f"""<div style="padding:12px 16px;
-                        background:linear-gradient(135deg,rgba(255,75,75,0.10),rgba(0,0,0,0.4));
-                        border:1px dashed #FF4B4B;border-radius:10px;margin-bottom:10px;" class="fplh-animate-in">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.12em;
-                         text-transform:uppercase;font-weight:700;">Axed</div>
-                    <div style="font-size:20px;font-weight:900;color:#fff;font-family:'Archivo',sans-serif;
-                         text-decoration:line-through #FF4B4B 3px;">{out_name}</div>
-                    <div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:3px;">
-                     {out_pos} · £{out_price:.2f}m · budget £{avail_budget:.2f}m</div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
-
                 owned_ids = set(squad_df["fpl_id"].tolist())
-                pool = players_df_all[
-                    (players_df_all["position"] == out_pos)
-                    & (players_df_all["price"] <= avail_budget + 0.01)
-                    & (players_df_all["status"] == "a")
-                    & (~players_df_all["fpl_id"].isin(owned_ids))
-                ].copy()
 
-                _fdr_repl = _fdr_col if _fdr_col in pool.columns else next(
-                    (c for c in pool.columns if c.startswith("avg_fdr_next_")), None
-                )
-                _xg_col  = next((c for c in ("xg", "fpl_xg", "expected_goals")
-                                 if c in pool.columns), None)
-                _xgi_col = next((c for c in ("xgi", "fpl_xgi_per90", "expected_goal_involvements_per_90")
-                                 if c in pool.columns), None)
-
-                # Filters · search, club, sort (by whatever matters to you).
-                _search = st.text_input("Search", key="repl_search",
-                                        placeholder="filter by name…", label_visibility="collapsed")
-                _f1, _f2 = st.columns(2)
-                with _f1:
-                    _clubs = ["All clubs"] + sorted(pool["team"].dropna().unique().tolist())
-                    _club = st.selectbox("Club", _clubs, key="repl_club", label_visibility="collapsed")
-                with _f2:
-                    _opts = ["Best (form+fixtures)", "Total points", "Form", "xP next GW"]
-                    if _xg_col:  _opts.append("xG")
-                    if _xgi_col: _opts.append("xGI/90")
-                    _opts += ["Best fixtures", "Value", "Cheapest"]
-                    _sortby = st.selectbox("Sort", _opts, key="repl_sort", label_visibility="collapsed")
-                _show_all = st.toggle("Show every affordable option", key="repl_show_all")
-
-                cand = pool
-                if _search:
-                    cand = cand[cand["web_name"].str.contains(_search, case=False, na=False)]
-                if _club != "All clubs":
-                    cand = cand[cand["team"] == _club]
-
-                if not cand.empty:
-                    if _sortby == "Total points" and "total_points" in cand.columns:
-                        cand = cand.sort_values("total_points", ascending=False)
-                    elif _sortby == "Form":
-                        cand = cand.sort_values("form", ascending=False)
-                    elif _sortby == "xP next GW" and "ep_next" in cand.columns:
-                        cand = cand.sort_values("ep_next", ascending=False)
-                    elif _sortby == "xG" and _xg_col:
-                        cand = cand.sort_values(_xg_col, ascending=False)
-                    elif _sortby == "xGI/90" and _xgi_col:
-                        cand = cand.sort_values(_xgi_col, ascending=False)
-                    elif _sortby == "Best fixtures" and _fdr_repl:
-                        cand = cand.sort_values(_fdr_repl, ascending=True)
-                    elif _sortby == "Value" and "points_per_million" in cand.columns:
-                        cand = cand.sort_values("points_per_million", ascending=False)
-                    elif _sortby == "Cheapest":
-                        cand = cand.sort_values("price", ascending=True)
-                    else:  # Best (form + fixtures)
-                        _form_n = (cand["form"].fillna(0).astype(float) / 10.0).clip(0, 1)
-                        _fix_n = ((5.0 - cand[_fdr_repl].fillna(3).astype(float)) / 4.0).clip(0, 1) if _fdr_repl else 0.5
-                        cand = cand.assign(_rank_score=0.4 * _form_n + 0.6 * _fix_n)
-                        cand = cand.sort_values("_rank_score", ascending=False)
-
-                _total = len(cand)
-                cand = (cand if _show_all else cand.head(20)).reset_index(drop=True)
-                st.markdown(
-                    f"<div style='margin:8px 0 6px;font-size:12px;color:rgba(255,255,255,0.6);'>"
-                    f"{_total} option{'s' if _total != 1 else ''} within £{avail_budget:.1f}m"
-                    f"{' · top 20' if not _show_all and _total > 20 else ''}</div>",
-                    unsafe_allow_html=True,
-                )
-                if cand.empty:
-                    st.info("No affordable replacements match those filters.")
-
-                for _, pc in cand.iterrows():
-                    _tc = _team_color(pc.get("team_short"))
-                    _xg_stat = ""
-                    if _xg_col:
-                        _xg_stat = (
-                            f"<div style='text-align:center;'><div style='font-size:12px;font-weight:800;"
-                            f"color:#e90052;'>{float(pc.get(_xg_col, 0) or 0):.1f}</div>"
-                            f"<div style='font-size:9px;color:rgba(255,255,255,0.4);'>xG</div></div>"
-                        )
-                    st.markdown(
-                        f"""<div class="fplh-card-hover" style="
-                            background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);
-                            border-left:3px solid {_tc};border-radius:9px;padding:9px 12px;margin-bottom:5px;
-                            display:flex;justify-content:space-between;align-items:center;gap:10px;">
-                          <div style="min-width:0;">
-                            <div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;
-                                 overflow:hidden;text-overflow:ellipsis;">{pc['web_name']}</div>
-                            <div style="font-size:11px;color:rgba(255,255,255,0.5);">
-                             {pc['team']} · £{float(pc['price']):.1f}m</div>
-                          </div>
-                          <div style="display:flex;gap:9px;align-items:center;flex-shrink:0;">
-                            <div style="text-align:center;"><div style="font-size:12px;font-weight:800;color:#00FF87;">
-                                 {float(pc.get('form', 0) or 0):.1f}</div>
-                                 <div style="font-size:9px;color:rgba(255,255,255,0.4);">FORM</div></div>
-                            <div style="text-align:center;"><div style="font-size:12px;font-weight:800;color:#04f5ff;">
-                                 {float(pc.get('ep_next', 0) or 0):.1f}</div>
-                                 <div style="font-size:9px;color:rgba(255,255,255,0.4);">xP</div></div>
-                            {_xg_stat}
-                          </div>
-                        </div>""",
-                        unsafe_allow_html=True,
-                    )
-                    if st.button(f"✅ Sign {pc['web_name'][:14]}", key=f"sign_{int(pc['fpl_id'])}",
-                                 use_container_width=True):
-                        pending = st.session_state.get("pending_swaps", [])
-                        pending.append({
-                            "out_id":    int(swap_out_id),
-                            "out_name":  out_name,
-                            "in_id":     int(pc["fpl_id"]),
-                            "in_name":   str(pc["web_name"]),
-                            "position":  out_pos,
-                            "price_out": out_price,
-                            "price_in":  float(pc["price"]),
-                        })
-                        st.session_state.pending_swaps = pending
-                        st.session_state._swap_anim = {"out": out_name, "in": str(pc["web_name"])}
-                        for k in ("swap_out_fpl_id", "swap_out_name",
-                                  "swap_out_position", "swap_out_price"):
-                            st.session_state.pop(k, None)
-
-                if st.button("Cancel axe", key="cancel_axe"):
+                _action, _pick = _replacement_panel(
+                    out_name, out_pos, out_price, avail_budget, owned_ids,
+                    key_prefix="repl")
+                if _action == "sign" and _pick is not None:
+                    pending = st.session_state.get("pending_swaps", [])
+                    pending.append({
+                        "out_id":    int(swap_out_id),
+                        "out_name":  out_name,
+                        "in_id":     int(_pick["fpl_id"]),
+                        "in_name":   str(_pick["web_name"]),
+                        "position":  out_pos,
+                        "price_out": out_price,
+                        "price_in":  float(_pick["price"]),
+                    })
+                    st.session_state.pending_swaps = pending
+                    st.session_state._swap_anim = {"out": out_name, "in": str(_pick["web_name"])}
+                    for k in ("swap_out_fpl_id", "swap_out_name",
+                              "swap_out_position", "swap_out_price"):
+                        st.session_state.pop(k, None)
+                elif _action == "cancel":
                     for k in ("swap_out_fpl_id", "swap_out_name",
                               "swap_out_position", "swap_out_price"):
                         st.session_state.pop(k, None)

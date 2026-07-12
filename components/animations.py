@@ -168,11 +168,13 @@ def count_up(value, decimals: int = 0) -> str:
 
 
 def inject_global_animations() -> None:
-    """Inject global CSS (keyframes + utility classes). Safe to call multiple times."""
-    if st.session_state.get("_fplh_css_injected"):
-        return
+    """Inject global CSS (keyframes + utility classes). Safe to call multiple times.
+
+    Must run on EVERY rerun · Streamlit drops elements that aren't re-emitted,
+    so a session-state guard here silently kills all animation CSS after the
+    first interaction (hover lifts, count-ups, stagger all stop working).
+    """
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
-    st.session_state._fplh_css_injected = True
 
 
 # ── Scribble swap overlay ─────────────────────────────────────────────────────

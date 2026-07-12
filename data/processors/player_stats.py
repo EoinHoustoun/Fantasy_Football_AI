@@ -94,7 +94,13 @@ def build_player_universe(
         players_df["form_is_fallback"] = False
 
     if simulate_gw is not None:
-        fixtures_df = _append_simulated_gw(fixtures_df, source_gw=1, new_gw=simulate_gw)
+        # A whole planning horizon, not one week: GW1..5 replay as
+        # simulate_gw..simulate_gw+4 so the My Team planner can scrub through
+        # future weeks, each with its own fixtures (see SIM_HORIZON in config).
+        from config import SIM_HORIZON
+        for offset in range(SIM_HORIZON):
+            fixtures_df = _append_simulated_gw(
+                fixtures_df, source_gw=1 + offset, new_gw=simulate_gw + offset)
         current_gw = simulate_gw
 
     logger.info(f"Loaded {len(players_df)} players, GW{current_gw}"

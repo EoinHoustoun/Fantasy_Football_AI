@@ -44,6 +44,11 @@ FFH_PASSWORD  = os.getenv("FFH_PASSWORD")
 # How many upcoming gameweeks to show in fixture tickers
 FIXTURE_LOOKAHEAD = 6
 
+# Off-season sandbox: how many future gameweeks to simulate (GW1..N replayed as
+# GW39..38+N). The My Team planner scrubs through these to plan transfers week
+# by week, banking free transfers when a week is skipped.
+SIM_HORIZON = 5
+
 # ── Transfer Scoring Weights ──────────────────────────────────────────────────
 # These weights drive the transfer suggestion engine.
 # Tune these after each gameweek based on what's working.

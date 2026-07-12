@@ -68,11 +68,21 @@ def _fdr_color(fdr: float) -> str:
     return "#FF4B4B"
 
 
-def _fixture_label(row: pd.Series) -> str:
+def _fixture_label(row: pd.Series, fixture_gw: Optional[int] = None) -> str:
     fixtures = row.get("upcoming_fixtures")
     if not isinstance(fixtures, list) or not fixtures:
         return '<span style="color:rgba(255,255,255,0.4);">-</span>'
-    nxt = fixtures[0]
+    nxt = None
+    if fixture_gw is not None:
+        for f in fixtures:
+            if int(f.get("gw", -1) or -1) == int(fixture_gw):
+                nxt = f
+                break
+        if nxt is None:
+            return ('<span style="background:#444;color:#ccc;border-radius:4px;'
+                    'padding:2px 6px;font-size:11px;font-weight:800;">BLANK</span>')
+    else:
+        nxt = fixtures[0]
     opp   = str(nxt.get("opp_short") or nxt.get("opponent", "?"))[:3].upper()
     home  = bool(nxt.get("home", False))
     fdr   = float(nxt.get("fdr", 3) or 3)
@@ -152,22 +162,53 @@ def _nameplate(name: str, tcol: str) -> str:
     )
 
 
-def _card(row: pd.Series, is_bench: bool = False) -> str:
+def _axe_badge(fpl_id: int, gw: Optional[int] = None) -> str:
+    """The always-visible transfer-out ✕ above a kit (planner mode).
+
+    A same-tab query-param link. This is a FULL page reload (session resets),
+    so the link carries the viewed GW and the page persists working drafts to
+    disk · nothing is lost when the ✕ is tapped.
+    """
+    _gw = f"&gw={int(gw)}" if gw else ""
+    return (
+        f'<a href="?pitch_axe={fpl_id}{_gw}" target="_self" style="position:absolute;'
+        f'top:-14px;left:50%;transform:translateX(-50%);width:20px;height:20px;'
+        f'border-radius:50%;display:grid;place-items:center;background:#FF4B4B;'
+        f'color:#fff;font-size:12px;font-weight:900;text-decoration:none;'
+        f'border:2px solid #0B0E13;box-shadow:0 2px 6px rgba(0,0,0,0.5);'
+        f'z-index:5;line-height:1;">×</a>'
+    )
+
+
+def _card(row: pd.Series, is_bench: bool = False,
+          interactive: bool = False, fixture_gw: Optional[int] = None) -> str:
     code   = int(row.get("team_code", 1) or 1)
     is_gkp = str(row.get("position", "")) == "GKP"
     name   = str(row.get("web_name", "?"))
+    fpl_id = int(row.get("fpl_id", 0) or 0)
     xp     = _num(row.get("ep_next")) or 0.0
     tcol   = team_color(row.get("team_short"))
     opacity = "0.62" if is_bench else "1"
+    is_new = bool(row.get("_is_new", False))
+
+    shirt = _shirt_img(code, is_gkp)
+    if interactive and fpl_id:
+        # Whole kit is a link → opens the player's stats popup.
+        _gw = f"&gw={int(fixture_gw)}" if fixture_gw else ""
+        shirt = (f'<a href="?pitch_detail={fpl_id}{_gw}" target="_self" '
+                 f'style="text-decoration:none;cursor:pointer;">{shirt}</a>')
+    axe = _axe_badge(fpl_id, fixture_gw) if interactive and fpl_id else ""
+    ring = ("box-shadow:0 0 0 2px #00FF87,0 0 18px rgba(0,255,135,0.5);"
+            "border-radius:8px;" if is_new else "")
 
     return (
         f'<div style="display:flex;flex-direction:column;align-items:center;'
         f'width:96px;opacity:{opacity};">'
-        f'<div style="position:relative;display:inline-block;">'
-        f'{_shirt_img(code, is_gkp)}{_kit_markers(row)}'
+        f'<div style="position:relative;display:inline-block;padding:2px;{ring}">'
+        f'{axe}{shirt}{_kit_markers(row)}'
         f'</div>'
         f'{_nameplate(name, tcol)}'
-        f'<div style="margin-top:4px;">{_fixture_label(row)}</div>'
+        f'<div style="margin-top:4px;">{_fixture_label(row, fixture_gw)}</div>'
         f'<div style="color:#00FF87;font-size:13px;font-weight:800;margin-top:3px;'
         f'font-family:{_DISPLAY};">'
         f'{xp:.1f} <span style="color:rgba(255,255,255,0.5);font-weight:500;font-size:10px;">xP</span>'
@@ -176,9 +217,11 @@ def _card(row: pd.Series, is_bench: bool = False) -> str:
     )
 
 
-def _position_row(players: List[pd.Series]) -> str:
+def _position_row(players: List[pd.Series], interactive: bool = False,
+                  fixture_gw: Optional[int] = None) -> str:
     return (f'<div style="{_ROW_STYLE}border-bottom:1px solid rgba(255,255,255,0.14);">'
-            + "".join(_card(p) for p in players) + '</div>')
+            + "".join(_card(p, interactive=interactive, fixture_gw=fixture_gw)
+                      for p in players) + '</div>')
 
 
 def _formation_bar(formation: str, title_right: str = "") -> str:
@@ -205,30 +248,40 @@ def _bench_strip(cards_html: str) -> str:
     )
 
 
-def _legend() -> str:
+def _legend(interactive: bool = False) -> str:
     def chip(bg, g, txt, color="#000"):
         return (f'<span style="display:inline-flex;align-items:center;gap:5px;">'
                 f'<span style="display:inline-grid;place-items:center;width:15px;height:15px;'
                 f'border-radius:50%;background:{bg};color:{color};font-size:9px;font-weight:900;">{g}</span>'
                 f'{txt}</span>')
+    planner = (chip("#FF4B4B", "×", "Transfer out", "#fff")
+               + '<span>Tap a kit for the player\'s stats</span>') if interactive else ""
     return (
         '<div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;'
         'margin-top:10px;font-size:11px;color:rgba(255,255,255,0.5);">'
         + chip("#FFD700", "C", "Captain") + chip("#FFB000", "P", "Penalty")
         + chip("#00FF87", "D", "DEFCON", "#043")
         + chip("#FF4B4B", "", "Injury/doubt", "#fff")
+        + planner
         + '<span>xP = expected points · fixture = OPP(H/A), FDR colour</span>'
         + '</div>'
     )
 
 
-def render_pitch_view(squad_df: pd.DataFrame) -> None:
+def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
+                      fixture_gw: Optional[int] = None,
+                      title_right: str = "") -> None:
     """Render the live squad on the stadium pitch (GK→DEF→MID→FWD, top to bottom).
 
     Required columns: web_name, position, team_code, is_captain, is_vice_captain,
                       on_bench, squad_position, status.
     Optional (enrich the card): ep_next, upcoming_fixtures, team_short,
-                      penalties_order, defcon_monster_score.
+                      penalties_order, defcon_monster_score, _is_new (mint ring).
+
+    `interactive` (planner mode): every kit gets a permanent ✕ transfer badge
+    and the kit itself opens the player's stats popup (query-param links).
+    `fixture_gw`: show each player's fixture FOR that gameweek (future planning)
+    instead of their next fixture.
     """
     xi    = squad_df[~squad_df["on_bench"]].sort_values("squad_position")
     bench = squad_df[squad_df["on_bench"]].sort_values("squad_position")
@@ -236,19 +289,23 @@ def render_pitch_view(squad_df: pd.DataFrame) -> None:
     by_pos = {p: [r for _, r in xi.iterrows() if r["position"] == p]
               for p in ("GKP", "DEF", "MID", "FWD")}
     formation = f"{len(by_pos['DEF'])}-{len(by_pos['MID'])}-{len(by_pos['FWD'])}"
-    bench_cards = "".join(_card(r, is_bench=True) for _, r in bench.iterrows())
+    bench_cards = "".join(
+        _card(r, is_bench=True, interactive=interactive, fixture_gw=fixture_gw)
+        for _, r in bench.iterrows())
 
     html = (
         '<div style="font-family:sans-serif;max-width:900px;margin:0 auto;">'
-        + _formation_bar(formation)
+        + _formation_bar(formation, title_right)
         + f'<div style="{_PITCH_BG}">' + _PITCH_LINES
         + '<div style="position:relative;z-index:2;">'
-        + _position_row(by_pos["GKP"]) + _position_row(by_pos["DEF"])
-        + _position_row(by_pos["MID"]) + _position_row(by_pos["FWD"])
+        + _position_row(by_pos["GKP"], interactive, fixture_gw)
+        + _position_row(by_pos["DEF"], interactive, fixture_gw)
+        + _position_row(by_pos["MID"], interactive, fixture_gw)
+        + _position_row(by_pos["FWD"], interactive, fixture_gw)
         + '</div>'
         + _bench_strip(bench_cards)
         + '</div>'
-        + _legend()
+        + _legend(interactive)
         + '</div>'
     )
     st.markdown(html, unsafe_allow_html=True)
