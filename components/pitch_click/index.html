@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<!--
+  Clickable pitch host · a minimal bidirectional Streamlit component.
+
+  Receives the pitch HTML as an arg, injects it, and reports clicks on any
+  element carrying data-ffaction / data-ffid back over the websocket via
+  setComponentValue. This is what makes ✕ / kit taps FLUID (no page reload,
+  no session reset) · the previous query-param links caused full reloads.
+-->
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font-family: 'Inter', 'SF Pro Display', sans-serif; }
+  [data-ffaction] { cursor: pointer; }
+  @keyframes fplh-pulse-gold {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,215,0,0.45); }
+    50%      { box-shadow: 0 0 24px 6px rgba(255,215,0,0.45); }
+  }
+  .fplh-captain-pulse { animation: fplh-pulse-gold 2.2s ease-in-out infinite; border-radius: 50%; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<div id="root"></div>
+<script>
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*");
+  }
+  function setHeight() {
+    send("streamlit:setFrameHeight", { height: document.getElementById("root").scrollHeight + 8 });
+  }
+  window.addEventListener("message", function (ev) {
+    var msg = ev.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+    var root = document.getElementById("root");
+    root.innerHTML = (msg.args && msg.args.html) || "";
+    root.querySelectorAll("[data-ffaction]").forEach(function (el) {
+      el.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        send("streamlit:setComponentValue", {
+          dataType: "json",
+          value: {
+            action: el.getAttribute("data-ffaction"),
+            id: parseInt(el.getAttribute("data-ffid"), 10),
+            nonce: Date.now(),
+          },
+        });
+      });
+    });
+    setHeight();
+    // Kits load async · settle the frame height a few times.
+    root.querySelectorAll("img").forEach(function (im) {
+      im.addEventListener("load", setHeight);
+    });
+    setTimeout(setHeight, 300);
+    setTimeout(setHeight, 1200);
+  });
+  send("streamlit:componentReady", { apiVersion: 1 });
+</script>

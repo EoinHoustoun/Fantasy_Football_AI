@@ -61,6 +61,48 @@ def _percentile(peers: pd.Series, value: float) -> float:
     return float((s < value).mean() * 100.0)
 
 
+def radar_percentiles(universe: pd.DataFrame, row: pd.Series
+                      ) -> Tuple[List[Dict[str, Any]], List[float]]:
+    """(indicators, values) · the player's percentile within their position on
+    each radar metric. Shared by the deep-dive panel and head-to-head dialogs."""
+    peers = universe[universe["position"] == str(row.get("position", ""))]
+    indicators, values = [], []
+    for label, col, _ in _RADAR_METRICS:
+        if col in universe.columns:
+            indicators.append({"name": label, "max": 100})
+            values.append(round(_percentile(peers[col], float(row.get(col, 0) or 0)), 1))
+    return indicators, values
+
+
+def price_band_baseline(universe: pd.DataFrame, row: pd.Series,
+                        band: float = 1.0) -> Tuple[List[float], str]:
+    """The comparison polygon: average percentile of positional peers priced
+    within ±band £m of this player (so 'is he good FOR HIS PRICE?').
+
+    Widens the band if fewer than 8 peers qualify. Returns (values, label).
+    """
+    pos = str(row.get("position", ""))
+    price = float(row.get("price", 0) or 0)
+    peers = universe[universe["position"] == pos]
+    for b in (band, band * 2, 99.0):
+        band_df = peers[(peers["price"] >= price - b) & (peers["price"] <= price + b)
+                        & (peers["fpl_id"] != row.get("fpl_id"))]
+        if len(band_df) >= 8:
+            break
+    values = []
+    for label, col, _ in _RADAR_METRICS:
+        if col in universe.columns:
+            s = pd.to_numeric(peers[col], errors="coerce").dropna()
+            bvals = pd.to_numeric(band_df[col], errors="coerce").dropna()
+            if s.empty or bvals.empty:
+                values.append(50.0)
+            else:
+                values.append(round(float(
+                    bvals.apply(lambda v: (s < v).mean() * 100.0).mean()), 1))
+    lo, hi = max(3.5, price - b), price + b
+    return values, f"{pos} £{lo:.1f}–{hi:.1f}m avg"
+
+
 def _stat_tile(label: str, value: str, color: str) -> str:
     return (
         f'<div style="text-align:center;min-width:56px;">'
@@ -115,16 +157,15 @@ def render_player_detail(fpl_id: int, universe: pd.DataFrame,
 
     with c_radar:
         st.markdown("<div style='font-size:10px;letter-spacing:0.14em;text-transform:uppercase;"
-                    "font-weight:800;color:rgba(255,255,255,0.5);'>Strengths vs position</div>",
+                    "font-weight:800;color:rgba(255,255,255,0.5);'>Strengths vs price peers</div>",
                     unsafe_allow_html=True)
-        indicators, values = [], []
-        for label, col, _ in _RADAR_METRICS:
-            if col in universe.columns:
-                indicators.append({"name": label, "max": 100})
-                values.append(round(_percentile(peers[col], float(row.get(col, 0) or 0)), 1))
+        indicators, values = radar_percentiles(universe, row)
         if len(indicators) >= 3:
-            charts.render(charts.radar_option(indicators, values, str(row.get("web_name", ""))),
-                          height="240px", key=f"{key_prefix}_radar_{fpl_id}")
+            base_vals, base_label = price_band_baseline(universe, row)
+            charts.render(charts.radar_compare_option(indicators, [
+                (base_label, base_vals, "#8891A5", 0.12),
+                (str(row.get("web_name", "")), values, COLORS["mint"], 0.28),
+            ]), height="250px", key=f"{key_prefix}_radar_{fpl_id}")
         else:
             st.caption("Not enough metrics to chart.")
 

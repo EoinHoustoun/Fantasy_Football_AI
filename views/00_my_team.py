@@ -621,11 +621,12 @@ with link_cols[2]:
 # ── Shared replacement panel (edit mode + future-GW planner) ─────────────────
 def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                        avail_budget: float, owned_ids: set,
-                       key_prefix: str = "repl"):
+                       key_prefix: str = "repl", out_id: int = 0):
     """The axed banner + searchable, sortable list of affordable replacements.
 
-    Returns ("sign", row) the run a Sign button is pressed, ("cancel", None)
-    when the axe is cancelled, else (None, None).
+    Returns ("sign", row) the run a Sign button is pressed, ("compare", row)
+    when a head-to-head is requested, ("cancel", None) when the axe is
+    cancelled, else (None, None).
     """
     from components.team_identity import team_color as _team_color
 
@@ -697,10 +698,17 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
             cand = cand.sort_values("points_per_million", ascending=False)
         elif _sortby == "Cheapest":
             cand = cand.sort_values("price", ascending=True)
-        else:  # Best (form + fixtures)
+        else:  # Best · form + xP + fixtures. Form and xP are player-level
+            # signals, so the list ranks PLAYERS, not clubs (fixture ease is
+            # club-level and used to clump the list by team).
             _form_n = (cand["form"].fillna(0).astype(float) / 10.0).clip(0, 1)
             _fix_n = ((5.0 - cand[_fdr_repl].fillna(3).astype(float)) / 4.0).clip(0, 1) if _fdr_repl else 0.5
-            cand = cand.assign(_rank_score=0.4 * _form_n + 0.6 * _fix_n)
+            if "ep_next" in cand.columns:
+                _xp = pd.to_numeric(cand["ep_next"], errors="coerce").fillna(0.0)
+                _xp_n = (_xp / _xp.max()).clip(0, 1) if _xp.max() > 0 else 0.0
+            else:
+                _xp_n = 0.0
+            cand = cand.assign(_rank_score=0.45 * _form_n + 0.30 * _xp_n + 0.25 * _fix_n)
             cand = cand.sort_values("_rank_score", ascending=False)
 
     _total = len(cand)
@@ -747,14 +755,106 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
             </div>""",
             unsafe_allow_html=True,
         )
-        if st.button(f"✅ Sign {pc['web_name'][:14]}",
-                     key=f"{key_prefix}_sign_{int(pc['fpl_id'])}",
-                     use_container_width=True):
-            result = ("sign", pc)
+        _bsign, _bcmp = st.columns([2.6, 1])
+        with _bsign:
+            if st.button(f"✅ Sign {pc['web_name'][:14]}",
+                         key=f"{key_prefix}_sign_{int(pc['fpl_id'])}",
+                         use_container_width=True):
+                result = ("sign", pc)
+        with _bcmp:
+            if st.button("⚖ vs", key=f"{key_prefix}_cmp_{int(pc['fpl_id'])}",
+                         use_container_width=True,
+                         help=f"Head-to-head: {out_name} vs {pc['web_name']}"):
+                result = ("compare", pc)
 
     if st.button("Cancel axe", key=f"{key_prefix}_cancel"):
         result = ("cancel", None)
     return result
+
+
+@st.dialog("Head to head", width="large")
+def _h2h_dialog(out_id: int, in_id: int) -> None:
+    """One-v-one · the player you're axing vs the player you'd sign."""
+    from components.team_identity import shirt_html as _sh, team_color as _tc
+    from ui.player_detail import radar_percentiles
+    from ui import charts as _ch
+
+    rows = {}
+    for pid in (out_id, in_id):
+        m = players_df_all[players_df_all["fpl_id"] == int(pid)]
+        if m.empty:
+            st.info("Player data unavailable.")
+            return
+        rows[pid] = m.iloc[0]
+    p_out, p_in = rows[out_id], rows[in_id]
+
+    def _head(r, accent, tag):
+        fx = _attach_short(r.get("upcoming_fixtures"))
+        pills = _fixture_pills(fx, n=5)
+        return (
+            f'<div style="border:1px solid {accent}55;border-top:3px solid {accent};'
+            f'border-radius:12px;padding:14px 16px;background:rgba(22,26,34,0.85);">'
+            f'<div style="font-size:10px;letter-spacing:0.16em;text-transform:uppercase;'
+            f'font-weight:900;color:{accent};margin-bottom:8px;">{tag}</div>'
+            f'<div style="display:flex;align-items:center;gap:12px;">'
+            f'{_sh(int(r.get("team_code", 1) or 1), is_gkp=str(r.get("position")) == "GKP", width=50)}'
+            f'<div><div style="font-family:\'Archivo\',sans-serif;font-size:20px;'
+            f'font-weight:900;color:#fff;">{r.get("web_name", "?")}</div>'
+            f'<div style="font-size:12px;color:rgba(255,255,255,0.55);">'
+            f'{r.get("team", "?")} · {r.get("position", "?")} · £{float(r.get("price", 0) or 0):.1f}m</div></div></div>'
+            f'<div style="margin-top:10px;">{pills}</div></div>'
+        )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(_head(p_out, "#FF4B4B", "Out"), unsafe_allow_html=True)
+    with c2:
+        st.markdown(_head(p_in, "#00FF87", "In"), unsafe_allow_html=True)
+
+    # Stat-by-stat · winner highlighted per row
+    _stats = [("Form", "form", 1), ("xP next", "ep_next", 1),
+              ("Season pts", "total_points", 0), ("xGI/90", "fpl_xgi_per90", 2),
+              ("Minutes", "minutes", 0), ("Owned %", "ownership", 1),
+              ("Pts/£m", "points_per_million", 1)]
+    _rows_html = ""
+    for label, col, dp in _stats:
+        if col not in players_df_all.columns:
+            continue
+        vo = float(p_out.get(col, 0) or 0)
+        vi = float(p_in.get(col, 0) or 0)
+        co = "#FF4B4B" if vo > vi else "rgba(255,255,255,0.65)"
+        ci = "#00FF87" if vi > vo else "rgba(255,255,255,0.65)"
+        _rows_html += (
+            f'<div style="display:flex;align-items:center;padding:5px 0;'
+            f'border-bottom:1px solid rgba(255,255,255,0.05);">'
+            f'<div style="flex:1;text-align:right;font-weight:800;color:{co};'
+            f'font-family:\'Archivo\',sans-serif;">{vo:.{dp}f}</div>'
+            f'<div style="width:110px;text-align:center;font-size:10px;letter-spacing:0.12em;'
+            f'text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:700;">{label}</div>'
+            f'<div style="flex:1;font-weight:800;color:{ci};'
+            f'font-family:\'Archivo\',sans-serif;">{vi:.{dp}f}</div></div>'
+        )
+    st.markdown(f'<div style="margin:12px 0 4px;">{_rows_html}</div>',
+                unsafe_allow_html=True)
+
+    # Verdict + radar overlay
+    _xp_gain = float(p_in.get("ep_next", 0) or 0) - float(p_out.get("ep_next", 0) or 0)
+    _price_d = float(p_out.get("price", 0) or 0) - float(p_in.get("price", 0) or 0)
+    _vcol = "#00FF87" if _xp_gain >= 0 else "#FF4B4B"
+    st.markdown(
+        f'<div style="text-align:center;padding:8px;font-size:13px;color:rgba(255,255,255,0.7);">'
+        f'This move buys <b style="color:{_vcol};">{_xp_gain:+.1f} xP</b> next GW and '
+        f'{"banks" if _price_d >= 0 else "costs"} '
+        f'<b style="color:#04f5ff;">£{abs(_price_d):.1f}m</b></div>',
+        unsafe_allow_html=True,
+    )
+    ind_o, val_o = radar_percentiles(players_df_all, p_out)
+    ind_i, val_i = radar_percentiles(players_df_all, p_in)
+    if len(ind_o) >= 3 and len(ind_o) == len(ind_i):
+        charts.render(_ch.radar_compare_option(ind_o, [
+            (str(p_out.get("web_name", "Out")), val_o, "#FF4B4B", 0.14),
+            (str(p_in.get("web_name", "In")), val_i, "#00FF87", 0.24),
+        ]), height="300px", key=f"h2h_{out_id}_{in_id}")
 
 
 # ── SQUAD ─────────────────────────────────────────────────────────────────────
@@ -957,9 +1057,7 @@ with tab_pitch:
     from analytics import squad_planner as planner
     from config import SIM_HORIZON
 
-    # ── Clicks coming back from the interactive pitch (query-param links) ────
-    # These are full page reloads (session resets), so the link carries the
-    # viewed GW and drafts live on disk via squad_planner.
+    # ── Deep link (?gw=41 jumps the scrubber) ────────────────────────────────
     _qp = st.query_params
     if "gw" in _qp:
         try:
@@ -967,27 +1065,11 @@ with tab_pitch:
         except (TypeError, ValueError):
             pass
         del _qp["gw"]
-    if "pitch_axe" in _qp:
-        try:
-            st.session_state.planner_axe_id = int(_qp["pitch_axe"])
-        except (TypeError, ValueError):
-            pass
-        del _qp["pitch_axe"]
-    if "pitch_detail" in _qp:
-        try:
-            st.session_state.planner_detail_id = int(_qp["pitch_detail"])
-        except (TypeError, ValueError):
-            pass
-        del _qp["pitch_detail"]
 
     @st.dialog("Player intel", width="large")
     def _player_dialog(pid: int) -> None:
         from ui.player_detail import render_player_detail
         render_player_detail(pid, players_df_all, key_prefix="dlg")
-
-    _detail_id = st.session_state.pop("planner_detail_id", None)
-    if _detail_id:
-        _player_dialog(int(_detail_id))
 
     # ── Timeline scrubber · history ↔ current ↔ future plan ─────────────────
     # Scrub back through played gameweeks (actual points, to GW1), sit on the
@@ -1095,37 +1177,47 @@ with tab_pitch:
             unsafe_allow_html=True,
         )
 
-        # ✕ on the pitch → open the replacement panel (or undo a pending signing)
-        _axe_id = st.session_state.pop("planner_axe_id", None)
-        if _axe_id is not None:
-            if int(_axe_id) in _in_ids:
-                planner.save_draft(int(team_id), view_gw, [
-                    t for t in pending if int(t["in_id"]) != int(_axe_id)])
-                st.rerun()
-            _row = eff_now[eff_now["fpl_id"].astype(int) == int(_axe_id)]
-            if not _row.empty:
-                _r = _row.iloc[0]
-                st.session_state.plan_swap_out = {
-                    "id": int(_axe_id), "name": str(_r["web_name"]),
-                    "pos": str(_r["position"]), "price": float(_r["price"]),
-                }
-
         _swap = st.session_state.get("plan_swap_out")
         if _swap:
             _pcol, _rcol = st.columns([1.35, 1], gap="large")
         else:
             _pcol = st.container()
         with _pcol:
-            render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
-                              title_right=f"GW{view_gw} plan")
+            _click = render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
+                                       title_right=f"GW{view_gw} plan")
+
+        # Handle a FRESH pitch click (the component re-reports its last value
+        # every rerun · the nonce dedupes).
+        if _click and _click.get("nonce") != st.session_state.get("_pitch_nonce"):
+            st.session_state._pitch_nonce = _click.get("nonce")
+            _cid = int(_click.get("id", 0) or 0)
+            if _click.get("action") == "detail" and _cid:
+                _player_dialog(_cid)
+            elif _click.get("action") == "axe" and _cid:
+                if _cid in _in_ids:
+                    # Axing a player you just signed = undo that move.
+                    planner.save_draft(int(team_id), view_gw, [
+                        t for t in pending if int(t["in_id"]) != _cid])
+                    st.rerun()
+                _row = eff_now[eff_now["fpl_id"].astype(int) == _cid]
+                if not _row.empty:
+                    _r = _row.iloc[0]
+                    st.session_state.plan_swap_out = {
+                        "id": _cid, "name": str(_r["web_name"]),
+                        "pos": str(_r["position"]), "price": float(_r["price"]),
+                    }
+                    st.rerun()
         if _swap:
             with _rcol:
                 _budget = bank_now + float(_swap["price"])
                 _owned = set(eff_now["fpl_id"].astype(int).tolist())
                 _action, _pick = _replacement_panel(
                     _swap["name"], _swap["pos"], float(_swap["price"]),
-                    _budget, _owned, key_prefix=f"plan{view_gw}")
-                if _action == "sign" and _pick is not None:
+                    _budget, _owned, key_prefix=f"plan{view_gw}",
+                    out_id=int(_swap["id"]))
+                if _action == "compare" and _pick is not None:
+                    _h2h_dialog(int(_swap["id"]), int(_pick["fpl_id"]))
+                elif _action == "sign" and _pick is not None:
                     pending.append({
                         "out_id":    int(_swap["id"]),
                         "out_name":  _swap["name"],
@@ -1324,8 +1416,10 @@ with tab_pitch:
 
                 _action, _pick = _replacement_panel(
                     out_name, out_pos, out_price, avail_budget, owned_ids,
-                    key_prefix="repl")
-                if _action == "sign" and _pick is not None:
+                    key_prefix="repl", out_id=int(swap_out_id))
+                if _action == "compare" and _pick is not None:
+                    _h2h_dialog(int(swap_out_id), int(_pick["fpl_id"]))
+                elif _action == "sign" and _pick is not None:
                     pending = st.session_state.get("pending_swaps", [])
                     pending.append({
                         "out_id":    int(swap_out_id),

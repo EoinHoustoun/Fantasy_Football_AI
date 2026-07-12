@@ -164,13 +164,21 @@ Page files: `home` · `00_my_team` · `02_transfer_suggestions` ·
 The Pitch View timeline scrubs history (GW1..now) AND future planning weeks.
 Off-season, `SIM_HORIZON` (config) future GWs are simulated: GW1..5 fixtures
 replay as GW39..43. In a future week every kit gets a permanent ✕ (transfer
-out) and the kit opens a Player Intel dialog · both are `?pitch_axe=`/
-`?pitch_detail=` query-param links, which cause a FULL page reload (session
-resets!). Therefore: the link carries `&gw=`, and working moves persist as
-DRAFTS on disk via `analytics/squad_planner.py` (`data/cache/squad_plans.json`,
-schema {plans, drafts}). Save promotes draft→plan. FT banking: 1/week, +1 per
-week with no saved transfers, cap 5; extras cost −4 (red badge in the strip).
-`effective_squad()` applies saved plans cumulatively when scrubbing forward.
+out) and the kit opens a Player Intel dialog. Clicks are FLUID: the pitch
+renders through `components/pitch_click/` (a minimal bidirectional Streamlit
+component · data-ffaction/data-ffid elements report {action, id, nonce} over
+the websocket; dedupe on nonce). Never regress to `<a href="?...">` links ·
+they full-reload the app and wipe session state. `?gw=41` deep links still
+jump the scrubber. Working moves persist as DRAFTS on disk via
+`analytics/squad_planner.py` (`data/cache/squad_plans.json`, schema
+{plans, drafts}); Save promotes draft→plan. FT banking: 1/week, +1 per week
+with no saved transfers, cap 5; extras cost −4 (red badge). `effective_squad()`
+applies saved plans cumulatively when scrubbing forward. The replacement panel
+ranks by player-level signals (form 0.45 + xP 0.30 + fixtures 0.25 · club-level
+FDR alone clumps the list by team); each candidate has ⚖ head-to-head vs the
+axed player (fixtures, winner-highlighted stats, xP/price verdict, radar
+overlay). Player radars always compare vs the ±£1m positional price band
+(`ui/player_detail.price_band_baseline`).
 
 ## Data gotcha · player xG
 Understat matches by name and silently misses most players. `build_player_universe()` backfills `xg`/`xa` from FPL Opta season totals (joined at source, full coverage guaranteed). The stable player `code` is on the universe · always join archive data by `code`, never by name.

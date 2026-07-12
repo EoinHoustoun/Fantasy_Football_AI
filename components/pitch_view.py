@@ -13,9 +13,17 @@ Kits come from components/team_identity.py (220px HD source, browser-downscaled)
 Marker columns are optional · a card renders whatever it has.
 """
 
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from typing import List, Dict, Optional
+
+# Bidirectional pitch host · clicks on ✕ / kits come back over the websocket
+# (fluid, no page reload). See components/pitch_click/index.html.
+_pitch_click = components.declare_component(
+    "ff_pitch_click", path=str(Path(__file__).parent / "pitch_click"))
 
 
 from components.team_identity import (
@@ -165,18 +173,16 @@ def _nameplate(name: str, tcol: str) -> str:
 def _axe_badge(fpl_id: int, gw: Optional[int] = None) -> str:
     """The always-visible transfer-out ✕ above a kit (planner mode).
 
-    A same-tab query-param link. This is a FULL page reload (session resets),
-    so the link carries the viewed GW and the page persists working drafts to
-    disk · nothing is lost when the ✕ is tapped.
+    A data-attribute click target · the pitch_click component reports it over
+    the websocket, so tapping is instant (no reload).
     """
-    _gw = f"&gw={int(gw)}" if gw else ""
     return (
-        f'<a href="?pitch_axe={fpl_id}{_gw}" target="_self" style="position:absolute;'
+        f'<span data-ffaction="axe" data-ffid="{fpl_id}" style="position:absolute;'
         f'top:-14px;left:50%;transform:translateX(-50%);width:20px;height:20px;'
         f'border-radius:50%;display:grid;place-items:center;background:#FF4B4B;'
         f'color:#fff;font-size:12px;font-weight:900;text-decoration:none;'
         f'border:2px solid #0B0E13;box-shadow:0 2px 6px rgba(0,0,0,0.5);'
-        f'z-index:5;line-height:1;">×</a>'
+        f'z-index:5;line-height:1;">×</span>'
     )
 
 
@@ -193,10 +199,8 @@ def _card(row: pd.Series, is_bench: bool = False,
 
     shirt = _shirt_img(code, is_gkp)
     if interactive and fpl_id:
-        # Whole kit is a link → opens the player's stats popup.
-        _gw = f"&gw={int(fixture_gw)}" if fixture_gw else ""
-        shirt = (f'<a href="?pitch_detail={fpl_id}{_gw}" target="_self" '
-                 f'style="text-decoration:none;cursor:pointer;">{shirt}</a>')
+        # Whole kit is a click target → opens the player's stats popup.
+        shirt = (f'<span data-ffaction="detail" data-ffid="{fpl_id}">{shirt}</span>')
     axe = _axe_badge(fpl_id, fixture_gw) if interactive and fpl_id else ""
     ring = ("box-shadow:0 0 0 2px #00FF87,0 0 18px rgba(0,255,135,0.5);"
             "border-radius:8px;" if is_new else "")
@@ -279,7 +283,9 @@ def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
                       penalties_order, defcon_monster_score, _is_new (mint ring).
 
     `interactive` (planner mode): every kit gets a permanent ✕ transfer badge
-    and the kit itself opens the player's stats popup (query-param links).
+    and the kit itself opens the player's stats popup. Rendered through the
+    pitch_click component, whose return value is the last click
+    ({action: "axe"|"detail", id, nonce}) · returned to the caller.
     `fixture_gw`: show each player's fixture FOR that gameweek (future planning)
     instead of their next fixture.
     """
@@ -308,7 +314,10 @@ def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
         + _legend(interactive)
         + '</div>'
     )
+    if interactive:
+        return _pitch_click(html=html, key="ff_pitch_planner", default=None)
     st.markdown(html, unsafe_allow_html=True)
+    return None
 
 
 # ── Generic pitch for Season Lab squads (perfect season, drafts) ───────────────

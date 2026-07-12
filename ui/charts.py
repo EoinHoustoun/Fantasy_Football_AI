@@ -131,6 +131,44 @@ def radar_option(indicators: List[Dict[str, Any]], values: List[float],
     }
 
 
+def radar_compare_option(indicators: List[Dict[str, Any]],
+                         series: List[Tuple[str, List[float], str, float]],
+                         ) -> Dict[str, Any]:
+    """Radar with multiple overlaid polygons · a player vs a baseline or rival.
+
+    series = [(name, values, color, fill_alpha)]. Later entries draw on top,
+    so put the player of interest last and the baseline first.
+    """
+    return {
+        "backgroundColor": "transparent",
+        "tooltip": {"trigger": "item", "backgroundColor": "rgba(11,14,19,0.94)",
+                    "borderColor": "rgba(255,255,255,0.12)",
+                    "textStyle": {"color": _TEXT, "fontFamily": _FONT}},
+        "legend": {"bottom": 0, "textStyle": {"color": _MUT, "fontSize": 10,
+                                              "fontFamily": _FONT},
+                   "itemWidth": 10, "itemHeight": 10},
+        "radar": {
+            "indicator": indicators, "radius": "62%", "center": ["50%", "50%"],
+            "axisName": {"color": _MUT, "fontSize": 10, "fontFamily": _FONT},
+            "splitNumber": 4,
+            "splitLine": {"lineStyle": {"color": "rgba(255,255,255,0.10)"}},
+            "splitArea": {"areaStyle": {"color": ["rgba(255,255,255,0.02)",
+                                                  "rgba(255,255,255,0.05)"]}},
+            "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.10)"}},
+        },
+        "series": [{
+            "type": "radar",
+            "data": [{
+                "value": vals, "name": nm,
+                "symbolSize": 3,
+                "areaStyle": {"color": _rgba(col, alpha) if col.startswith("#") else col},
+                "lineStyle": {"color": col, "width": 2},
+                "itemStyle": {"color": col},
+            } for (nm, vals, col, alpha) in series],
+        }],
+    }
+
+
 def bar_option(x: List[Any], y: List[float], color: str = COLORS["mint"],
                horizontal: bool = False, name: str = "",
                colors: Optional[List[str]] = None) -> Dict[str, Any]:
