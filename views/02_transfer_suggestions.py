@@ -12,6 +12,8 @@ Design goals
 from __future__ import annotations
 
 import streamlit as st
+
+from components.loading import LINES_MODEL, fpl_loader
 from ui import charts
 import pandas as pd
 from typing import Optional, List, Dict, Any
@@ -435,7 +437,7 @@ _fixtures_df = st.session_state.get("fixtures_df")
 if _fixtures_df is None:
     _fixtures_df = get_fixtures_df(bootstrap=_bs)
 
-with st.spinner("Analysing transfer options..."):
+with fpl_loader("Scoring the transfer market", LINES_MODEL):
     base_df = players_df
     if free_hit_gw:
         base_df = apply_free_hit_adjustment(players_df, _fixtures_df, _current_gw, free_hit_gw)

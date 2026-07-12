@@ -6,6 +6,8 @@ cumulative points over the season on one chart.
 """
 
 import streamlit as st
+
+from components.loading import LINES_GENERIC, fpl_loader
 from ui import charts
 import pandas as pd
 import requests
@@ -270,7 +272,7 @@ if league_id is None or league_id == 0:
     st.stop()
 
 # Load league
-with st.spinner("Loading league..."):
+with fpl_loader("Gathering the league", LINES_GENERIC):
     league_data = fetch_league(league_id)
 
 if league_data is None:

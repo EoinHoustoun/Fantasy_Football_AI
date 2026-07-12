@@ -9,6 +9,8 @@ Shows:
 """
 
 import streamlit as st
+
+from components.loading import LINES_GENERIC, fpl_loader
 from ui import charts
 import pandas as pd
 import numpy as np
@@ -176,7 +178,7 @@ with st.sidebar:
     team_id = st.number_input("FPL Team ID", min_value=1, value=default_id, step=1)
 
 # Load data
-with st.spinner(f"Loading history for team {team_id}..."):
+with fpl_loader(f"Replaying the season for team {team_id}", LINES_GENERIC):
     history = load_team_history(team_id)
 
 if not history:

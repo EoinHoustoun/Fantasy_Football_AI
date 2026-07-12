@@ -4,6 +4,8 @@ using ML predictions, then compares it position-by-position to your current team
 """
 
 import streamlit as st
+
+from components.loading import LINES_MODEL, LINES_SQUAD, fpl_loader
 from ui import charts
 import pandas as pd
 import numpy as np
@@ -196,7 +198,7 @@ target_gw  = get_next_gw(bs, current_gw)
 
 st.caption(f"Optimised for **Gameweek {target_gw}** · Budget: **£{budget:.1f}m**")
 
-with st.spinner("Training model & building optimal squad..."):
+with fpl_loader("Building the optimal squad", LINES_MODEL):
     predictions, metrics, players_df = run_model(current_gw, target_gw)
 
 # Merge team_code into predictions for shirt rendering
@@ -223,7 +225,7 @@ comparison = None
 squad_df   = None
 if team_id and team_id > 0:
     try:
-        with st.spinner(f"Loading your squad {team_id}..."):
+        with fpl_loader(f"Fetching squad {team_id}", LINES_SQUAD):
             squad_df, entry_history, team_info = load_squad_info(team_id, current_gw)
 
         # Merge predictions onto user squad

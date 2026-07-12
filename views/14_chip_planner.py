@@ -6,6 +6,8 @@ the optimal GW to play each chip.
 """
 
 import streamlit as st
+
+from components.loading import LINES_SOLVER, LINES_SQUAD, fpl_loader
 import pandas as pd
 from typing import List, Dict
 
@@ -215,7 +217,7 @@ players_df = _get_players()
 fixtures_df = _get_fixtures()
 
 try:
-    with st.spinner("Loading squad..."):
+    with fpl_loader("Fetching your squad", LINES_SQUAD):
         squad_df = _load_squad(team_id, current_gw)
 except Exception as e:
     st.error(f"Could not load team {team_id}: {e}")
@@ -232,7 +234,7 @@ if fixtures_df is None or squad_df.empty:
     st.warning("Could not load squad or fixture data.")
     st.stop()
 
-with st.spinner("Projecting GW scores..."):
+with fpl_loader("Projecting every gameweek", LINES_SOLVER):
     gw_df = _build_gw_projections(squad_df, fixtures_df, current_gw)
 
 if gw_df.empty:

@@ -166,7 +166,7 @@ bs         = fetch_bootstrap()
 current_gw = get_current_gameweek(bs)
 
 try:
-    with st.spinner(f"Loading team {team_id}..."):
+    with fpl_loader(f"Fetching team {team_id}", LINES_SQUAD):
         squad_df, entry_history, team_info = _load_team(team_id, current_gw)
 except Exception as e:
     st.error(f"Could not load team {team_id}: {e}")
@@ -811,7 +811,7 @@ with tab_pitch:
         squad_df["upcoming_fixtures"] = squad_df["upcoming_fixtures"].apply(_attach_short)
 
     from components.pitch_view import render_pitch_view, render_squad_pitch
-    from components.loading import fpl_loader, LINES_SQUAD
+    from components.loading import LINES_SQUAD, fpl_loader
 
     # ── Timeline scrubber ─────────────────────────────────────────────────────
     # One pitch across the season: scrub back through played gameweeks (actual

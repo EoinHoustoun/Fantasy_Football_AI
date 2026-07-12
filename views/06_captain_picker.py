@@ -8,6 +8,8 @@ Shows:
 """
 
 import streamlit as st
+
+from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
 from ui import charts
 import pandas as pd
 from typing import Optional, List, Dict, Any
@@ -330,7 +332,7 @@ def score_breakdown_chart(top5: pd.DataFrame, title: str, key: str) -> None:
 
 st.title("🏆 Captain Picker")
 
-with st.spinner("Loading player data..."):
+with fpl_loader("Weighing up the armband", LINES_GENERIC):
     players_df, bootstrap = load_universe()
 
 from data.fetchers.fpl_api import get_current_gameweek, fetch_fixtures
@@ -369,7 +371,7 @@ scored = scored.sort_values("captain_score", ascending=False)
 squad_df = None
 if team_id and team_id > 0:
     try:
-        with st.spinner(f"Loading squad {team_id}..."):
+        with fpl_loader(f"Fetching squad {team_id}", LINES_SQUAD):
             squad_df = load_squad(team_id, current_gw)
     except Exception:
         st.sidebar.warning("Could not load squad. Showing global picks only.")

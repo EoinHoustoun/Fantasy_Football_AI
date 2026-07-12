@@ -14,6 +14,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from components.loading import LINES_MODEL, fpl_loader
+
 from ui import charts
 
 from components.animations import inject_global_animations
@@ -157,7 +159,7 @@ with st.sidebar:
 from analytics.differentials import get_differentials
 
 pos_filter = None if position == "All" else position
-with st.spinner("Finding differentials..."):
+with fpl_loader("Hunting differentials", LINES_MODEL):
     diffs = get_differentials(
         players_df,
         max_ownership=max_own,

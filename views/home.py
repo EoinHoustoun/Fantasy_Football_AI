@@ -296,7 +296,7 @@ _section_header(f"Your Gameweek {current_gw if current_gw is not None else ''} p
 squad_df = None
 if current_gw is not None:
     try:
-        from components.loading import fpl_loader, LINES_SQUAD
+        from components.loading import LINES_SQUAD, fpl_loader
         with fpl_loader(f"Reading team {int(team_id)}", LINES_SQUAD):
             squad_df = _load_squad(int(team_id), int(current_gw))
     except Exception:
@@ -431,7 +431,7 @@ else:
             # No st.rerun() here · Streamlit reruns on click; we update the slot in-place.
             if st.button("✨ Sharpen with AI", key="briefing_ai_btn",
                          help="Rewrite the briefing with the local model (first run is slow)."):
-                with st.spinner("The gaffer is reading your gameweek…"):
+                with fpl_loader("The gaffer is thinking", ["Reading your gameweek…", "Checking the fixtures…", "Choosing the words…"]):
                     _got = _gaffers_briefing_ai(_key)
                 if _got:
                     st.session_state.setdefault("_briefing_ai_cache", {})[_key] = _got

@@ -6,6 +6,8 @@ and key stats side-by-side. Simple, opinionated, action-ready.
 """
 
 import streamlit as st
+
+from components.loading import LINES_GENERIC, LINES_MODEL, LINES_SQUAD, fpl_loader
 import pandas as pd
 from typing import Optional, List
 
@@ -192,7 +194,7 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
 st.title("💰 Buy / Sell")
 st.caption("For every player in your squad · find your best upgrade and see the net gain instantly.")
 
-with st.spinner("Loading..."):
+with fpl_loader("Loading player data", LINES_GENERIC):
     players_df, bootstrap = load_universe()
 
 from data.fetchers.fpl_api import get_current_gameweek
@@ -216,7 +218,7 @@ with st.sidebar:
 
 # Load squad
 try:
-    with st.spinner(f"Loading team {team_id}..."):
+    with fpl_loader(f"Fetching team {team_id}", LINES_SQUAD):
         squad_df, entry_history, team_info = load_squad(team_id, current_gw)
 except Exception as e:
     st.error(f"Could not load team {team_id}. Check your team ID.")
@@ -261,7 +263,7 @@ team_id_counts = Counter(squad_df["team_id"].tolist())
 
 # Build pairings
 pairings = []
-with st.spinner("Finding best replacements..."):
+with fpl_loader("Ranking the replacements", LINES_MODEL):
     for _, player in xi.iterrows():
         sell_price = float(player.get("price", 0) or 0)
         budget = bank_m + sell_price

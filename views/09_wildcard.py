@@ -14,6 +14,8 @@ Off-season: shows a friendly hand-off to the 26/27 Draft page.
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+from components.loading import LINES_GENERIC, fpl_loader
 from typing import Dict, List
 
 from ui import charts
@@ -127,7 +129,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-with st.spinner("Loading season state…"):
+with fpl_loader("Reading the season state", LINES_GENERIC):
     players_df, bootstrap, fixtures_df, current_gw = load_data()
 
 budget = st.sidebar.slider("Wildcard budget (£m)", 95.0, 110.0, 100.0, 0.5,

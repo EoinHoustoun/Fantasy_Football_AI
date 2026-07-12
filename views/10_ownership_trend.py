@@ -9,6 +9,8 @@ Shows:
 """
 
 import streamlit as st
+
+from components.loading import LINES_GENERIC, fpl_loader
 from ui import charts
 import pandas as pd
 import numpy as np
@@ -147,7 +149,7 @@ def _sparkline_chart(
 st.title("📈 Ownership Trend")
 st.caption("Who's been bought and sold across the season · visualised.")
 
-with st.spinner("Loading ownership data..."):
+with fpl_loader("Tracking the transfer market", LINES_GENERIC):
     players_df, current_gw = load_universe()
     gw_raw = load_gw_history()
 

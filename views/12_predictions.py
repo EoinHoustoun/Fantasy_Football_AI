@@ -7,6 +7,8 @@ Evaluated on a temporal holdout (last 30% of GWs) for honest out-of-sample RMSE.
 """
 
 import streamlit as st
+
+from components.loading import LINES_MODEL, LINES_SQUAD, fpl_loader
 from ui import charts
 import pandas as pd
 import numpy as np
@@ -152,7 +154,7 @@ captain_gw  = get_next_gw(bs, current_gw)
 
 st.caption(f"Predictions for **Gameweek {captain_gw}** · Model trained on GW1–{current_gw}")
 
-with st.spinner("Training model and generating predictions..."):
+with fpl_loader("Training the points model", LINES_MODEL):
     predictions, metrics, players_df = run_model(current_gw, captain_gw)
 
 mae  = metrics["mae"]
@@ -301,7 +303,7 @@ st.markdown("---")
 squad_df = None
 if team_id and team_id > 0:
     try:
-        with st.spinner(f"Loading squad {team_id}..."):
+        with fpl_loader(f"Fetching squad {team_id}", LINES_SQUAD):
             squad_df = load_squad(team_id, current_gw)
     except Exception:
         st.sidebar.warning("Could not load squad.")

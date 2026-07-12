@@ -8,6 +8,8 @@ Shows:
 """
 
 import streamlit as st
+
+from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
 import pandas as pd
 from typing import Optional, List
 
@@ -123,7 +125,7 @@ def _player_alert_card(player: pd.Series, show_shirt: bool = True) -> str:
 st.title("🚑 Injury & Availability Tracker")
 st.caption("Live status from the FPL API. Updated every 15 minutes.")
 
-with st.spinner("Loading player data..."):
+with fpl_loader("Checking the treatment room", LINES_GENERIC):
     players_df, bootstrap = load_universe()
 
 from data.fetchers.fpl_api import get_current_gameweek
@@ -159,7 +161,7 @@ selected_statuses = [status_map[s] for s in show_status]
 squad_df = None
 if team_id and team_id > 0:
     try:
-        with st.spinner(f"Loading squad {team_id}..."):
+        with fpl_loader(f"Fetching squad {team_id}", LINES_SQUAD):
             squad_df = load_squad(team_id, current_gw)
     except Exception:
         st.sidebar.warning("Could not load squad.")
