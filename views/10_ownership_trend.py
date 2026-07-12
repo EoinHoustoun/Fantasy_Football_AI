@@ -9,8 +9,7 @@ Shows:
 """
 
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
+from ui import charts
 import pandas as pd
 import numpy as np
 from typing import Optional, List
@@ -110,59 +109,37 @@ def _sparkline_chart(
     title: str,
     color_map: Optional[dict] = None,
     height: int = 350,
-) -> go.Figure:
-    """Build a multi-line ownership trend chart for a list of players."""
-    fig = go.Figure()
-
+    key: str = "own_trend",
+) -> None:
+    """Render a multi-line ownership trend chart for a list of players."""
     colors = [
         "#00FF87", "#04f5ff", "#e90052", "#ff6900",
         "#FFD700", "#c084fc", "#f472b6", "#38bdf8",
         "#a3e635", "#fb923c",
     ]
 
+    series = []
     for i, player in enumerate(players):
         pdata = gw_own[gw_own["web_name"] == player].sort_values("GW")
         if pdata.empty:
             continue
         col = color_map.get(player, colors[i % len(colors)]) if color_map else colors[i % len(colors)]
-        pos  = pdata["position"].iloc[0] if "position" in pdata.columns else ""
         team = pdata["team"].iloc[0] if "team" in pdata.columns else ""
-        fig.add_trace(go.Scatter(
-            x=pdata["GW"].tolist(),
-            y=pdata["ownership_pct"].tolist(),
-            mode="lines+markers",
-            name=f"{player} ({team})",
-            line=dict(color=col, width=2.5),
-            marker=dict(size=5),
-            hovertemplate=f"<b>{player}</b><br>GW%{{x}}: %{{y:.1f}}% owned<extra></extra>",
+        series.append((
+            f"{player} ({team})",
+            list(zip(pdata["GW"], pdata["ownership_pct"].round(1))),
+            col,
         ))
 
-    fig.update_layout(
-        title=title,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=height,
-        xaxis=dict(
-            title="Gameweek",
-            gridcolor="rgba(255,255,255,0.06)",
-            tickfont=dict(color="rgba(255,255,255,0.6)"),
-        ),
-        yaxis=dict(
-            title="Ownership %",
-            gridcolor="rgba(255,255,255,0.06)",
-            tickfont=dict(color="rgba(255,255,255,0.6)"),
-        ),
-        legend=dict(
-            bgcolor="rgba(0,0,0,0.3)",
-            bordercolor="rgba(255,255,255,0.1)",
-            borderwidth=1,
-            font=dict(size=11),
-        ),
-        font=dict(color="rgba(255,255,255,0.8)"),
-        margin=dict(t=50, b=20),
-        hovermode="x unified",
-    )
-    return fig
+    opt = charts.multi_line_option(series, x_name="Gameweek", y_name="Ownership %")
+    for s in opt["series"]:
+        s["symbol"] = "circle"
+        s["symbolSize"] = 5
+    opt["title"] = {"text": title, "textStyle": {
+        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+    opt["legend"]["top"] = 22
+    opt["grid"]["top"] = 52
+    charts.render(opt, height=f"{height}px", key=key)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -215,33 +192,32 @@ scatter_df = movers.merge(
 scatter_df = scatter_df[scatter_df["ownership"].notna()]
 scatter_df["size"] = scatter_df["ownership"].clip(lower=1)
 
-fig_scatter = px.scatter(
-    scatter_df,
-    x="change",
-    y="late_own",
-    color="position",
-    size="size",
-    hover_name="web_name",
-    hover_data={"team": True, "change": True, "late_own": True, "price": True},
-    color_discrete_map=POS_COLORS,
-    labels={
-        "change":   "Ownership Change (season start → now)",
-        "late_own": "Current Ownership %",
-        "team":     "Team",
-        "price":    "Price (£m)",
-    },
-    size_max=35,
-    title="Ownership Change vs Current Ownership",
-)
-fig_scatter.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
-fig_scatter.update_layout(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    height=400,
-    font=dict(color="rgba(255,255,255,0.8)"),
-    margin=dict(t=50, b=20),
-)
-st.plotly_chart(fig_scatter, use_container_width=True)
+_sizes = charts.scale_sizes(list(scatter_df["size"]), lo=7.0, hi=35.0)
+_groups = []
+for pos, col in POS_COLORS.items():
+    sub = scatter_df[scatter_df["position"] == pos]
+    pts = []
+    for _, r in sub.iterrows():
+        idx = scatter_df.index.get_loc(r.name)
+        pts.append({
+            "x": round(float(r["change"]), 1),
+            "y": round(float(r["late_own"]), 1),
+            "name": str(r["web_name"]), "size": _sizes[idx],
+            "tip": (f"<b>{r['web_name']}</b> · {r['team']}<br/>"
+                    f"Change {r['change']:+.1f}% → now {r['late_own']:.1f}%<br/>"
+                    f"£{r['price']:.1f}m"),
+        })
+    if pts:
+        _groups.append((pos, col, pts))
+opt = charts.multi_scatter_option(
+    _groups, x_name="Ownership Change (season start → now)",
+    y_name="Current Ownership %")
+opt["title"] = {"text": "Ownership Change vs Current Ownership",
+                "textStyle": {"color": "#eef1f5", "fontSize": 13,
+                              "fontWeight": "bold"}}
+opt["legend"]["top"] = 22
+charts.with_vertical_marks(opt, [(0, "")], color="rgba(255,255,255,0.3)")
+charts.render(opt, height="400px", key="own_change_scatter")
 
 st.markdown("---")
 
@@ -254,8 +230,8 @@ col_rise, col_fall = st.columns(2)
 with col_rise:
     top_risers_10 = movers.nlargest(10, "change")["web_name"].tolist()
     if top_risers_10:
-        fig_r = _sparkline_chart(gw_own, top_risers_10, "Top 10 Ownership Risers")
-        st.plotly_chart(fig_r, use_container_width=True)
+        _sparkline_chart(gw_own, top_risers_10, "Top 10 Ownership Risers",
+                         key="own_risers")
 
         # Summary bar
         riser_df = movers.nlargest(10, "change")[["web_name", "position", "team", "change", "late_own"]]
@@ -272,8 +248,8 @@ with col_fall:
     st.caption("Players managers have been selling all season.")
     top_fallers_10 = movers.nsmallest(10, "change")["web_name"].tolist()
     if top_fallers_10:
-        fig_f = _sparkline_chart(gw_own, top_fallers_10, "Top 10 Ownership Fallers")
-        st.plotly_chart(fig_f, use_container_width=True)
+        _sparkline_chart(gw_own, top_fallers_10, "Top 10 Ownership Fallers",
+                         key="own_fallers")
 
         faller_df = movers.nsmallest(10, "change")[["web_name", "position", "team", "change", "late_own"]]
         faller_df["change"] = faller_df["change"].round(1)
@@ -301,8 +277,7 @@ selected_players = st.multiselect(
 if selected_players:
     pos_map = dict(zip(players_df["web_name"], players_df["position"]))
     color_map = {p: POS_COLORS.get(pos_map.get(p, "MID"), "#00FF87") for p in selected_players}
-    fig_search = _sparkline_chart(gw_own, selected_players, "Ownership Trend · Selected Players",
-                                   color_map=color_map, height=380)
-    st.plotly_chart(fig_search, use_container_width=True)
+    _sparkline_chart(gw_own, selected_players, "Ownership Trend · Selected Players",
+                     color_map=color_map, height=380, key="own_search")
 else:
     st.caption("Add players above to see their ownership trend side-by-side.")
