@@ -8,10 +8,11 @@ and they tend to haul soon after.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
+
+from ui import charts
 
 from components.animations import inject_global_animations
 from components.team_identity import shirt_html, team_color
@@ -302,36 +303,28 @@ if not underperformers.empty:
         chart_df["category"] = chart_df["web_name"].apply(
             lambda x: "Underperforming (buy?)" if x in underperformer_names else "On track"
         )
-        fig = px.scatter(
-            chart_df, x="goals_scored", y="xg",
-            color="category",
-            hover_name="web_name",
-            hover_data=["team", "price", "ownership", "form"],
-            labels={"goals_scored": "Actual Goals", "xg": "Expected Goals (xG)"},
-            color_discrete_map={
-                "Underperforming (buy?)": "#00FF87",
-                "On track": "#555a66",
-            },
-            size="xg", size_max=22,
-        )
-        max_val = max(chart_df["xg"].max(), chart_df["goals_scored"].max(), 1)
-        fig.add_trace(go.Scatter(
-            x=[0, max_val], y=[0, max_val],
-            mode="lines",
-            line=dict(color="rgba(255,255,255,0.4)", dash="dash", width=1.5),
-            name="xG = Goals", showlegend=True,
-        ))
-        fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2",
-            height=500,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-            yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-            margin=dict(l=10, r=10, t=20, b=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        sizes = charts.scale_sizes(list(chart_df["xg"]), lo=6.0, hi=22.0)
+        groups = []
+        for cat, col in [("Underperforming (buy?)", "#00FF87"),
+                         ("On track", "#555a66")]:
+            sub = chart_df[chart_df["category"] == cat]
+            pts = []
+            for _, r in sub.iterrows():
+                idx = chart_df.index.get_loc(r.name)
+                pts.append({
+                    "x": int(r["goals_scored"]), "y": round(float(r["xg"]), 2),
+                    "name": str(r["web_name"]), "size": sizes[idx],
+                    "tip": (f"<b>{r['web_name']}</b> · {r['team']}<br/>"
+                            f"{int(r['goals_scored'])} goals vs {r['xg']:.2f} xG<br/>"
+                            f"£{r['price']:.1f}m · {r['ownership']:.1f}% · form {r['form']}"),
+                })
+            if pts:
+                groups.append((cat, col, pts))
+        opt = charts.multi_scatter_option(groups, x_name="Actual Goals",
+                                          y_name="Expected Goals (xG)")
+        max_val = float(max(chart_df["xg"].max(), chart_df["goals_scored"].max(), 1))
+        charts.with_diagonal(opt, max_val, name="xG = Goals")
+        charts.render(opt, height="500px", key="xg_under_scatter")
 
 
 # ── Finishing luck: both tails, and does it even out? ─────────────────────────
@@ -351,53 +344,43 @@ luck_df = players_df[
 if not luck_df.empty:
     luck_df["xg_diff"] = luck_df["goals_scored"].fillna(0) - luck_df["xg"]
 
-    fig_luck = px.scatter(
-        luck_df, x="xg", y="goals_scored",
-        color="xg_diff", color_continuous_scale=["#FF4B4B", "#555a66", "#00FF87"],
-        color_continuous_midpoint=0,
-        hover_name="web_name",
-        hover_data={"team": True, "price": ":.2f", "xg": ":.2f",
-                    "goals_scored": ":.0f", "xg_diff": ":+.2f"},
-        labels={"xg": "Expected goals (xG)", "goals_scored": "Actual goals",
-                "xg_diff": "Goals − xG"},
-        size=luck_df["xg_diff"].abs() + 0.6, size_max=20, opacity=0.85,
-    )
+    point_colors = charts.diverging_colors(list(luck_df["xg_diff"]),
+                                           "#FF4B4B", "#555a66", "#00FF87")
+    sizes = charts.scale_sizes(list(luck_df["xg_diff"].abs() + 0.6), lo=6.0, hi=20.0)
+    extremes = set(pd.concat([luck_df.nlargest(5, "xg_diff"),
+                              luck_df.nsmallest(5, "xg_diff")]).index)
+    pts = []
+    for i, (ix, r) in enumerate(luck_df.iterrows()):
+        pts.append({
+            "x": round(float(r["xg"]), 2), "y": int(r["goals_scored"]),
+            "name": str(r["web_name"]), "color": point_colors[i], "size": sizes[i],
+            "tip": (f"<b>{r['web_name']}</b> · {r['team']}<br/>"
+                    f"{r['xg']:.2f} xG → {int(r['goals_scored'])} goals "
+                    f"({r['xg_diff']:+.2f})<br/>£{r['price']:.2f}m"),
+            "label": ix in extremes,
+            "label_color": "#00FF87" if r["xg_diff"] > 0 else "#FF4B4B",
+        })
+    opt = charts.scatter_option(pts, x_name="Expected goals (xG)",
+                                y_name="Actual goals")
     max_ax = float(max(luck_df["xg"].max(), luck_df["goals_scored"].max(), 1)) + 1
-    fig_luck.add_trace(go.Scatter(
-        x=[0, max_ax], y=[0, max_ax], mode="lines",
-        line=dict(color="rgba(255,255,255,0.4)", dash="dash", width=1.5),
-        name="Goals = xG", showlegend=False, hoverinfo="skip"))
-    # label the extremes in both directions
-    for _, r in pd.concat([luck_df.nlargest(5, "xg_diff"),
-                           luck_df.nsmallest(5, "xg_diff")]).iterrows():
-        fig_luck.add_annotation(
-            x=r["xg"], y=r["goals_scored"], text=str(r["web_name"]),
-            showarrow=False, yshift=12,
-            font=dict(size=10, color="#00FF87" if r["xg_diff"] > 0 else "#FF4B4B"))
-    fig_luck.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e2e2", height=520,
-        coloraxis_colorbar=dict(title="G − xG"),
-        xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-        margin=dict(l=10, r=10, t=20, b=10))
-    st.plotly_chart(fig_luck, use_container_width=True)
+    charts.with_diagonal(opt, max_ax)
+    charts.render(opt, height="520px", key="xg_luck_scatter")
 
     col_h, col_s = st.columns([2, 1])
     with col_h:
-        fig_hist = px.histogram(luck_df, x="xg_diff", nbins=40,
-                                labels={"xg_diff": "Goals − xG"},
-                                color_discrete_sequence=["#04f5ff"])
-        fig_hist.add_vline(x=0, line=dict(color="rgba(255,255,255,0.5)", dash="dash"))
+        counts, edges = np.histogram(luck_df["xg_diff"], bins=40)
+        centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(counts))]
         mean_gap = float(luck_df["xg_diff"].mean())
-        fig_hist.add_vline(x=mean_gap, line=dict(color="#FFD700", width=2))
-        fig_hist.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2", height=300, showlegend=False,
-            xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-            yaxis=dict(title="Players", gridcolor="rgba(255,255,255,0.06)"),
-            margin=dict(l=10, r=10, t=20, b=10))
-        st.plotly_chart(fig_hist, use_container_width=True)
+        opt = charts.bar_option(x=[f"{c:.2f}" for c in centers],
+                                y=[int(c) for c in counts], color="#04f5ff")
+        zero_i = min(range(len(centers)), key=lambda i: abs(centers[i]))
+        mean_i = min(range(len(centers)), key=lambda i: abs(centers[i] - mean_gap))
+        charts.with_vertical_marks(
+            opt, [(zero_i, "0"), (mean_i, f"mean {mean_gap:+.2f}")],
+            color="rgba(255,255,255,0.5)", label_color="#FFD700")
+        opt["xAxis"]["axisLabel"]["interval"] = 7
+        opt["tooltip"]["formatter"] = "G − xG ≈ {b}: {c} players"
+        charts.render(opt, height="300px", key="xg_luck_hist")
     with col_s:
         within_1 = float((luck_df["xg_diff"].abs() <= 1.0).mean())
         st.markdown(

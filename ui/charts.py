@@ -168,13 +168,23 @@ def bar_option(x: List[Any], y: List[float], color: str = COLORS["mint"],
 def scatter_option(points: List[Dict[str, Any]], x_name: str = "", y_name: str = "",
                    color: str = COLORS["cyan"]) -> Dict[str, Any]:
     """Scatter plot. points = [{'x':.., 'y':.., 'name':.., 'color':.., 'size':..}]."""
-    data = [{
-        "value": [p.get("x", 0), p.get("y", 0)],
-        "name": p.get("name", ""),
-        "itemStyle": {"color": p.get("color", color), "opacity": 0.85,
-                      "borderColor": "rgba(0,0,0,0.35)", "borderWidth": 0.5},
-        "symbolSize": p.get("size", 11),
-    } for p in points]
+    data = []
+    for p in points:
+        item: Dict[str, Any] = {
+            "value": [p.get("x", 0), p.get("y", 0)],
+            "name": p.get("name", ""),
+            "itemStyle": {"color": p.get("color", color), "opacity": 0.85,
+                          "borderColor": "rgba(0,0,0,0.35)", "borderWidth": 0.5},
+            "symbolSize": p.get("size", 11),
+        }
+        if p.get("tip"):
+            item["tooltip"] = {"formatter": p["tip"]}
+        if p.get("label"):
+            item["label"] = {"show": True, "formatter": p.get("name", ""),
+                             "position": "top",
+                             "color": p.get("label_color", COLORS["gold"]),
+                             "fontSize": 10, "fontFamily": _FONT}
+        data.append(item)
     ax_x = _axis("value")
     ax_y = _axis("value")
     ax_x["name"] = x_name
@@ -405,6 +415,37 @@ def color_ramp(values: List[float], low: str, high: str) -> List[str]:
         r, g, b = (round(l + (h - l) * t) for l, h in zip(lo, hi))
         out.append(f"rgb({r},{g},{b})")
     return out
+
+
+def diverging_colors(values: List[float], low: str, mid: str, high: str,
+                     midpoint: float = 0.0) -> List[str]:
+    """Colour each value on a diverging scale centred on `midpoint`."""
+    if not values:
+        return []
+    span = max(abs(v - midpoint) for v in values) or 1.0
+    out = []
+    for v in values:
+        t = (v - midpoint) / span   # -1 .. 1
+        pair = (mid, high) if t >= 0 else (mid, low)
+        lo_c = [int(pair[0][i:i + 2], 16) for i in (1, 3, 5)]
+        hi_c = [int(pair[1][i:i + 2], 16) for i in (1, 3, 5)]
+        a = abs(t)
+        r, g, b = (round(l + (h - l) * a) for l, h in zip(lo_c, hi_c))
+        out.append(f"rgb({r},{g},{b})")
+    return out
+
+
+def with_diagonal(option: Dict[str, Any], max_val: float, name: str = "",
+                  color: str = "rgba(255,255,255,0.4)") -> Dict[str, Any]:
+    """Add a dashed y=x reference line to a value-axis scatter (xG vs goals)."""
+    option["series"].append({
+        "name": name, "type": "line", "data": [[0, 0], [max_val, max_val]],
+        "symbol": "none", "silent": True, "tooltip": {"show": False},
+        "lineStyle": {"type": "dashed", "color": color, "width": 1.5},
+        "itemStyle": {"color": color},
+        "z": 1,
+    })
+    return option
 
 
 def with_mark_line(option: Dict[str, Any], value: float, label: str = "",
