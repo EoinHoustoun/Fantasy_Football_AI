@@ -236,6 +236,49 @@ def multi_line_option(series: List[Tuple[str, List[Tuple[float, float]], str]],
     }
 
 
+def category_lines_option(x: List[Any],
+                          series: List[Tuple[str, List[float], str]]) -> Dict[str, Any]:
+    """Lines on a shared category axis. series = [(name, data, color)].
+
+    Use over multi_line_option when series are aligned to the same x labels
+    (enables stacking tricks like fill-between bands).
+    """
+    return {
+        "backgroundColor": "transparent",
+        "grid": {"left": 48, "right": 18, "top": 34, "bottom": 34},
+        "tooltip": _tooltip(),
+        "legend": {"top": 0, "left": 0,
+                   "textStyle": {"color": _MUT, "fontSize": 10, "fontFamily": _FONT},
+                   "itemWidth": 14, "itemHeight": 8},
+        "xAxis": _axis("category", [str(v) for v in x]),
+        "yAxis": _axis("value"),
+        "series": [{
+            "name": nm, "type": "line", "data": data,
+            "symbol": "none", "smooth": False,
+            "lineStyle": {"color": col, "width": 2.5},
+            "itemStyle": {"color": col},
+            "emphasis": {"focus": "series"},
+        } for (nm, data, col) in series],
+    }
+
+
+def band_fill_series(base: List[float], above: List[float],
+                     below: List[float]) -> List[Dict[str, Any]]:
+    """Fill-between bands for category_lines_option (append to option['series']).
+
+    base = min(line1, line2) per point; above/below = positive gaps. Stacked,
+    invisible lines — green tint where line1 wins, red where it trails.
+    """
+    def _band(data: List[float], color: str) -> Dict[str, Any]:
+        return {"type": "line", "data": data, "stack": "__band__",
+                "symbol": "none", "silent": True, "smooth": False,
+                "lineStyle": {"opacity": 0}, "areaStyle": {"color": color},
+                "tooltip": {"show": False}, "z": 0}
+    return [_band(base, "rgba(0,0,0,0)"),
+            _band(above, "rgba(0,255,135,0.15)"),
+            _band(below, "rgba(255,75,75,0.15)")]
+
+
 def with_vertical_marks(option: Dict[str, Any],
                         marks: List[Tuple[float, str]],
                         color: str = "rgba(233,0,82,0.4)",

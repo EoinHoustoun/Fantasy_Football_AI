@@ -9,8 +9,7 @@ Shows:
 """
 
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
+from ui import charts
 import pandas as pd
 import numpy as np
 import requests
@@ -53,7 +52,7 @@ def get_gw_averages(bootstrap: dict) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def _fill_between_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> go.Figure:
+def _fill_between_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> None:
     """
     Line chart of your GW score vs global average, with green fill above
     and red fill below the average line.
@@ -62,213 +61,104 @@ def _fill_between_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> go.Figu
     merged["global_avg"] = merged["global_avg"].fillna(merged["net_points"].mean())
 
     gws   = merged["gw"].tolist()
-    yours = merged["net_points"].tolist()
-    avgs  = merged["global_avg"].tolist()
-    diff  = [y - a for y, a in zip(yours, avgs)]
+    yours = [float(v) for v in merged["net_points"]]
+    avgs  = [round(float(v), 1) for v in merged["global_avg"]]
 
-    fig = go.Figure()
+    opt = charts.category_lines_option(gws, [
+        ("Global Average", avgs, "rgba(255,255,255,0.35)"),
+        ("Your Score", yours, "#00FF87"),
+    ])
+    opt["series"][0]["lineStyle"].update({"width": 1.5, "type": "dotted"})
 
-    # Global average line
-    fig.add_trace(go.Scatter(
-        x=gws, y=avgs,
-        mode="lines",
-        name="Global Average",
-        line=dict(color="rgba(255,255,255,0.35)", width=1.5, dash="dot"),
-        hovertemplate="GW%{x} avg: %{y:.0f}<extra></extra>",
-    ))
-
-    # Filled area ABOVE average (green)
-    yours_above = [y if y >= a else a for y, a in zip(yours, avgs)]
-    fig.add_trace(go.Scatter(
-        x=gws + gws[::-1],
-        y=yours_above + avgs[::-1],
-        fill="toself",
-        fillcolor="rgba(0,255,135,0.15)",
-        line=dict(width=0),
-        showlegend=False,
-        hoverinfo="skip",
-    ))
-
-    # Filled area BELOW average (red)
-    yours_below = [y if y <= a else a for y, a in zip(yours, avgs)]
-    fig.add_trace(go.Scatter(
-        x=gws + gws[::-1],
-        y=yours_below + avgs[::-1],
-        fill="toself",
-        fillcolor="rgba(255,75,75,0.15)",
-        line=dict(width=0),
-        showlegend=False,
-        hoverinfo="skip",
-    ))
-
-    # Your score line
-    point_colors = ["#00FF87" if y >= a else "#FF4B4B" for y, a in zip(yours, avgs)]
-    fig.add_trace(go.Scatter(
-        x=gws,
-        y=yours,
-        mode="lines+markers",
-        name="Your Score",
-        line=dict(color="#00FF87", width=2.5),
-        marker=dict(
-            color=point_colors,
-            size=8,
-            line=dict(color="rgba(0,0,0,0.4)", width=1),
-        ),
-        hovertemplate=(
-            "<b>GW%{x}</b><br>"
-            "Your score: <b>%{y}</b><br>"
-            "<extra></extra>"
-        ),
-    ))
-
-    # Annotate biggest beats / misses
+    # Per-point markers green above / red below, labels on best beat & worst miss
     merged["diff"] = merged["net_points"] - merged["global_avg"]
-    best_beat = merged.loc[merged["diff"].idxmax()]
-    worst_miss = merged.loc[merged["diff"].idxmin()]
+    best_i  = int(merged["diff"].idxmax())
+    worst_i = int(merged["diff"].idxmin())
+    points = []
+    for i, (y, a) in enumerate(zip(yours, avgs)):
+        item = {"value": y, "itemStyle": {"color": "#00FF87" if y >= a else "#FF4B4B"}}
+        if i == best_i:
+            item["label"] = {"show": True, "position": "top", "fontSize": 11,
+                             "color": "#00FF87",
+                             "formatter": f"Best: +{merged['diff'].iloc[i]:.0f}"}
+        elif i == worst_i:
+            item["label"] = {"show": True, "position": "bottom", "fontSize": 11,
+                             "color": "#FF4B4B",
+                             "formatter": f"Worst: {merged['diff'].iloc[i]:.0f}"}
+        points.append(item)
+    opt["series"][1]["data"] = points
+    opt["series"][1]["symbol"] = "circle"
+    opt["series"][1]["symbolSize"] = 8
 
-    fig.add_annotation(
-        x=int(best_beat["gw"]), y=float(best_beat["net_points"]) + 3,
-        text=f"Best: +{best_beat['diff']:.0f}",
-        showarrow=False,
-        font=dict(color="#00FF87", size=11, family="monospace"),
-    )
-    fig.add_annotation(
-        x=int(worst_miss["gw"]), y=float(worst_miss["net_points"]) - 5,
-        text=f"Worst: {worst_miss['diff']:.0f}",
-        showarrow=False,
-        font=dict(color="#FF4B4B", size=11, family="monospace"),
-    )
+    base  = [round(min(y, a), 1) for y, a in zip(yours, avgs)]
+    above = [round(max(0.0, y - a), 1) for y, a in zip(yours, avgs)]
+    below = [round(max(0.0, a - y), 1) for y, a in zip(yours, avgs)]
+    opt["series"].extend(charts.band_fill_series(base, above, below))
 
-    fig.update_layout(
-        title="Your GW Score vs Global Average",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=380,
-        xaxis=dict(
-            title="Gameweek",
-            gridcolor="rgba(255,255,255,0.06)",
-            tickfont=dict(color="rgba(255,255,255,0.6)"),
-        ),
-        yaxis=dict(
-            title="Points",
-            gridcolor="rgba(255,255,255,0.06)",
-            tickfont=dict(color="rgba(255,255,255,0.6)"),
-        ),
-        legend=dict(
-            bgcolor="rgba(0,0,0,0.3)",
-            bordercolor="rgba(255,255,255,0.1)",
-            borderwidth=1,
-        ),
-        font=dict(color="rgba(255,255,255,0.8)"),
-        margin=dict(t=50, b=20),
-        hovermode="x unified",
-    )
-    return fig
+    opt["title"] = {"text": "Your GW Score vs Global Average", "textStyle": {
+        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+    opt["legend"]["top"] = 22
+    opt["grid"]["top"] = 56
+    charts.render(opt, height="380px", key="gwh_vs_avg")
 
 
-def _rank_chart(hist_df: pd.DataFrame) -> go.Figure:
+def _rank_chart(hist_df: pd.DataFrame) -> None:
     """Overall rank progression · inverted so better rank = higher on chart."""
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=hist_df["gw"].tolist(),
-        y=hist_df["overall_rank"].tolist(),
-        mode="lines+markers",
-        line=dict(color="#04f5ff", width=2.5),
-        marker=dict(size=6, color="#04f5ff"),
-        hovertemplate="GW%{x}<br>Rank: <b>%{y:,}</b><extra></extra>",
-        fill="tozeroy",
-        fillcolor="rgba(4,245,255,0.06)",
-        name="Overall Rank",
-    ))
+    ranks = [int(v) for v in hist_df["overall_rank"]]
+    best_i = ranks.index(min(ranks))
+    points = []
+    for i, r in enumerate(ranks):
+        item = {"value": r}
+        if i == best_i:
+            item["label"] = {"show": True, "position": "top", "fontSize": 10,
+                             "color": "#00FF87", "formatter": f"Best: {r:,}"}
+        points.append(item)
 
-    # Annotate best and worst rank
-    best_rank = hist_df.loc[hist_df["overall_rank"].idxmin()]
-    fig.add_annotation(
-        x=int(best_rank["gw"]),
-        y=int(best_rank["overall_rank"]),
-        text=f"Best: {int(best_rank['overall_rank']):,}",
-        showarrow=True, arrowhead=2,
-        arrowcolor="#00FF87",
-        font=dict(color="#00FF87", size=10),
-        ax=0, ay=-30,
-    )
-
-    fig.update_layout(
-        title="Overall Rank Progression",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=300,
-        xaxis=dict(
-            title="Gameweek",
-            gridcolor="rgba(255,255,255,0.06)",
-            tickfont=dict(color="rgba(255,255,255,0.6)"),
-        ),
-        yaxis=dict(
-            title="Overall Rank",
-            autorange="reversed",    # lower rank number = better = top of chart
-            gridcolor="rgba(255,255,255,0.06)",
-            tickfont=dict(color="rgba(255,255,255,0.6)"),
-            tickformat=",",
-        ),
-        font=dict(color="rgba(255,255,255,0.8)"),
-        margin=dict(t=50, b=20),
-        showlegend=False,
-    )
-    return fig
+    opt = charts.category_lines_option(hist_df["gw"].tolist(),
+                                       [("Overall Rank", [], "#04f5ff")])
+    s = opt["series"][0]
+    s["data"] = points
+    s["symbol"] = "circle"
+    s["symbolSize"] = 6
+    s["areaStyle"] = {"color": "rgba(4,245,255,0.06)"}
+    opt["yAxis"]["inverse"] = True   # lower rank number = better = top of chart
+    opt["title"] = {"text": "Overall Rank Progression", "textStyle": {
+        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+    opt["legend"] = {"show": False}
+    opt["grid"]["top"] = 40
+    opt["grid"]["left"] = 76
+    charts.render(opt, height="300px", key="gwh_rank")
 
 
-def _cumulative_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> go.Figure:
+def _cumulative_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> None:
     """Cumulative points: yours vs cumulative average."""
     merged = hist_df.merge(gw_avgs, on="gw", how="left")
     merged["global_avg"] = merged["global_avg"].fillna(0)
     merged["cumulative_yours"] = merged["net_points"].cumsum()
     merged["cumulative_avg"]   = merged["global_avg"].cumsum()
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=merged["gw"].tolist(),
-        y=merged["cumulative_avg"].tolist(),
-        mode="lines",
-        name="Cumulative Average",
-        line=dict(color="rgba(255,255,255,0.35)", width=1.5, dash="dot"),
-        hovertemplate="GW%{x} avg total: %{y:.0f}<extra></extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=merged["gw"].tolist(),
-        y=merged["cumulative_yours"].tolist(),
-        mode="lines",
-        name="Your Cumulative",
-        line=dict(color="#00FF87", width=2.5),
-        fill="tonexty",
-        fillcolor="rgba(0,255,135,0.08)",
-        hovertemplate="GW%{x} your total: <b>%{y}</b><extra></extra>",
-    ))
-    final_diff = int(merged["cumulative_yours"].iloc[-1] - merged["cumulative_avg"].iloc[-1])
+    yours = [int(v) for v in merged["cumulative_yours"]]
+    avgs  = [round(float(v), 0) for v in merged["cumulative_avg"]]
+
+    final_diff = int(yours[-1] - avgs[-1])
     diff_color = "#00FF87" if final_diff >= 0 else "#FF4B4B"
-    fig.add_annotation(
-        x=merged["gw"].iloc[-1],
-        y=merged["cumulative_yours"].iloc[-1],
-        text=f"{'+' if final_diff >= 0 else ''}{final_diff} vs avg",
-        showarrow=False,
-        font=dict(color=diff_color, size=12, family="monospace"),
-        xanchor="right",
-        yanchor="bottom",
-    )
-    fig.update_layout(
-        title="Cumulative Points vs Average",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=300,
-        xaxis=dict(title="Gameweek", gridcolor="rgba(255,255,255,0.06)",
-                   tickfont=dict(color="rgba(255,255,255,0.6)")),
-        yaxis=dict(title="Cumulative Points", gridcolor="rgba(255,255,255,0.06)",
-                   tickfont=dict(color="rgba(255,255,255,0.6)")),
-        legend=dict(bgcolor="rgba(0,0,0,0.3)", bordercolor="rgba(255,255,255,0.1)", borderwidth=1),
-        font=dict(color="rgba(255,255,255,0.8)"),
-        margin=dict(t=50, b=20),
-        hovermode="x unified",
-    )
-    return fig
+    points = [{"value": v} for v in yours]
+    points[-1]["label"] = {
+        "show": True, "position": "left", "fontSize": 12, "color": diff_color,
+        "formatter": f"{'+' if final_diff >= 0 else ''}{final_diff} vs avg"}
+
+    opt = charts.category_lines_option(merged["gw"].tolist(), [
+        ("Cumulative Average", avgs, "rgba(255,255,255,0.35)"),
+        ("Your Cumulative", [], "#00FF87"),
+    ])
+    opt["series"][0]["lineStyle"].update({"width": 1.5, "type": "dotted"})
+    opt["series"][1]["data"] = points
+    opt["series"][1]["areaStyle"] = {"color": "rgba(0,255,135,0.08)"}
+    opt["title"] = {"text": "Cumulative Points vs Average", "textStyle": {
+        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+    opt["legend"]["top"] = 22
+    opt["grid"]["top"] = 56
+    charts.render(opt, height="300px", key="gwh_cumulative")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -346,8 +236,7 @@ m6.metric("Bench pts lost", f"{total_bench}")
 st.markdown("---")
 
 # ── GW vs average ────────────────────────────────────────────────────────────
-fig_main = _fill_between_chart(hist_df, gw_avgs)
-st.plotly_chart(fig_main, use_container_width=True)
+_fill_between_chart(hist_df, gw_avgs)
 
 # ── Above vs below summary banner ─────────────────────────────────────────────
 delta_color  = "#00FF87" if total_vs_avg >= 0 else "#FF4B4B"
@@ -373,12 +262,10 @@ col_rank, col_cum = st.columns(2)
 
 with col_rank:
     if "overall_rank" in hist_df.columns:
-        fig_rank = _rank_chart(hist_df)
-        st.plotly_chart(fig_rank, use_container_width=True)
+        _rank_chart(hist_df)
 
 with col_cum:
-    fig_cum = _cumulative_chart(hist_df, gw_avgs)
-    st.plotly_chart(fig_cum, use_container_width=True)
+    _cumulative_chart(hist_df, gw_avgs)
 
 # ── Hit analysis ──────────────────────────────────────────────────────────────
 if total_hits > 0:
