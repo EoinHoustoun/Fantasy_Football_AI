@@ -9,8 +9,7 @@ season to season. All reads from the prebuilt archive · zero compute.
 from __future__ import annotations
 
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+from ui import charts
 import streamlit as st
 
 from components.animations import inject_global_animations
@@ -95,27 +94,29 @@ view = played if season_pick == "All seasons" else played[played["season"] == se
 # ── Value frontier ────────────────────────────────────────────────────────────
 _section("The value frontier",
          "Start price vs season points. Above the dotted lines = elite value. Min 900 minutes.")
-fig = px.scatter(
-    view, x="start_price", y="total_points", color="position",
-    hover_name="web_name",
-    hover_data={"season": True, "pts_per_million": ":.1f",
-                "start_price": ":.1f", "total_points": ":.0f"},
-    color_discrete_map=POS_COLORS, opacity=0.75,
-    labels={"start_price": "GW1 price (£m)", "total_points": "Season points"},
-)
+_groups = []
+for pos, col in POS_COLORS.items():
+    sub = view[view["position"] == pos]
+    pts = [{
+        "x": round(float(r["start_price"]), 1), "y": int(r["total_points"]),
+        "name": str(r["web_name"]), "size": 8,
+        "tip": (f"<b>{r['web_name']}</b> · {r['season']}<br/>"
+                f"£{r['start_price']:.1f} → {r['total_points']:.0f} pts "
+                f"({r['pts_per_million']:.1f} pts/£m)"),
+    } for _, r in sub.iterrows()]
+    if pts:
+        _groups.append((pos, col, pts))
+opt = charts.multi_scatter_option(_groups, x_name="GW1 price (£m)",
+                                  y_name="Season points")
+opt["yAxis"]["max"] = int(max(view["total_points"].max() * 1.05, 100))
 for ppm, lab in ((20, "20 pts/£m"), (30, "30 pts/£m")):
-    fig.add_trace(go.Scatter(
-        x=[3.8, 15], y=[3.8 * ppm, 15 * ppm], mode="lines",
-        line=dict(color="rgba(255,255,255,0.25)", dash="dot", width=1),
-        name=lab, hoverinfo="skip"))
-fig.update_layout(
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    font_color="#e2e2e2", height=520,
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-    yaxis=dict(gridcolor="rgba(255,255,255,0.06)", range=[0, max(view["total_points"].max() * 1.05, 100)]),
-    margin=dict(l=10, r=10, t=20, b=10))
-st.plotly_chart(fig, use_container_width=True)
+    opt["series"].append({
+        "name": lab, "type": "line", "data": [[3.8, 3.8 * ppm], [15, 15 * ppm]],
+        "symbol": "none", "silent": True, "tooltip": {"show": False},
+        "lineStyle": {"type": "dotted", "color": "rgba(255,255,255,0.25)", "width": 1},
+        "itemStyle": {"color": "rgba(255,255,255,0.25)"}, "z": 1,
+    })
+charts.render(opt, height="520px", key="vl_frontier")
 
 # ── Price-band ROI ────────────────────────────────────────────────────────────
 _section("Return by price band",
@@ -126,16 +127,19 @@ view["band"] = pd.cut(view["start_price"],
                       labels=["≤4.5", "4.6–5.5", "5.6–6.5", "6.6–8.0", "8.1–10.0", "10.0+"])
 roi = (view.groupby(["band", "position"], observed=True)["pts_per_million"]
        .mean().reset_index())
-fig2 = px.bar(roi, x="band", y="pts_per_million", color="position", barmode="group",
-              color_discrete_map=POS_COLORS,
-              labels={"band": "GW1 price band (£m)", "pts_per_million": "Avg pts per £m"})
-fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                   font_color="#e2e2e2", height=380,
-                   legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                   xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-                   yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-                   margin=dict(l=10, r=10, t=20, b=10))
-st.plotly_chart(fig2, use_container_width=True)
+_bands = [str(b) for b in roi["band"].cat.categories] if hasattr(roi["band"], "cat") \
+    else sorted(roi["band"].astype(str).unique())
+_series = []
+for pos, col in POS_COLORS.items():
+    sub = roi[roi["position"] == pos].set_index(roi[roi["position"] == pos]["band"].astype(str))
+    if sub.empty:
+        continue
+    _series.append((pos, [round(float(sub["pts_per_million"].get(b, 0) or 0), 1)
+                          for b in _bands], col))
+opt = charts.grouped_bars_option(_bands, _series)
+opt["tooltip"]["formatter"] = "{a} · {b}: {c} pts/£m"
+opt["tooltip"]["trigger"] = "item"
+charts.render(opt, height="380px", key="vl_roi_bands")
 
 # ── Archetype leaderboards ────────────────────────────────────────────────────
 _section("Archetypes", "The three squads every winning team is built from.")
@@ -169,16 +173,18 @@ defcon = summary[(summary["season"] == LAST_COMPLETE_SEASON)
 if not defcon.empty:
     _section("DEFCON earners · 2025-26",
              "Defensive-contribution points (CBIT / CBIRT thresholds). The new value frontier.")
-    fig3 = px.bar(defcon.sort_values("defcon_points"),
-                  x="defcon_points", y="web_name", orientation="h",
-                  color="position", color_discrete_map=POS_COLORS,
-                  hover_data={"start_price": ":.1f", "total_points": ":.0f"},
-                  labels={"defcon_points": "DEFCON points", "web_name": ""})
-    fig3.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                       font_color="#e2e2e2", height=380, showlegend=False,
-                       xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-                       margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig3, use_container_width=True)
+    dc = defcon.sort_values("defcon_points", ascending=False)
+    opt = charts.bar_option(
+        x=list(dc["web_name"]),
+        y=[int(v) for v in dc["defcon_points"]],
+        colors=[POS_COLORS.get(p, "#00FF87") for p in dc["position"]],
+        horizontal=True)
+    for item, (_, r) in zip(opt["series"][0]["data"], dc.iterrows()):
+        item["tooltip"] = {"formatter": (
+            f"<b>{r['web_name']}</b> ({r['position']})<br/>"
+            f"{r['defcon_points']:.0f} DEFCON pts · £{r['start_price']:.1f} · "
+            f"{r['total_points']:.0f} total")}
+    charts.render(opt, height="380px", key="vl_defcon")
 
 # ── Does value repeat? ────────────────────────────────────────────────────────
 _section("Does value repeat?",
@@ -192,17 +198,21 @@ for s_n, s_next in zip(ARCHIVE_SEASONS[:-1], ARCHIVE_SEASONS[1:]):
     pairs.append(a.merge(b, on="code"))
 rep = pd.concat(pairs, ignore_index=True)
 corr = rep["pts_per_million"].corr(rep["ppm_next"], method="spearman")
-fig4 = px.scatter(rep, x="pts_per_million", y="ppm_next", color="position",
-                  hover_name="web_name", color_discrete_map=POS_COLORS, opacity=0.5,
-                  labels={"pts_per_million": "Pts/£m season N",
-                          "ppm_next": "Pts/£m season N+1"})
-fig4.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                   font_color="#e2e2e2", height=420,
-                   legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                   xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-                   yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-                   margin=dict(l=10, r=10, t=20, b=10))
-st.plotly_chart(fig4, use_container_width=True)
+_rep_groups = []
+for pos, col in POS_COLORS.items():
+    sub = rep[rep["position"] == pos]
+    pts = [{"x": round(float(r["pts_per_million"]), 1),
+            "y": round(float(r["ppm_next"]), 1),
+            "name": str(r["web_name"]), "size": 7}
+           for _, r in sub.iterrows()]
+    if pts:
+        _rep_groups.append((pos, col, pts))
+opt = charts.multi_scatter_option(_rep_groups, x_name="Pts/£m season N",
+                                  y_name="Pts/£m season N+1")
+for s in opt["series"]:
+    for d in s["data"]:
+        d["itemStyle"]["opacity"] = 0.5
+charts.render(opt, height="420px", key="vl_repeat")
 st.markdown(
     f'<div style="font-size:12px;color:{MUTED};">Season-to-season value correlation '
     f'(Spearman): <span style="color:#00FF87;font-weight:800;">{corr:.2f}</span> '
