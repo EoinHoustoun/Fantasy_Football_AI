@@ -3,9 +3,9 @@ Dashboard page · GW snapshot and team overview.
 """
 
 import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
+
+from ui import charts
 
 # set_page_config is owned by the app.py router (st.navigation)
 
@@ -75,42 +75,44 @@ with col_left:
     pos_order = ["GKP", "DEF", "MID", "FWD"]
     pos_avg["position"] = pd.Categorical(pos_avg["position"], categories=pos_order, ordered=True)
     pos_avg = pos_avg.sort_values("position")
-    fig = px.bar(
-        pos_avg,
-        x="position", y="avg_ppg",
-        color="position",
-        color_discrete_map={"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"},
-        title="Average Points per Game by Position",
-        labels={"avg_ppg": "Avg Pts/Game", "position": "Position"},
-        text=pos_avg["avg_ppg"].round(2),
+    _pos_colors = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
+    opt = charts.bar_option(
+        x=list(pos_avg["position"].astype(str)),
+        y=[round(float(v), 2) for v in pos_avg["avg_ppg"]],
+        colors=[_pos_colors.get(p, "#00FF87") for p in pos_avg["position"].astype(str)],
     )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(showlegend=False, paper_bgcolor="rgba(0,0,0,0)", height=320, yaxis_range=[0, pos_avg["avg_ppg"].max() * 1.2])
-    st.plotly_chart(fig, use_container_width=True)
+    for item in opt["series"][0]["data"]:
+        item["label"] = {"show": True, "position": "top", "formatter": "{c}",
+                         "color": "rgba(255,255,255,0.7)", "fontSize": 10}
+    opt["yAxis"]["max"] = round(float(pos_avg["avg_ppg"].max()) * 1.2, 1)
+    opt["tooltip"]["formatter"] = "{b}: {c} pts/game"
+    charts.render(opt, height="320px", key="dash_ppg_pos")
 
 with col_right:
     st.markdown("#### Points per £m · Season Value")
     st.caption(f"Players with ≥{min_minutes} mins. Bubble size = ownership %")
-    fig2 = px.scatter(
-        qualified,
-        x="points_per_million",
-        y="total_points",
-        color="position",
-        size="ownership",
-        hover_name="web_name",
-        hover_data={"price": True, "ownership": True, "points_per_million": True, "total_points": True},
-        title="Points per £m vs Total Points",
-        labels={
-            "points_per_million": "Points per £m",
-            "total_points": "Total Points",
-            "ownership": "Ownership %",
-            "price": "Price (£m)",
-        },
-        color_discrete_map={"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"},
-        size_max=30,
+    _sizes = charts.scale_sizes(list(qualified["ownership"]), lo=6.0, hi=30.0)
+    _groups = []
+    for pos, col in _pos_colors.items():
+        d = qualified[qualified["position"] == pos]
+        pts = []
+        for _, r in d.iterrows():
+            idx = qualified.index.get_loc(r.name)
+            pts.append({
+                "x": round(float(r["points_per_million"]), 2),
+                "y": int(r["total_points"]),
+                "name": str(r["web_name"]), "size": _sizes[idx],
+                "tip": (f"<b>{r['web_name']}</b><br/>"
+                        f"{r['points_per_million']:.1f} pts/£m · {int(r['total_points'])} pts<br/>"
+                        f"£{r['price']:.1f}m · {r['ownership']:.1f}% owned"),
+            })
+        if pts:
+            _groups.append((pos, col, pts))
+    charts.render(
+        charts.multi_scatter_option(_groups, x_name="Points per £m",
+                                    y_name="Total Points"),
+        height="320px", key="dash_value_scatter",
     )
-    fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)", height=320)
-    st.plotly_chart(fig2, use_container_width=True)
 
 # ── Top players tables by position ────────────────────────────────────────────
 st.markdown("---")

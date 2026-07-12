@@ -14,6 +14,7 @@ import streamlit as st
 from components.animations import inject_global_animations
 from components.team_identity import team_dot
 from config import LAST_COMPLETE_SEASON, NEXT_SEASON
+from ui import charts
 
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
@@ -269,27 +270,22 @@ st.markdown(
 )
 
 # Meaningful graph: the whole thesis in one view · minutes drive points.
-import plotly.graph_objects as go
-
-fig_mp = go.Figure()
+_mp_groups = []
 for pos in POS_ORDER:
     d = uni[uni["position"] == pos]
-    fig_mp.add_trace(go.Scatter(
-        x=d["projected_minutes"], y=d["projected_points"], mode="markers", name=pos,
-        marker=dict(color=POS_COLORS[pos], size=7, opacity=0.72, line=dict(width=0)),
-        text=d["web_name"] + " · " + d["team_name"],
-        customdata=d["predicted_start_price"],
-        hovertemplate="%{text}<br>%{x:,.0f} mins → %{y:.0f} pts · £%{customdata:.1f}m<extra></extra>",
-    ))
-fig_mp.update_layout(
-    height=340, margin=dict(l=10, r=10, t=10, b=10),
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="rgba(255,255,255,0.7)", size=11),
-    legend=dict(orientation="h", y=1.12, x=0),
-    xaxis=dict(title="Projected minutes 26/27", gridcolor="rgba(255,255,255,0.06)", zeroline=False),
-    yaxis=dict(title="Projected points", gridcolor="rgba(255,255,255,0.06)", zeroline=False),
+    _mp_groups.append((pos, POS_COLORS[pos], [
+        {"x": int(r["projected_minutes"]), "y": round(float(r["projected_points"]), 1),
+         "name": str(r["web_name"]), "size": 7,
+         "tip": (f"{r['web_name']} · {r['team_name']}<br/>"
+                 f"{int(r['projected_minutes']):,} mins → {r['projected_points']:.0f} pts"
+                 f" · £{r['predicted_start_price']:.1f}m")}
+        for _, r in d.iterrows()
+    ]))
+charts.render(
+    charts.multi_scatter_option(_mp_groups, x_name="Projected minutes 26/27",
+                                y_name="Projected points"),
+    height="340px", key="draft_min_pts",
 )
-st.plotly_chart(fig_mp, use_container_width=True)
 
 lane_nailed  = uni[(uni["projected_minutes"] >= 2400) & (uni["predicted_start_price"] <= 7.0)] \
                   .sort_values("value_score", ascending=False).head(12)
