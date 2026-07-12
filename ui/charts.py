@@ -241,13 +241,23 @@ def with_vertical_marks(option: Dict[str, Any],
                         color: str = "rgba(233,0,82,0.4)",
                         label_color: str = COLORS["magenta"],
                         series_index: int = 0) -> Dict[str, Any]:
-    """Add dotted vertical event lines (e.g. chip weeks). marks = [(x, label)]."""
+    """Add dotted vertical event lines (e.g. chip weeks, thresholds).
+
+    marks = [(x, label)] or [(x, label, colour)] for per-mark colours.
+    """
+    data = []
+    for m in marks:
+        item: Dict[str, Any] = {"xAxis": m[0], "label": {"formatter": m[1]}}
+        if len(m) > 2:
+            item["lineStyle"] = {"color": m[2]}
+            item["label"]["color"] = m[2]
+        data.append(item)
     option["series"][series_index]["markLine"] = {
         "silent": True, "symbol": "none",
         "lineStyle": {"type": "dotted", "color": color, "width": 1},
         "label": {"show": True, "position": "insideEndTop", "color": label_color,
                   "fontSize": 9, "fontFamily": _FONT},
-        "data": [{"xAxis": x, "label": {"formatter": lbl}} for (x, lbl) in marks],
+        "data": data,
     }
     return option
 

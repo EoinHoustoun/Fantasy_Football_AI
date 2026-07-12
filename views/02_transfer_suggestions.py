@@ -12,8 +12,7 @@ Design goals
 from __future__ import annotations
 
 import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
+from ui import charts
 import pandas as pd
 from typing import Optional, List, Dict, Any
 
@@ -553,23 +552,21 @@ with tab_season:
     season_chart = season_chart.sort_values("projected_season_pts", ascending=False)
 
     if not season_chart.empty:
-        fig_season = px.bar(
-            season_chart,
-            x="projected_season_pts", y="web_name",
-            color="season_avg_fdr", color_continuous_scale="RdYlGn_r",
-            range_color=[1.5, 4.0], orientation="h",
-            hover_data=["team", "position", "price", "remaining_fixtures", "points_per_game"],
-            labels={"projected_season_pts": "Projected Points", "web_name": "Player",
-                    "season_avg_fdr": "Season Avg FDR"},
-        )
-        fig_season.update_layout(
-            yaxis=dict(autorange="reversed"),
-            height=max(380, 28 * len(season_chart)),
-            coloraxis_colorbar=dict(title="FDR"),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2", margin=dict(l=10, r=10, t=10, b=10),
-        )
-        st.plotly_chart(fig_season, use_container_width=True)
+        fdr_colors = charts.diverging_colors(
+            [min(max(float(v), 1.5), 4.0) for v in season_chart["season_avg_fdr"].fillna(2.75)],
+            "#00FF87", "#FFD60A", "#FF4B4B", midpoint=2.75)
+        opt = charts.bar_option(
+            x=list(season_chart["web_name"]),
+            y=[round(float(v), 1) for v in season_chart["projected_season_pts"]],
+            colors=fdr_colors, horizontal=True)
+        for item, (_, r) in zip(opt["series"][0]["data"], season_chart.iterrows()):
+            item["tooltip"] = {"formatter": (
+                f"<b>{r['web_name']}</b> · {r['team']} {r['position']}<br/>"
+                f"{r['projected_season_pts']:.0f} projected pts · £{r['price']:.1f}m<br/>"
+                f"{int(r['remaining_fixtures'])} fixtures · FDR {r['season_avg_fdr']:.2f} "
+                f"· {r['points_per_game']:.1f} ppg")}
+        charts.render(opt, height=f"{max(380, 28 * len(season_chart))}px",
+                      key="ts_season_proj")
 
     if free_hit_gw:
         st.markdown("---")
@@ -608,24 +605,22 @@ with tab_ceiling:
             return "Standard"
         ceiling_chart["Tier"] = ceiling_chart.apply(_tier, axis=1)
 
-        fig_ceil = px.bar(
-            ceiling_chart, x="ceiling_pts", y="web_name", color="Tier",
-            color_discrete_map={"20+ Haul": ACCENT_COLOR, "15+ Haul": "#FFA500", "Standard": "#8888aa"},
-            orientation="h",
-            hover_data=["team", "position", "price", "avg_fdr_next_6"],
-            labels={"ceiling_pts": "Ceiling Points", "web_name": "Player"},
-        )
-        fig_ceil.add_vline(x=TWENTY_PLUS_THRESHOLD, line_dash="dash",
-                           line_color=ACCENT_COLOR, annotation_text="20 pts", annotation_position="top right")
-        fig_ceil.add_vline(x=HAUL_THRESHOLD, line_dash="dot",
-                           line_color="#FFA500", annotation_text="15 pts", annotation_position="bottom right")
-        fig_ceil.update_layout(
-            yaxis=dict(autorange="reversed"),
-            height=max(380, 28 * len(ceiling_chart)),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2", margin=dict(l=10, r=10, t=10, b=10),
-        )
-        st.plotly_chart(fig_ceil, use_container_width=True)
+        tier_color = {"20+ Haul": ACCENT_COLOR, "15+ Haul": "#FFA500", "Standard": "#8888aa"}
+        opt = charts.bar_option(
+            x=list(ceiling_chart["web_name"]),
+            y=[round(float(v), 1) for v in ceiling_chart["ceiling_pts"]],
+            colors=[tier_color[t] for t in ceiling_chart["Tier"]], horizontal=True)
+        for item, (_, r) in zip(opt["series"][0]["data"], ceiling_chart.iterrows()):
+            item["tooltip"] = {"formatter": (
+                f"<b>{r['web_name']}</b> · {r['team']} {r['position']}<br/>"
+                f"Ceiling {r['ceiling_pts']:.1f} pts ({r['Tier']})<br/>"
+                f"£{r['price']:.1f}m · FDR next 6: {r['avg_fdr_next_6']:.2f}")}
+        charts.with_vertical_marks(opt, [
+            (float(TWENTY_PLUS_THRESHOLD), "20 pts", ACCENT_COLOR),
+            (float(HAUL_THRESHOLD), "15 pts", "#FFA500"),
+        ])
+        charts.render(opt, height=f"{max(380, 28 * len(ceiling_chart))}px",
+                      key="ts_ceiling")
 
 
 with tab_breakdown:
@@ -633,38 +628,37 @@ with tab_breakdown:
     score_cols = [c for c in ["score_form", "score_fixture", "score_xg", "score_value"] if c in full_df.columns]
 
     if score_cols:
-        chart_df = full_df[["web_name"] + score_cols].head(15).melt(
-            id_vars="web_name", var_name="Component", value_name="Score",
-        )
-        chart_df["Component"] = chart_df["Component"].str.replace("score_", "").str.title()
-        fig_breakdown = px.bar(
-            chart_df, x="Score", y="web_name", color="Component", orientation="h",
-            color_discrete_sequence=["#00FF87", "#04f5ff", "#e90052", "#FFD700"],
-            labels={"web_name": "Player"},
-        )
-        fig_breakdown.update_layout(
-            yaxis=dict(autorange="reversed"),
-            height=480,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2", margin=dict(l=10, r=10, t=30, b=10),
-        )
-        st.plotly_chart(fig_breakdown, use_container_width=True)
+        top15 = full_df[["web_name"] + score_cols].head(15)
+        comp_colors = ["#00FF87", "#04f5ff", "#e90052", "#FFD700"]
+        series = [
+            (col.replace("score_", "").title(),
+             [round(float(v), 3) for v in top15[col].fillna(0)],
+             comp_colors[i % len(comp_colors)])
+            for i, col in enumerate(score_cols)
+        ]
+        opt = charts.stacked_bars_option(list(top15["web_name"]), series,
+                                         horizontal=True)
+        charts.render(opt, height="480px", key="ts_breakdown")
 
     fdr_col = next((c for c in full_df.columns if c.startswith("avg_fdr_next_")), None)
     if fdr_col and "form" in full_df.columns and "price" in full_df.columns:
-        fig_scatter = px.scatter(
-            full_df.head(50), x="price", y="form",
-            size="transfer_score", color=fdr_col,
-            color_continuous_scale="RdYlGn_r", hover_name="web_name",
-            title="Form vs Price (bubble = score, colour = FDR)",
-            labels={"price": "Price (£m)", "form": "Form", fdr_col: "Avg FDR"},
-        )
-        fig_scatter.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2", height=400,
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        top50 = full_df.head(50)
+        fdr_cols = charts.diverging_colors(
+            [float(v) for v in top50[fdr_col].fillna(3.0)],
+            "#00FF87", "#FFD60A", "#FF4B4B", midpoint=3.0)
+        sizes = charts.scale_sizes(list(top50["transfer_score"].fillna(0)),
+                                   lo=7.0, hi=24.0)
+        pts = [{
+            "x": round(float(r["price"]), 1), "y": round(float(r["form"]), 2),
+            "name": str(r["web_name"]), "color": fdr_cols[i], "size": sizes[i],
+            "tip": (f"<b>{r['web_name']}</b><br/>£{r['price']:.1f}m · form {r['form']}"
+                    f"<br/>FDR {r[fdr_col]:.2f} · score {r['transfer_score']:.2f}"),
+        } for i, (_, r) in enumerate(top50.iterrows())]
+        opt = charts.scatter_option(pts, x_name="Price (£m)", y_name="Form")
+        opt["title"] = {"text": "Form vs Price (bubble = score, colour = FDR)",
+                        "textStyle": {"color": "#eef1f5", "fontSize": 12,
+                                      "fontWeight": "bold"}}
+        charts.render(opt, height="400px", key="ts_form_price")
 
 
 with tab_fixtures:
