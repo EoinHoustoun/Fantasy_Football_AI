@@ -8,9 +8,10 @@ Shows:
 """
 
 import streamlit as st
-import plotly.express as px
 import pandas as pd
 from typing import Optional, List
+
+from ui import charts
 
 # set_page_config is owned by the app.py router (st.navigation)
 
@@ -217,27 +218,20 @@ else:
     # Summary chart: injured/doubtful count by team
     team_counts = all_flagged.groupby("team")["fpl_id"].count().reset_index()
     team_counts.columns = ["team", "flagged"]
-    team_counts = team_counts.sort_values("flagged", ascending=True)
+    team_counts = team_counts.sort_values("flagged", ascending=False)
 
-    fig = px.bar(
-        team_counts,
-        x="flagged", y="team",
-        orientation="h",
-        color="flagged",
-        color_continuous_scale=["#FFA500", "#FF4B4B"],
-        title="Players with Availability Concerns · by Team",
-        labels={"flagged": "Count", "team": "Team"},
+    counts = [int(v) for v in team_counts["flagged"]]
+    opt = charts.bar_option(
+        x=list(team_counts["team"]), y=counts, horizontal=True,
+        colors=charts.color_ramp(counts, "#FFA500", "#FF4B4B"),
     )
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=max(250, len(team_counts) * 24),
-        coloraxis_showscale=False,
-        margin=dict(l=0, r=0, t=40, b=0),
-        font=dict(color="rgba(255,255,255,0.7)"),
-        yaxis=dict(tickfont=dict(size=11)),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    opt["title"] = {"text": "Players with Availability Concerns · by Team",
+                    "textStyle": {"color": "#eef1f5", "fontSize": 13,
+                                  "fontWeight": "bold"}}
+    opt["grid"]["top"] = 40
+    opt["tooltip"]["formatter"] = "{b}: {c} flagged"
+    charts.render(opt, height=f"{max(250, len(team_counts) * 24)}px",
+                  key="inj_by_team")
 
     st.markdown(f"**{len(all_flagged)} players flagged**")
 

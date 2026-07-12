@@ -309,6 +309,22 @@ def heatmap_option(x: List[str], y: List[str], matrix: List[List[float]],
     }
 
 
+def color_ramp(values: List[float], low: str, high: str) -> List[str]:
+    """Interpolate each value between two hex colours (a mini continuous scale)."""
+    if not values:
+        return []
+    vmin, vmax = min(values), max(values)
+    span = (vmax - vmin) or 1.0
+    lo = [int(low[i:i + 2], 16) for i in (1, 3, 5)]
+    hi = [int(high[i:i + 2], 16) for i in (1, 3, 5)]
+    out = []
+    for v in values:
+        t = (v - vmin) / span
+        r, g, b = (round(l + (h - l) * t) for l, h in zip(lo, hi))
+        out.append(f"rgb({r},{g},{b})")
+    return out
+
+
 def with_mark_line(option: Dict[str, Any], value: float, label: str = "",
                    color: str = "rgba(255,255,255,0.35)",
                    series_index: int = 0) -> Dict[str, Any]:

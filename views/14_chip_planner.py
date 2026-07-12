@@ -6,9 +6,10 @@ the optimal GW to play each chip.
 """
 
 import streamlit as st
-import plotly.graph_objects as go
 import pandas as pd
 from typing import List, Dict
+
+from ui import charts
 
 # set_page_config is owned by the app.py router (st.navigation)
 
@@ -143,25 +144,16 @@ def _bar_chart(gw_df: pd.DataFrame, y_col: str, best_gw: int, title: str, color:
         )
         for _, row in gw_df.iterrows()
     ]
-    fig = go.Figure(go.Bar(
-        x=gw_df["GW"],
-        y=gw_df[y_col],
-        marker_color=colors,
-        hovertemplate="GW%{x}: %{y:.1f} pts<extra></extra>",
-    ))
-    fig.update_layout(
-        title=title,
-        xaxis_title="Gameweek",
-        yaxis_title="Projected pts",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e2e2",
-        height=300,
-        showlegend=False,
-        xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
+    opt = charts.bar_option(
+        x=list(gw_df["GW"]),
+        y=[round(float(v), 1) for v in gw_df[y_col]],
+        colors=colors,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    opt["title"] = {"text": title, "textStyle": {
+        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+    opt["grid"]["top"] = 40
+    opt["tooltip"]["formatter"] = "GW{b}: {c} pts"
+    charts.render(opt, height="300px", key=f"chip_{y_col}")
 
 
 def _squad_cards(squad_df: pd.DataFrame, gw: int, fixtures_df: pd.DataFrame, on_bench: bool) -> None:

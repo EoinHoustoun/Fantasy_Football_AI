@@ -13,9 +13,10 @@ Off-season: shows a friendly hand-off to the 26/27 Draft page.
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 from typing import Dict, List
+
+from ui import charts
 
 from components.animations import inject_global_animations
 from components.pitch_view import render_squad_pitch
@@ -185,23 +186,23 @@ st.markdown(
 colors = ["#FFD700" if int(r["gw"]) == best_gw
           else "#00FF87" if r["n_dgw"] >= 3 else "rgba(4,245,255,0.55)"
           for _, r in scan.iterrows()]
-fig = go.Figure(go.Bar(
-    x=scan["gw"].astype(str), y=scan["total_pts"].round(1), marker_color=colors,
-    text=scan["total_pts"].round(0).astype(int), textposition="outside",
-    textfont=dict(size=10),
-    hovertemplate="GW%{x} · %{y:.1f} pts<extra></extra>"))
-for _, r in scan.iterrows():
+opt = charts.bar_option(
+    x=[str(int(g)) for g in scan["gw"]],
+    y=[round(float(v), 1) for v in scan["total_pts"]],
+    colors=colors,
+)
+for item, (_, r) in zip(opt["series"][0]["data"], scan.iterrows()):
+    txt = str(int(round(r["total_pts"])))
     if r["n_dgw"] >= 2:
-        fig.add_annotation(x=str(int(r["gw"])), y=r["total_pts"] + 4,
-                           text=f"{int(r['n_dgw'])}×DGW", showarrow=False,
-                           font=dict(size=9, color="#FFD700"))
-fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                  font_color="#e2e2e2", height=360,
-                  xaxis=dict(title="Gameweek"),
-                  yaxis=dict(title="Optimal squad projected pts",
-                             gridcolor="rgba(255,255,255,0.06)"),
-                  margin=dict(l=10, r=10, t=24, b=10))
-st.plotly_chart(fig, use_container_width=True)
+        txt = f"{{dgw|{int(r['n_dgw'])}×DGW}}\n{txt}"
+    item["label"] = {
+        "show": True, "position": "top", "formatter": txt,
+        "color": "rgba(255,255,255,0.7)", "fontSize": 10,
+        "rich": {"dgw": {"color": "#FFD700", "fontSize": 9, "fontWeight": "bold"}},
+    }
+opt["grid"]["top"] = 34
+opt["tooltip"]["formatter"] = "GW{b} · {c} pts"
+charts.render(opt, height="360px", key="wc_opportunity")
 
 # ── Exact squad on the pitch ──────────────────────────────────────────────────
 st.markdown(
