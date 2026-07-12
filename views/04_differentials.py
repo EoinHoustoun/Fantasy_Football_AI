@@ -12,8 +12,9 @@ so you can see *why* a player is a good differential, not just the number.
 from __future__ import annotations
 
 import pandas as pd
-import plotly.express as px
 import streamlit as st
+
+from ui import charts
 
 from components.animations import inject_global_animations
 from components.team_identity import shirt_html, team_color
@@ -302,31 +303,29 @@ st.markdown(
 )
 
 if "ownership" in diffs.columns and "form" in diffs.columns:
-    fig = px.scatter(
-        diffs,
-        x="ownership", y="form",
-        size="differential_score",
-        color="position" if "position" in diffs.columns else None,
-        hover_name="web_name",
-        hover_data=["price", "total_points"],
-        labels={"ownership": "Ownership (%)", "form": "Form"},
-        color_discrete_map=POS_COLORS,
+    sizes = charts.scale_sizes(list(diffs["differential_score"]))
+    top_name = str(diffs.iloc[0]["web_name"])
+    groups = []
+    for pos, col in POS_COLORS.items():
+        sub = diffs[diffs["position"] == pos] if "position" in diffs.columns else diffs
+        pts = []
+        for i, (_, r) in enumerate(sub.iterrows()):
+            idx = diffs.index.get_loc(r.name)
+            pts.append({
+                "x": round(float(r["ownership"]), 2),
+                "y": round(float(r["form"]), 2),
+                "name": str(r["web_name"]),
+                "size": sizes[idx],
+                "tip": (f"<b>{r['web_name']}</b><br/>"
+                        f"Own {r['ownership']:.1f}% · Form {r['form']:.2f}<br/>"
+                        f"£{r['price']:.1f} · {int(r['total_points'])} pts"),
+                "label": str(r["web_name"]) == top_name,
+            })
+        if pts:
+            groups.append((pos, col, pts))
+        if "position" not in diffs.columns:
+            break
+    charts.render(
+        charts.multi_scatter_option(groups, x_name="Ownership (%)", y_name="Form"),
+        height="480px", key="diff_own_form",
     )
-    top_row = diffs.iloc[0]
-    fig.add_annotation(
-        x=top_row["ownership"], y=top_row["form"],
-        text=f"  {top_row['web_name']}",
-        showarrow=False,
-        font=dict(color="#FFD700", size=12),
-    )
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e2e2",
-        height=480,
-        xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-        margin=dict(l=10, r=10, t=20, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    )
-    st.plotly_chart(fig, use_container_width=True)

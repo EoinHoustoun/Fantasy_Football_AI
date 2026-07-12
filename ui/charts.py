@@ -193,6 +193,65 @@ def scatter_option(points: List[Dict[str, Any]], x_name: str = "", y_name: str =
     }
 
 
+def multi_scatter_option(series: List[Tuple[str, str, List[Dict[str, Any]]]],
+                         x_name: str = "", y_name: str = "") -> Dict[str, Any]:
+    """Legended scatter/bubble chart, one series per group (e.g. position).
+
+    series = [(group_name, group_color, points)] with points =
+    [{'x','y','name', 'size'?, 'tip'? (tooltip HTML), 'label'? (pin the name on chart)}].
+    """
+    ax_x = _axis("value")
+    ax_y = _axis("value")
+    ax_x["name"] = x_name
+    ax_y["name"] = y_name
+    ax_x["nameTextStyle"] = {"color": _MUT, "fontSize": 10}
+    ax_y["nameTextStyle"] = {"color": _MUT, "fontSize": 10}
+    out_series = []
+    for (nm, col, points) in series:
+        data = []
+        for p in points:
+            item: Dict[str, Any] = {
+                "value": [p.get("x", 0), p.get("y", 0)],
+                "name": p.get("name", ""),
+                "symbolSize": p.get("size", 11),
+                "itemStyle": {"color": col, "opacity": 0.85,
+                              "borderColor": "rgba(0,0,0,0.35)", "borderWidth": 0.5},
+            }
+            if p.get("tip"):
+                item["tooltip"] = {"formatter": p["tip"]}
+            if p.get("label"):
+                item["label"] = {"show": True, "formatter": p.get("name", ""),
+                                 "position": "right", "color": COLORS["gold"],
+                                 "fontSize": 11, "fontWeight": "bold",
+                                 "fontFamily": _FONT}
+            data.append(item)
+        out_series.append({"name": nm, "type": "scatter", "data": data,
+                           "emphasis": {"scale": 1.4}})
+    return {
+        "backgroundColor": "transparent",
+        "grid": {"left": 44, "right": 18, "top": 34, "bottom": 34},
+        "tooltip": {"trigger": "item", "backgroundColor": "rgba(11,14,19,0.94)",
+                    "borderColor": "rgba(255,255,255,0.12)",
+                    "textStyle": {"color": _TEXT, "fontFamily": _FONT},
+                    "formatter": "{b}"},
+        "legend": {"top": 0, "right": 0, "textStyle": {"color": _MUT, "fontSize": 10,
+                                                       "fontFamily": _FONT},
+                   "itemWidth": 10, "itemHeight": 10},
+        "xAxis": ax_x, "yAxis": ax_y,
+        "series": out_series,
+    }
+
+
+def scale_sizes(values: List[float], lo: float = 8.0, hi: float = 26.0) -> List[float]:
+    """Map raw magnitudes onto a sensible bubble-size range in px."""
+    if not values:
+        return []
+    vmin, vmax = min(values), max(values)
+    if vmax <= vmin:
+        return [(lo + hi) / 2.0] * len(values)
+    return [lo + (v - vmin) / (vmax - vmin) * (hi - lo) for v in values]
+
+
 def donut_option(labels: List[str], values: List[float],
                  colors: Optional[List[str]] = None, center_label: str = "") -> Dict[str, Any]:
     """A donut chart (use over pie). colors optional; falls back to the app palette."""
