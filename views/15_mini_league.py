@@ -6,8 +6,7 @@ cumulative points over the season on one chart.
 """
 
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
+from ui import charts
 import pandas as pd
 import requests
 from typing import List, Dict, Optional
@@ -116,118 +115,46 @@ PALETTE = [
 ]
 
 
-def _cumulative_chart(df: pd.DataFrame, highlight: Optional[str] = None) -> go.Figure:
-    fig = go.Figure()
-    teams = df["team_name"].unique()
-
-    for i, team in enumerate(teams):
-        t_df  = df[df["team_name"] == team].sort_values("GW")
-        color = PALETTE[i % len(PALETTE)]
-        width = 3 if team == highlight else 1.5
-        opacity = 1.0 if (highlight is None or team == highlight) else 0.35
-
-        fig.add_trace(go.Scatter(
-            x=t_df["GW"],
-            y=t_df["cumulative"],
-            mode="lines",
-            name=team,
-            line=dict(color=color, width=width),
-            opacity=opacity,
-            hovertemplate=f"<b>{team}</b><br>GW%{{x}}: %{{y}} pts<extra></extra>",
-        ))
-
-    fig.update_layout(
-        title="Cumulative Points · Season",
-        xaxis_title="Gameweek",
-        yaxis_title="Cumulative Points",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e2e2",
-        legend=dict(
-            bgcolor="rgba(0,0,0,0.3)",
-            bordercolor="rgba(255,255,255,0.1)",
-            font_size=11,
-        ),
-        height=450,
-        xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-    )
-    return fig
+def _league_lines(df: pd.DataFrame, value_col: str, title: str, height: int,
+                  key: str, highlight: Optional[str] = None,
+                  reversed_y: bool = False) -> None:
+    """Multi-manager line chart with the selected manager emphasised."""
+    series = []
+    for i, team in enumerate(df["team_name"].unique()):
+        t_df = df[df["team_name"] == team].sort_values("GW").dropna(subset=[value_col])
+        series.append((team, list(zip(t_df["GW"], t_df[value_col])),
+                       PALETTE[i % len(PALETTE)]))
+    opt = charts.multi_line_option(series, x_name="Gameweek")
+    for s, (team, _, _) in zip(opt["series"], series):
+        focus = highlight is None or team == highlight
+        s["lineStyle"]["width"] = 3 if team == highlight else 1.5
+        s["lineStyle"]["opacity"] = 1.0 if focus else 0.35
+    if reversed_y:
+        opt["yAxis"]["inverse"] = True
+    opt["title"] = {"text": title, "textStyle": {
+        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+    opt["legend"]["top"] = 22
+    opt["grid"]["top"] = 56
+    charts.render(opt, height=f"{height}px", key=key)
 
 
-def _rank_chart(df: pd.DataFrame, highlight: Optional[str] = None) -> go.Figure:
-    fig = go.Figure()
-    teams = df["team_name"].unique()
-
-    for i, team in enumerate(teams):
-        t_df  = df[df["team_name"] == team].sort_values("GW").dropna(subset=["rank"])
-        color = PALETTE[i % len(PALETTE)]
-        width = 3 if team == highlight else 1.5
-        opacity = 1.0 if (highlight is None or team == highlight) else 0.35
-
-        fig.add_trace(go.Scatter(
-            x=t_df["GW"],
-            y=t_df["rank"],
-            mode="lines",
-            name=team,
-            line=dict(color=color, width=width),
-            opacity=opacity,
-            hovertemplate=f"<b>{team}</b><br>GW%{{x}}: rank %{{y:,}}<extra></extra>",
-        ))
-
-    fig.update_layout(
-        title="Overall Rank Progression",
-        xaxis_title="Gameweek",
-        yaxis_title="Overall Rank",
-        yaxis_autorange="reversed",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e2e2",
-        legend=dict(
-            bgcolor="rgba(0,0,0,0.3)",
-            bordercolor="rgba(255,255,255,0.1)",
-            font_size=11,
-        ),
-        height=400,
-        xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-    )
-    return fig
-
-
-def _gw_scores_chart(df: pd.DataFrame, highlight: Optional[str] = None) -> go.Figure:
+def _gw_scores_chart(df: pd.DataFrame, highlight: Optional[str] = None) -> None:
     """Bar chart of GW scores per manager side-by-side."""
+    pivot = df.pivot_table(index="GW", columns="team_name", values="gw_pts",
+                           aggfunc="first").sort_index()
     teams = list(df["team_name"].unique())
-    latest_gw = int(df["GW"].max())
-
-    fig = go.Figure()
+    series = []
     for i, team in enumerate(teams):
-        t_df = df[df["team_name"] == team].sort_values("GW")
-        color = PALETTE[i % len(PALETTE)]
-        opacity = 1.0 if (highlight is None or team == highlight) else 0.4
-        fig.add_trace(go.Bar(
-            name=team,
-            x=t_df["GW"],
-            y=t_df["gw_pts"],
-            marker_color=color,
-            opacity=opacity,
-            hovertemplate=f"<b>{team}</b><br>GW%{{x}}: %{{y}} pts<extra></extra>",
-        ))
-
-    fig.update_layout(
-        title="GW Scores (net of hits)",
-        barmode="group",
-        xaxis_title="Gameweek",
-        yaxis_title="Points",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e2e2",
-        height=350,
-        legend=dict(bgcolor="rgba(0,0,0,0.3)", font_size=11),
-        xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-    )
-    return fig
+        vals = [None if pd.isna(v) else int(v) for v in pivot.get(team, pd.Series())]
+        series.append((team, vals, PALETTE[i % len(PALETTE)]))
+    opt = charts.grouped_bars_option([f"{g}" for g in pivot.index], series)
+    for s, (team, _, _) in zip(opt["series"], series):
+        s["itemStyle"]["opacity"] = 1.0 if (highlight is None or team == highlight) else 0.4
+    opt["title"] = {"text": "GW Scores (net of hits)", "textStyle": {
+        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+    opt["legend"]["top"] = 22
+    opt["grid"]["top"] = 56
+    charts.render(opt, height="350px", key="ml_gw_scores")
 
 
 def _standings_cards(df: pd.DataFrame, current_gw: int) -> None:
@@ -395,15 +322,17 @@ tab_cum, tab_rank, tab_gw = st.tabs([
 ])
 
 with tab_cum:
-    st.plotly_chart(_cumulative_chart(league_df, highlight=hl), use_container_width=True)
+    _league_lines(league_df, "cumulative", "Cumulative Points · Season",
+                  height=450, key="ml_cumulative", highlight=hl)
     st.caption("💡 Tip: Click a team name in the legend to hide/show it.")
 
 with tab_rank:
-    st.plotly_chart(_rank_chart(league_df, highlight=hl), use_container_width=True)
+    _league_lines(league_df, "rank", "Overall Rank Progression",
+                  height=400, key="ml_rank", highlight=hl, reversed_y=True)
     st.caption("Lower rank = better. Y-axis is inverted so top of chart = best rank.")
 
 with tab_gw:
-    st.plotly_chart(_gw_scores_chart(league_df, highlight=hl), use_container_width=True)
+    _gw_scores_chart(league_df, highlight=hl)
 
 st.markdown("---")
 
