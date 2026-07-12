@@ -20,10 +20,13 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
+from components.loading import LINES_SQUAD, fpl_loader
+
 from ui import charts
 from ui.charts import with_mark_line
 
 from components.animations import (
+    count_up,
     inject_global_animations,
     scribble_swap_overlay,
 )
@@ -262,13 +265,13 @@ deadline_pill = (
 ) if deadline_text else ""
 
 hero_stats_html = (
-    _hero_stat(f"GW{current_gw} Points", f"{gw_pts - transfer_cost}", "#00FF87",
+    _hero_stat(f"GW{current_gw} Points", count_up(gw_pts - transfer_cost), "#00FF87",
                f"−{transfer_cost} hit" if transfer_cost else "No hits")
     + _hero_stat("Overall Rank", _rank_fmt(int(overall_rank or 0)), "#fff",
                  f"Total {total_pts:,}")
     + _hero_stat("Bank", f"£{bank_m:.2f}m", "#04f5ff",
                  f"Team £{value_m:.2f}m")
-    + _hero_stat("Bench Points", str(bench_pts),
+    + _hero_stat("Bench Points", count_up(bench_pts),
                  "#FF4B4B" if bench_pts > 8 else "#FFD60A" if bench_pts > 3 else "#fff",
                  f"{transfers_made} transfer{'s' if transfers_made != 1 else ''}")
     + _hero_stat("Active Chip", chip_label,
@@ -1215,13 +1218,13 @@ try:
         total_bench = int(hist_df["points_on_bench"].sum()) if "points_on_bench" in hist_df.columns else 0
 
         summary_html = (
-            _hero_stat("Best GW", f"{int(best_row['net_points'])} pts", "#00FF87",
+            _hero_stat("Best GW", f"{count_up(best_row['net_points'])} pts", "#00FF87",
                        f"GW{int(best_row['event'])}")
-            + _hero_stat("Worst GW", f"{int(worst_row['net_points'])} pts", "#FF4B4B",
+            + _hero_stat("Worst GW", f"{count_up(worst_row['net_points'])} pts", "#FF4B4B",
                          f"GW{int(worst_row['event'])}")
-            + _hero_stat("Season Avg", f"{season_avg:.1f} pts", "#fff",
+            + _hero_stat("Season Avg", f"{count_up(season_avg, 1)} pts", "#fff",
                          f"over {len(hist_df)} GWs")
-            + _hero_stat("Bench Loss", f"{total_bench} pts", "#FFA500",
+            + _hero_stat("Bench Loss", f"{count_up(total_bench)} pts", "#FFA500",
                          f"Total hits: −{total_hits}")
         )
         st.markdown(

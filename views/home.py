@@ -24,6 +24,8 @@ from typing import Optional, Tuple
 import pandas as pd
 import streamlit as st
 
+from components.loading import LINES_SQUAD, fpl_loader
+
 from config import FPL_TEAM_ID
 from components.team_identity import team_dot, team_color
 

@@ -12,7 +12,7 @@ import pandas as pd
 from ui import charts
 import streamlit as st
 
-from components.animations import inject_global_animations
+from components.animations import count_up, inject_global_animations
 from config import ARCHIVE_SEASONS, LAST_COMPLETE_SEASON
 
 # set_page_config is owned by the app.py router (st.navigation)
@@ -73,11 +73,11 @@ st.markdown(
 
 st.markdown(
     '<div class="fplh-stagger" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 6px;">'
-    + _tile("Seasons", f"{n_seasons}", "2016-17 → 2025-26", "#04f5ff")
+    + _tile("Seasons", count_up(n_seasons), "2016-17 → 2025-26", "#04f5ff")
     + _tile("Best value ever", best_value["web_name"],
             f"{best_value['season']} · £{best_value['start_price']:.1f} → "
             f"{best_value['total_points']:.0f} pts", "#00FF87")
-    + _tile("Pts per £m", f"{best_value['pts_per_million']:.1f}",
+    + _tile("Pts per £m", count_up(best_value["pts_per_million"], 1),
             "the bar every pick chases", "#FFD700")
     + "</div>",
     unsafe_allow_html=True,

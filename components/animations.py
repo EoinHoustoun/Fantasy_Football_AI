@@ -110,8 +110,61 @@ _GLOBAL_CSS = """
   display: inline-block;
   animation: fplh-count-tick 0.45s ease-out both;
 }
+
+/* ────── Count-up numbers (pure CSS · registered custom properties) ────── */
+@property --fplh-n  { syntax: "<integer>"; initial-value: 0; inherits: false; }
+@property --fplh-d  { syntax: "<integer>"; initial-value: 0; inherits: false; }
+@keyframes fplh-countup   { from { --fplh-n: 0; } }
+@keyframes fplh-countup-d { from { --fplh-d: 0; } }
+.fplh-countup {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  animation: fplh-countup 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  counter-reset: fplh-n calc(var(--fplh-n));
+}
+.fplh-countup::after { content: counter(fplh-n); }
+.fplh-countup.fplh-countup-dec {
+  animation: fplh-countup 1.1s cubic-bezier(0.16, 1, 0.3, 1) both,
+             fplh-countup-d 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  counter-reset: fplh-n calc(var(--fplh-n)) fplh-d calc(var(--fplh-d));
+}
+.fplh-countup.fplh-countup-dec::after { content: counter(fplh-n) "." counter(fplh-d); }
 </style>
 """
+
+
+_COUNTUP_SEQ = 0
+
+
+def count_up(value, decimals: int = 0) -> str:
+    """An inline count-up number (CSS counters, no JS · Chromium/Safari 16.4+).
+
+    Returns a <span> for embedding in st.markdown HTML. Supports 0 or 1
+    decimal places and non-negative values only; anything else falls back
+    to plain formatted text so the number is always shown.
+
+    The target value travels in a per-instance <style> rule, NOT an inline
+    style attribute · Streamlit's HTML sanitiser strips style attributes
+    that contain only CSS custom properties.
+    """
+    global _COUNTUP_SEQ
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if v < 0 or decimals not in (0, 1):
+        return f"{v:,.{max(decimals, 0)}f}"
+    _COUNTUP_SEQ += 1
+    uid = f"fplh-cu-{_COUNTUP_SEQ}"
+    if decimals == 0:
+        return (f'<span class="fplh-countup {uid}"></span>'
+                f'<style>.{uid}{{--fplh-n:{int(round(v))};}}</style>')
+    ip = int(v)
+    dp = int(round((v - ip) * 10))
+    if dp == 10:          # e.g. 56.96 rounds up to 57.0
+        ip, dp = ip + 1, 0
+    return (f'<span class="fplh-countup fplh-countup-dec {uid}"></span>'
+            f'<style>.{uid}{{--fplh-n:{ip};--fplh-d:{dp};}}</style>')
 
 
 def inject_global_animations() -> None:

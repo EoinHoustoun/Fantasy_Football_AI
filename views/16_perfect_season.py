@@ -21,7 +21,7 @@ import pandas as pd
 from ui import charts
 import streamlit as st
 
-from components.animations import inject_global_animations
+from components.animations import count_up, inject_global_animations
 from components.pitch_view import render_squad_pitch
 from config import CACHE_DIR, LAST_COMPLETE_SEASON
 
@@ -161,14 +161,14 @@ st.markdown(
 tiles = []
 for label, info in scenarios.items():
     d = info["data"]
-    tiles.append((label, f"{d['grand_total']:.0f}",
+    tiles.append((label, count_up(d["grand_total"]),
                   f"{d['perfect'].get('total_hits', 0)} hits taken", info["accent"]))
-tiles.append((SET_AND_FORGET, f"{saf['total_points']:.0f}",
+tiles.append((SET_AND_FORGET, count_up(saf["total_points"]),
               "one squad, never touched", "#e90052"))
 if my_total:
-    tiles.append(("Eoin actual", f"{my_total}", "Vicario Kart", "#FF8C42"))
+    tiles.append(("Eoin actual", count_up(my_total), "Vicario Kart", "#FF8C42"))
 if bench_marks.get("winner_total"):
-    tiles.append(("Global winner", f"{bench_marks['winner_total']}",
+    tiles.append(("Global winner", count_up(bench_marks["winner_total"]),
                   "best human, no hindsight", "#c084fc"))
 
 st.markdown(
