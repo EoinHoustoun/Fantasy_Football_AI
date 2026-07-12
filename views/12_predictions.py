@@ -7,8 +7,7 @@ Evaluated on a temporal holdout (last 30% of GWs) for honest out-of-sample RMSE.
 """
 
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
+from ui import charts
 import pandas as pd
 import numpy as np
 
@@ -222,25 +221,18 @@ with col_a:
             [(pos, v) for pos, v in pos_rmse.items()],
             columns=["Position", "RMSE"],
         ).sort_values("RMSE")
-        fig_pos = px.bar(
-            pos_df, x="Position", y="RMSE",
-            color="Position",
-            color_discrete_map=POS_COLORS,
-            title="RMSE by Position",
-            labels={"RMSE": "RMSE (pts)"},
-            text=pos_df["RMSE"].round(2),
-        )
-        fig_pos.update_traces(textposition="outside")
-        fig_pos.update_layout(
-            showlegend=False,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=260,
-            font=dict(color="rgba(255,255,255,0.7)"),
-            margin=dict(t=40, b=10),
-            yaxis=dict(range=[0, pos_df["RMSE"].max() * 1.3]),
-        )
-        st.plotly_chart(fig_pos, use_container_width=True)
+        opt = charts.bar_option(
+            x=list(pos_df["Position"]),
+            y=[round(float(v), 2) for v in pos_df["RMSE"]],
+            colors=[POS_COLORS.get(p, "#00FF87") for p in pos_df["Position"]])
+        for item in opt["series"][0]["data"]:
+            item["label"] = {"show": True, "position": "top", "formatter": "{c}",
+                             "color": "rgba(255,255,255,0.7)", "fontSize": 10}
+        opt["title"] = {"text": "RMSE by Position", "textStyle": {
+            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+        opt["grid"]["top"] = 40
+        opt["yAxis"]["max"] = round(float(pos_df["RMSE"].max()) * 1.3, 1)
+        charts.render(opt, height="260px", key="pred_rmse_pos")
 
 with col_b:
     # Feature importances
@@ -265,57 +257,43 @@ with col_b:
             [(FEATURE_LABELS.get(k, k), v) for k, v in imp.items()],
             columns=["Feature", "Importance"],
         ).sort_values("Importance")
-        fig_imp = px.bar(
-            imp_df, x="Importance", y="Feature",
-            orientation="h",
-            title="What drives the model",
-            color="Importance",
-            color_continuous_scale=["#16213e", "#00FF87"],
-        )
-        fig_imp.update_layout(
-            coloraxis_showscale=False,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=260,
-            font=dict(color="rgba(255,255,255,0.7)", size=11),
-            margin=dict(t=40, b=10, l=0),
-            xaxis=dict(showgrid=False, showticklabels=False),
-        )
-        st.plotly_chart(fig_imp, use_container_width=True)
+        imp_df = imp_df.sort_values("Importance", ascending=False)
+        vals = [round(float(v), 4) for v in imp_df["Importance"]]
+        opt = charts.bar_option(
+            x=list(imp_df["Feature"]), y=vals, horizontal=True,
+            colors=charts.color_ramp(vals, "#16213e", "#00FF87"))
+        opt["title"] = {"text": "What drives the model", "textStyle": {
+            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+        opt["grid"]["top"] = 40
+        opt["grid"]["left"] = 150
+        opt["xAxis"]["axisLabel"] = {"show": False}
+        opt["xAxis"]["splitLine"] = {"show": False}
+        charts.render(opt, height="260px", key="pred_importance")
 
 with col_c:
     # Predicted vs actual scatter (test set sample)
     test_df = metrics.get("test_df")
     if test_df is not None and not test_df.empty:
         sample = test_df.sample(min(1000, len(test_df)), random_state=42)
-        fig_scatter = px.scatter(
-            sample,
-            x="total_points",
-            y="predicted",
-            color="position",
-            color_discrete_map=POS_COLORS,
-            opacity=0.4,
-            title="Predicted vs Actual (test set)",
-            labels={"total_points": "Actual pts", "predicted": "Predicted pts"},
-        )
-        # Perfect prediction line
-        max_val = max(float(sample["total_points"].max()), float(sample["predicted"].max()))
-        fig_scatter.add_trace(go.Scatter(
-            x=[0, max_val], y=[0, max_val],
-            mode="lines",
-            line=dict(color="rgba(255,255,255,0.2)", dash="dash", width=1),
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-        fig_scatter.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=260,
-            font=dict(color="rgba(255,255,255,0.7)"),
-            margin=dict(t=40, b=10),
-            legend=dict(bgcolor="rgba(0,0,0,0)"),
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        groups = []
+        for pos, col in POS_COLORS.items():
+            sub = sample[sample["position"] == pos]
+            pts = [{"x": int(r["total_points"]),
+                    "y": round(float(r["predicted"]), 1), "size": 6}
+                   for _, r in sub.iterrows()]
+            if pts:
+                groups.append((pos, col, pts))
+        opt = charts.multi_scatter_option(groups, x_name="Actual pts",
+                                          y_name="Predicted pts")
+        for s in opt["series"]:
+            for d in s["data"]:
+                d["itemStyle"]["opacity"] = 0.4
+        opt["title"] = {"text": "Predicted vs Actual (test set)", "textStyle": {
+            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+        max_val = max(float(sample["total_points"].max()),
+                      float(sample["predicted"].max()))
+        charts.with_diagonal(opt, max_val, color="rgba(255,255,255,0.2)")
+        charts.render(opt, height="260px", key="pred_vs_actual")
 
 st.markdown("---")
 
@@ -374,28 +352,23 @@ if not preds_filtered.empty:
         st.markdown(cards_html, unsafe_allow_html=True)
 
     with col_chart:
-        fig_top = px.bar(
-            preds_filtered.head(15),
-            x="predicted_pts",
-            y="web_name",
-            color="position",
-            orientation="h",
-            color_discrete_map=POS_COLORS,
-            error_x=preds_filtered.head(15)["predicted_pts"] * 0.35,
-            title=f"Top 15 Predicted · GW{captain_gw}",
-            labels={"predicted_pts": "Predicted pts", "web_name": ""},
-        )
-        fig_top.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=420,
-            yaxis=dict(autorange="reversed"),
-            legend=dict(bgcolor="rgba(0,0,0,0)"),
-            font=dict(color="rgba(255,255,255,0.7)"),
-            margin=dict(t=40, b=10, l=0),
-            xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-        )
-        st.plotly_chart(fig_top, use_container_width=True)
+        top15 = preds_filtered.head(15)
+        opt = charts.bar_option(
+            x=list(top15["web_name"]),
+            y=[round(float(v), 1) for v in top15["predicted_pts"]],
+            colors=[POS_COLORS.get(p, "#00FF87") for p in top15["position"]],
+            horizontal=True)
+        for item, (_, r) in zip(opt["series"][0]["data"], top15.iterrows()):
+            lo = r["predicted_pts"] * 0.65
+            hi = r["predicted_pts"] * 1.35
+            item["tooltip"] = {"formatter": (
+                f"<b>{r['web_name']}</b> ({r['position']})<br/>"
+                f"{r['predicted_pts']:.1f} pts predicted "
+                f"(range {lo:.1f}–{hi:.1f})")}
+        opt["title"] = {"text": f"Top 15 Predicted · GW{captain_gw}", "textStyle": {
+            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+        opt["grid"]["top"] = 40
+        charts.render(opt, height="420px", key="pred_top15")
 
 st.markdown("---")
 
@@ -488,32 +461,25 @@ else:
         dc_chart = dc_df.head(15).sort_values("defcon_monster_score")
         colors = [POS_COLORS.get(str(p).upper(), "#aaa") for p in dc_chart["position"]]
 
-        fig_dc = go.Figure(go.Bar(
-            x=dc_chart["defcon_monster_score"],
-            y=dc_chart["web_name"],
-            orientation="h",
-            marker_color=colors,
-            customdata=dc_chart[["defcon_pct", "defcon_consistency", "defcon_cbit_per_game", "avg_minutes", "position"]].values,
-            hovertemplate=(
-                "<b>%{y}</b><br>"
-                "Monster Score: %{x:.2f}<br>"
-                "Hit Rate: %{customdata[0]:.0%}<br>"
-                "Consistency: %{customdata[1]:.2f}<br>"
-                "Avg CBIT: %{customdata[2]:.1f}<br>"
-                "Position: %{customdata[3]}<extra></extra>"
-            ),
-        ))
-        fig_dc.update_layout(
-            title="Defcon Monster Score (reliability × consistency)",
-            xaxis_title="Monster Score",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e2e2",
-            height=420,
-            xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
-            yaxis=dict(gridcolor="rgba(255,255,255,0.0)"),
-        )
-        st.plotly_chart(fig_dc, use_container_width=True)
+        dc_chart = dc_chart.sort_values("defcon_monster_score", ascending=False)
+        colors = [POS_COLORS.get(str(p).upper(), "#aaa") for p in dc_chart["position"]]
+        opt = charts.bar_option(
+            x=list(dc_chart["web_name"]),
+            y=[round(float(v), 2) for v in dc_chart["defcon_monster_score"]],
+            colors=colors, horizontal=True)
+        for item, (_, r) in zip(opt["series"][0]["data"], dc_chart.iterrows()):
+            item["tooltip"] = {"formatter": (
+                f"<b>{r['web_name']}</b><br/>"
+                f"Monster Score: {r['defcon_monster_score']:.2f}<br/>"
+                f"Hit Rate: {r['defcon_pct']:.0%}<br/>"
+                f"Consistency: {r['defcon_consistency']:.2f}<br/>"
+                f"Avg CBIT: {r['defcon_cbit_per_game']:.1f}<br/>"
+                f"Position: {r['position']}")}
+        opt["title"] = {"text": "Defcon Monster Score (reliability × consistency)",
+                        "textStyle": {"color": "#eef1f5", "fontSize": 12,
+                                      "fontWeight": "bold"}}
+        opt["grid"]["top"] = 40
+        charts.render(opt, height="420px", key="pred_defcon")
 
         # Table
         show_dc = dc_df[["web_name", "team", "position", "price",
