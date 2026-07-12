@@ -6,9 +6,10 @@ and key stats side-by-side. Simple, opinionated, action-ready.
 """
 
 import streamlit as st
-import plotly.graph_objects as go
 import pandas as pd
 from typing import Optional, List
+
+from ui import charts
 
 from components.badges import render_badges
 from components.team_identity import shirt_url, shirt_fallback_url, badge_url, team_color
@@ -306,21 +307,14 @@ st.caption("Projected points-per-gameweek gain for each swap. Green = upgrade, r
 _labels = [f"{p['sell'].get('web_name','?')} → {p['buy'].get('web_name','?')}" for p in pairings]
 _gains  = [p["ppg_gain"] for p in pairings]
 _colors = ["#00FF87" if g > 0 else "#FF4B4B" for g in _gains]
-_impact = go.Figure(go.Bar(
-    x=_gains, y=_labels, orientation="h",
-    marker=dict(color=_colors),
-    text=[f"{g:+.1f}" for g in _gains], textposition="outside",
-    hovertemplate="%{y}<br>%{x:+.1f} PPG/GW<extra></extra>",
-))
-_impact.update_layout(
-    height=max(200, 34 * len(pairings) + 50), margin=dict(l=10, r=24, t=6, b=10),
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="rgba(255,255,255,0.7)", size=11),
-    xaxis=dict(title="PPG gain per GW", gridcolor="rgba(255,255,255,0.06)",
-               zeroline=True, zerolinecolor="rgba(255,255,255,0.25)"),
-    yaxis=dict(autorange="reversed"),
-)
-st.plotly_chart(_impact, use_container_width=True)
+_opt = charts.bar_option(x=_labels, y=[round(g, 2) for g in _gains],
+                         colors=_colors, horizontal=True)
+for _item, _g in zip(_opt["series"][0]["data"], _gains):
+    _item["label"] = {"show": True, "formatter": f"{_g:+.1f}", "position": "right",
+                      "color": "rgba(255,255,255,0.7)", "fontSize": 10}
+_opt["grid"]["left"] = 170
+_opt["tooltip"]["formatter"] = "{b}<br/>{c} PPG/GW"
+charts.render(_opt, height=f"{max(200, 34 * len(pairings) + 50)}px", key="bs_impact")
 
 st.markdown("---")
 
