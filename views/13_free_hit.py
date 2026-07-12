@@ -4,8 +4,7 @@ using ML predictions, then compares it position-by-position to your current team
 """
 
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
+from ui import charts
 import pandas as pd
 import numpy as np
 
@@ -118,42 +117,26 @@ def _squad_grid_html(squad: pd.DataFrame, players_df: pd.DataFrame, title: str, 
     )
 
 
-def _comparison_chart(breakdown: pd.DataFrame, optimal_total: float, your_total: float) -> go.Figure:
+def _comparison_chart(breakdown: pd.DataFrame, optimal_total: float, your_total: float) -> None:
     """Side-by-side bar chart: your pts vs optimal pts per position."""
-    fig = go.Figure()
-
-    fig.add_trace(go.Bar(
-        name="Your Team",
+    opt = charts.grouped_bars_option(
         x=breakdown["position"].tolist(),
-        y=breakdown["your_pts"].tolist(),
-        marker_color="#04f5ff",
-        text=breakdown["your_pts"].round(1).tolist(),
-        textposition="outside",
-        hovertemplate="%{x}: <b>%{y:.1f} pts</b><extra>Your team</extra>",
-    ))
-    fig.add_trace(go.Bar(
-        name="Optimal Free Hit",
-        x=breakdown["position"].tolist(),
-        y=breakdown["optimal_pts"].tolist(),
-        marker_color="#00FF87",
-        text=breakdown["optimal_pts"].round(1).tolist(),
-        textposition="outside",
-        hovertemplate="%{x}: <b>%{y:.1f} pts</b><extra>Optimal team</extra>",
-    ))
-
-    fig.update_layout(
-        barmode="group",
-        title=f"Position-by-Position Comparison  |  Your XI: {your_total:.1f}pts  vs  Optimal XI: {optimal_total:.1f}pts",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=340,
-        legend=dict(bgcolor="rgba(0,0,0,0.3)", bordercolor="rgba(255,255,255,0.1)", borderwidth=1),
-        font=dict(color="rgba(255,255,255,0.8)"),
-        xaxis=dict(tickfont=dict(size=13, color="#e2e2e2")),
-        yaxis=dict(title="Predicted pts", gridcolor="rgba(255,255,255,0.06)", showgrid=True),
-        margin=dict(t=60, b=10),
+        series=[
+            ("Your Team", [round(float(v), 1) for v in breakdown["your_pts"]], "#04f5ff"),
+            ("Optimal Free Hit", [round(float(v), 1) for v in breakdown["optimal_pts"]], "#00FF87"),
+        ],
     )
-    return fig
+    for s in opt["series"]:
+        s["label"] = {"show": True, "position": "top", "formatter": "{c}",
+                      "color": "rgba(255,255,255,0.7)", "fontSize": 9}
+    opt["title"] = {
+        "text": (f"Position-by-Position Comparison  |  Your XI: {your_total:.1f}pts"
+                 f"  vs  Optimal XI: {optimal_total:.1f}pts"),
+        "textStyle": {"color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"},
+    }
+    opt["grid"]["top"] = 46
+    opt["legend"]["top"] = 24
+    charts.render(opt, height="340px", key="fh_pos_compare")
 
 
 def _delta_cards_html(breakdown: pd.DataFrame) -> str:
@@ -294,8 +277,7 @@ if comparison:
     st.markdown(_delta_cards_html(bd), unsafe_allow_html=True)
 
     # Side-by-side bar chart
-    fig_cmp = _comparison_chart(bd, comparison["optimal_total"], comparison["your_total"])
-    st.plotly_chart(fig_cmp, use_container_width=True)
+    _comparison_chart(bd, comparison["optimal_total"], comparison["your_total"])
 
     # Narrative summary
     top_gain = bd.loc[bd["difference"].idxmax()]
@@ -429,20 +411,12 @@ with col_table:
 
     # Position breakdown
     pos_sum = optimal_xi.groupby("position")["predicted_pts"].sum().reindex(POS_ORDER).fillna(0)
-    fig_pie = px.pie(
-        values=pos_sum.values,
-        names=pos_sum.index,
-        color=pos_sum.index,
-        color_discrete_map=POS_COLORS,
-        title="Points by position (optimal XI)",
-        hole=0.5,
+    opt = charts.donut_option(
+        labels=list(pos_sum.index),
+        values=[round(float(v), 1) for v in pos_sum.values],
+        colors=[POS_COLORS.get(p, "#00FF87") for p in pos_sum.index],
     )
-    fig_pie.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        height=220,
-        margin=dict(t=40, b=0, l=0, r=0),
-        font=dict(color="rgba(255,255,255,0.7)", size=11),
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
-        showlegend=True,
-    )
-    st.plotly_chart(fig_pie, use_container_width=True)
+    opt["title"] = {"text": "Points by position (optimal XI)",
+                    "textStyle": {"color": "#eef1f5", "fontSize": 12,
+                                  "fontWeight": "bold"}}
+    charts.render(opt, height="220px", key="fh_pos_donut")
