@@ -101,7 +101,7 @@ Call `inject_global_animations()` at the top of every page. Provides:
 
 ## Stack
 - **Python 3.8** · always use `List`, `Dict`, `Optional`, `Union` from `typing`. Never `list[x]` or `dict[x]`.
-- **Streamlit + Plotly** for UI/charts (plot backgrounds always `rgba(0,0,0,0)`)
+- **Streamlit + Apache ECharts** (`streamlit-echarts`) for UI/charts · every chart goes through the shared helpers in `ui/charts.py` (one dark theme, transparent grounds). Plotly is gone — do not reintroduce it.
 - **No database.** JSON cache with TTL in `data/cache/` · safe to delete for cold fetch.
 - **All weights, thresholds, scoring constants → `config.py`.**
 

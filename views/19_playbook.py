@@ -10,8 +10,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+from ui import charts
 import streamlit as st
 
 from components.animations import inject_global_animations
@@ -25,11 +24,7 @@ MUTED = "rgba(255,255,255,0.5)"
 CARD = ("background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);"
         "border-radius:12px;padding:16px 20px;")
 
-PLOT_LAYOUT = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                   font_color="#e2e2e2",
-                   xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-                   yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
-                   margin=dict(l=10, r=10, t=20, b=10))
+CHART_TITLE = {"color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Crunching 10 seasons of data…")
@@ -160,19 +155,22 @@ per_gw = f["per_gw"]
 counts = pd.Series(f["best_xi_formations"]).sort_values(ascending=True)
 c1, c2 = st.columns([1, 1])
 with c1:
-    fig = go.Figure(go.Bar(x=counts.values, y=counts.index, orientation="h",
-                           marker_color="#00FF87", opacity=0.85))
-    fig.update_layout(height=300, title=dict(text="Weeks each formation was the best XI",
-                                             font=dict(size=12)), **PLOT_LAYOUT)
-    st.plotly_chart(fig, use_container_width=True)
+    counts = counts.sort_values(ascending=False)
+    opt = charts.bar_option(x=list(counts.index), y=[int(v) for v in counts.values],
+                            color="#00FF87", horizontal=True)
+    opt["title"] = {"text": "Weeks each formation was the best XI",
+                    "textStyle": CHART_TITLE}
+    opt["grid"]["top"] = 36
+    charts.render(opt, height="300px", key="pb_formations_best")
 with c2:
     if "perfect_season_formations" in f:
-        pcounts = pd.Series(f["perfect_season_formations"]).sort_values(ascending=True)
-        fig = go.Figure(go.Bar(x=pcounts.values, y=pcounts.index, orientation="h",
-                               marker_color="#FFD700", opacity=0.85))
-        fig.update_layout(height=300, title=dict(text="Formations the Perfect Season actually fielded",
-                                                 font=dict(size=12)), **PLOT_LAYOUT)
-        st.plotly_chart(fig, use_container_width=True)
+        pcounts = pd.Series(f["perfect_season_formations"]).sort_values(ascending=False)
+        opt = charts.bar_option(x=list(pcounts.index), y=[int(v) for v in pcounts.values],
+                                color="#FFD700", horizontal=True)
+        opt["title"] = {"text": "Formations the Perfect Season actually fielded",
+                        "textStyle": CHART_TITLE}
+        opt["grid"]["top"] = 36
+        charts.render(opt, height="300px", key="pb_formations_ps")
 
 # ── Q2 Spend structure ────────────────────────────────────────────────────────
 share = A["share"]
@@ -187,12 +185,18 @@ _question(
     f"4.5–5.5 from top defensive units), heavy midfield spend</b>. Don't pay £6m+ for a "
     f"defender unless he's an attacking FB on a top team.",
     "#04f5ff")
-fig = px.bar(share, x="season", y="pct_of_points", color="position", barmode="group",
-             color_discrete_map=POS_COLORS,
-             labels={"pct_of_points": "% of all points", "season": ""})
-fig.update_layout(height=320, legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                  **PLOT_LAYOUT)
-st.plotly_chart(fig, use_container_width=True)
+_seasons = sorted(share["season"].unique())
+_series = []
+for pos, col in POS_COLORS.items():
+    sub = share[share["position"] == pos].set_index("season")
+    if sub.empty:
+        continue
+    _series.append((pos, [round(float(sub["pct_of_points"].get(se, 0) or 0), 1)
+                          for se in _seasons], col))
+opt = charts.grouped_bars_option(_seasons, _series)
+opt["tooltip"]["trigger"] = "item"
+opt["tooltip"]["formatter"] = "{a} · {b}: {c}% of all points"
+charts.render(opt, height="320px", key="pb_pos_share")
 
 # ── Q3 Which defenders ────────────────────────────────────────────────────────
 d = A["defenders"]
@@ -235,12 +239,16 @@ _question(
 if pens is not None:
     p = pens.copy()
     p["pen_taker"] = p["pen_taker"].map({True: "Taker", False: "Not taker"})
-    fig = px.bar(p, x="position", y="med_pts", color="pen_taker", barmode="group",
-                 color_discrete_map={"Taker": "#FFD700", "Not taker": "#555a66"},
-                 labels={"med_pts": "Median season pts", "position": "", "pen_taker": ""})
-    fig.update_layout(height=300, legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                      **PLOT_LAYOUT)
-    st.plotly_chart(fig, use_container_width=True)
+    _pos_order = [x for x in ["GKP", "DEF", "MID", "FWD"] if x in set(p["position"])]
+    _series = []
+    for grp, col in [("Taker", "#FFD700"), ("Not taker", "#555a66")]:
+        sub = p[p["pen_taker"] == grp].set_index("position")
+        _series.append((grp, [round(float(sub["med_pts"].get(x, 0) or 0), 1)
+                              for x in _pos_order], col))
+    opt = charts.grouped_bars_option(_pos_order, _series)
+    opt["tooltip"]["trigger"] = "item"
+    opt["tooltip"]["formatter"] = "{a} · {b}: {c} median pts"
+    charts.render(opt, height="300px", key="pb_pens")
 
 # ── Q5 Form vs fixtures vs xG ─────────────────────────────────────────────────
 pr = A["predict"]
@@ -261,10 +269,12 @@ sig = pd.DataFrame({
                 pr["next_gw"]["underlying (last-4 xGI)"],
                 pr["next_gw"]["fixture ease (next opp)"]],
 })
-fig = go.Figure(go.Bar(x=sig["signal"], y=sig["next_gw"],
-                       marker_color=["#00FF87", "#04f5ff", "#FF8C42"]))
-fig.update_layout(height=300, yaxis_title="Spearman ρ vs next-GW points", **PLOT_LAYOUT)
-st.plotly_chart(fig, use_container_width=True)
+opt = charts.bar_option(x=list(sig["signal"]),
+                        y=[round(float(v), 2) for v in sig["next_gw"]],
+                        colors=["#00FF87", "#04f5ff", "#FF8C42"])
+opt["yAxis"]["name"] = "Spearman ρ vs next-GW points"
+opt["yAxis"]["nameTextStyle"] = {"color": "rgba(236,241,245,0.55)", "fontSize": 10}
+charts.render(opt, height="300px", key="pb_signals")
 
 # ── Q6 Fixture horizon ────────────────────────────────────────────────────────
 hz = A["horizon"]
@@ -276,11 +286,16 @@ _question(
     f"and never move for a single good fixture · one game of ease is worth almost "
     f"nothing (ρ≈0.14). The app's 6-GW lookahead default is right.",
     "#04f5ff")
-fig = go.Figure(go.Scatter(x=hz["horizon"], y=hz["spearman"], mode="lines+markers",
-                           line=dict(color="#04f5ff", width=3)))
-fig.update_layout(height=280, xaxis_title="Fixture horizon (GWs ahead)",
-                  yaxis_title="Ease → points correlation", **PLOT_LAYOUT)
-st.plotly_chart(fig, use_container_width=True)
+opt = charts.multi_line_option(
+    [("Ease → points correlation",
+      [(int(h), round(float(r), 3)) for h, r in zip(hz["horizon"], hz["spearman"])],
+      "#04f5ff")],
+    x_name="Fixture horizon (GWs ahead)", y_name="Ease → points correlation")
+opt["series"][0]["symbol"] = "circle"
+opt["series"][0]["symbolSize"] = 7
+opt["series"][0]["lineStyle"]["width"] = 3
+opt["legend"] = {"show": False}
+charts.render(opt, height="280px", key="pb_horizon")
 
 # ── Q7 Team value ─────────────────────────────────────────────────────────────
 v = A["value"]
@@ -296,11 +311,15 @@ _question(
     f"form risers · never budget +£0.5m/month into your plans.",
     "#FF8C42")
 traj = v["trajectory"]
-fig = go.Figure(go.Scatter(x=traj["gw"], y=traj["growth"], mode="lines",
-                           fill="tozeroy", line=dict(color="#FF8C42", width=2)))
-fig.update_layout(height=280, xaxis_title="Gameweek",
-                  yaxis_title="GW1 template value change (£m)", **PLOT_LAYOUT)
-st.plotly_chart(fig, use_container_width=True)
+opt = charts.multi_line_option(
+    [("GW1 template value change (£m)",
+      [(int(g), round(float(v), 2)) for g, v in zip(traj["gw"], traj["growth"])],
+      "#FF8C42")],
+    x_name="Gameweek", y_name="GW1 template value change (£m)")
+opt["series"][0]["areaStyle"] = {"color": "rgba(255,140,66,0.15)"}
+opt["series"][0]["lineStyle"]["width"] = 2
+opt["legend"] = {"show": False}
+charts.render(opt, height="280px", key="pb_value_traj")
 st.markdown(f'<div style="font-size:11px;color:rgba(255,255,255,0.35);">{v["note"]}</div>',
             unsafe_allow_html=True)
 
@@ -323,21 +342,25 @@ _question(
     f"when in doubt, take the locked-in 90-minute man. (Season-level confound for "
     f"context: minutes ↔ points ρ = {mi['spearman']:.2f}.)",
     "#00FF87")
-fig = go.Figure()
-fig.add_trace(go.Bar(x=ov["band"].astype(str), y=ov["pts_per_match"],
-                     name="Points per match", marker_color="#00FF87", opacity=0.9))
-fig.add_trace(go.Scatter(x=ov["band"].astype(str), y=ov["pts_per_90"],
-                         name="Points per 90 (efficiency)", mode="lines+markers",
-                         line=dict(color="#FF8C42", width=3, dash="dot")))
-fig.update_layout(height=320,
-                  yaxis=dict(title="Points", gridcolor="rgba(255,255,255,0.06)"),
-                  legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                  paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                  font_color="#e2e2e2",
-                  xaxis=dict(title="Average minutes per appearance (regulars, 20+ games)",
-                             gridcolor="rgba(255,255,255,0.06)"),
-                  margin=dict(l=10, r=10, t=20, b=10))
-st.plotly_chart(fig, use_container_width=True)
+opt = charts.bar_option(x=[str(b) for b in ov["band"]],
+                        y=[round(float(v), 1) for v in ov["pts_per_match"]],
+                        color="#00FF87", name="Points per match")
+opt["series"].append({
+    "name": "Points per 90 (efficiency)", "type": "line",
+    "data": [round(float(v), 1) for v in ov["pts_per_90"]],
+    "symbol": "circle", "symbolSize": 7,
+    "lineStyle": {"color": "#FF8C42", "width": 3, "type": "dotted"},
+    "itemStyle": {"color": "#FF8C42"},
+})
+opt["legend"] = {"top": 0, "right": 0,
+                 "textStyle": {"color": "rgba(236,241,245,0.55)", "fontSize": 10},
+                 "itemWidth": 12, "itemHeight": 8}
+opt["grid"]["top"] = 30
+opt["xAxis"]["name"] = "Avg minutes per appearance (regulars, 20+ games)"
+opt["xAxis"]["nameLocation"] = "middle"
+opt["xAxis"]["nameGap"] = 28
+opt["xAxis"]["nameTextStyle"] = {"color": "rgba(236,241,245,0.55)", "fontSize": 10}
+charts.render(opt, height="320px", key="pb_minutes_combo")
 
 # ── Q9 Hits ───────────────────────────────────────────────────────────────────
 _question(

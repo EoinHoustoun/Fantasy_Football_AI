@@ -6,8 +6,9 @@ for a set of players or teams.
 """
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+
+from ui import charts
 
 
 # FDR colour scale: 1=easiest (green), 5=hardest (red)
@@ -82,35 +83,39 @@ def render_fixture_ticker(players_df: pd.DataFrame, top_n: int = 15) -> None:
         text_values.append(text_row)
         hover_texts.append(hover_row)
 
-    fig = go.Figure(data=go.Heatmap(
-        z=z_values,
-        x=[f"GW{gw}" for gw in gws_present],
-        y=player_labels,
-        text=text_values,
-        hovertext=hover_texts,
-        hoverinfo="text",
-        texttemplate="%{text}",
-        colorscale=[
-            [0.0,   FDR_COLORS[1]],
-            [0.2,   FDR_COLORS[2]],
-            [0.4,   FDR_COLORS[3]],
-            [0.6,   FDR_COLORS[4]],
-            [0.8,   FDR_COLORS[5]],
-            [1.0,   "#444444"],   # BGW · dark grey
-        ],
-        zmin=1, zmax=6,
-        showscale=False,
-        xgap=3,
-        ygap=3,
-    ))
+    cell_colors = dict(FDR_COLORS)
+    cell_colors[6] = "#444444"   # BGW · dark grey
+    text_colors = dict(FDR_TEXT_COLOR)
+    text_colors[6] = "#aaaaaa"
 
-    fig.update_layout(
-        margin=dict(l=10, r=10, t=10, b=10),
-        height=max(250, 40 * len(player_labels)),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(size=11),
-        yaxis=dict(autorange="reversed"),
-    )
+    data = []
+    for ri, (z_row, text_row, hover_row) in enumerate(
+            zip(z_values, text_values, hover_texts)):
+        for ci, (fdr, txt, hover) in enumerate(zip(z_row, text_row, hover_row)):
+            data.append({
+                "value": [ci, ri, fdr],
+                "itemStyle": {"color": cell_colors.get(fdr, "#444444"),
+                              "borderColor": "#0B0E13", "borderWidth": 3},
+                "label": {"show": True, "formatter": txt, "fontSize": 10,
+                          "color": text_colors.get(fdr, "#ffffff")},
+                "tooltip": {"formatter": f"<b>{player_labels[ri]}</b><br/>{hover}"},
+            })
 
-    st.plotly_chart(fig, use_container_width=True)
+    opt = {
+        "backgroundColor": "transparent",
+        "grid": {"left": 90, "right": 10, "top": 10, "bottom": 30},
+        "tooltip": {"position": "top", "backgroundColor": "rgba(11,14,19,0.94)",
+                    "borderColor": "rgba(255,255,255,0.12)",
+                    "textStyle": {"color": "#eef1f5", "fontSize": 12}},
+        "xAxis": {"type": "category", "data": [f"GW{gw}" for gw in gws_present],
+                  "axisLabel": {"color": "rgba(236,241,245,0.55)", "fontSize": 10},
+                  "axisTick": {"show": False}, "axisLine": {"show": False}},
+        "yAxis": {"type": "category", "data": player_labels, "inverse": True,
+                  "axisLabel": {"color": "rgba(236,241,245,0.55)", "fontSize": 11},
+                  "axisTick": {"show": False}, "axisLine": {"show": False}},
+        "series": [{"type": "heatmap", "data": data,
+                    "emphasis": {"itemStyle": {"borderColor": "#fff",
+                                               "borderWidth": 1}}}],
+    }
+    charts.render(opt, height=f"{max(250, 40 * len(player_labels))}px",
+                  key="fixture_ticker")
