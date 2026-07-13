@@ -28,7 +28,7 @@ CHART_TITLE = {"color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Crunching 10 seasons of data…")
-def _answers():
+def _answers(_v: int = 3):   # bump _v to bust the cache when analyses change
     from data.processors.archive import (build_optimizer_input, load_gw_archive,
                                          load_season_summary)
     from analytics import playbook as pb
@@ -453,10 +453,13 @@ with _c1:
         item["tooltip"] = {"formatter": (f"<b>{x['name']}</b> · £{x['price']:.0f}m"
                                          f"<br/>+{x['extra']} captain pts if "
                                          f"captained every week")}
+    from components.team_identity import player_photo_url as _ppu
+    charts.with_image_labels(opt, [_ppu(x.get("code")) for x in _saf])
     opt["title"] = {"text": "Set-and-forget captain · extra points banked",
                     "textStyle": CHART_TITLE}
     opt["grid"]["top"] = 36
-    charts.render(opt, height="300px", key="pb_saf_captain")
+    opt["grid"]["left"] = 132
+    charts.render(opt, height="320px", key="pb_saf_captain")
 with _c2:
     _pp = cap["pairs"]
     opt = charts.grouped_bars_option(

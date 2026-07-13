@@ -539,6 +539,29 @@ def with_diagonal(option: Dict[str, Any], max_val: float, name: str = "",
     return option
 
 
+def with_image_labels(option: Dict[str, Any], images: List[str],
+                      size: int = 24) -> Dict[str, Any]:
+    """Put player faces (or kits) on a bar chart's category axis labels.
+
+    `images[i]` pairs with category i (data order · works with inverse axes).
+    Empty URLs fall back to the plain text label.
+    """
+    from streamlit_echarts import JsCode
+    axis = option["yAxis"] if option.get("yAxis", {}).get("type") == "category" \
+        else option.get("xAxis", {})
+    rich = {f"img{i}": {"backgroundColor": {"image": u},
+                        "height": size, "width": size, "borderRadius": size // 2}
+            for i, u in enumerate(images) if u}
+    keys = "[" + ",".join(f"'{('img'+str(i)) if u else ''}'"
+                          for i, u in enumerate(images)) + "]"
+    axis["axisLabel"] = {**axis.get("axisLabel", {}),
+        "formatter": JsCode(
+            "function(v,i){var k=" + keys + "[i];"
+            "return (k? '{'+k+'|} ' : '') + v;}").js_code,
+        "rich": rich, "margin": 10}
+    return option
+
+
 def with_mark_line(option: Dict[str, Any], value: float, label: str = "",
                    color: str = "rgba(255,255,255,0.35)",
                    series_index: int = 0) -> Dict[str, Any]:

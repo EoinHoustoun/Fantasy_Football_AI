@@ -388,7 +388,7 @@ def premium_captaincy(gw_archive: pd.DataFrame, summary: pd.DataFrame,
     curve = att.groupby(bands, observed=True)["total_points"].agg(["mean", "count"])
     curve.index = [f"£{i.left:g}–{i.right:g}m" for i in curve.index]
 
-    top = [{"name": name[c], "extra": int(v), "price": price[c]}
+    top = [{"name": name[c], "extra": int(v), "price": price[c], "code": int(c)}
            for c, v in saf.items()]
     return {"saf": top, "pairs": pairs[:5], "budget_curve": curve.round(1)}
 

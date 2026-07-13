@@ -102,3 +102,13 @@ def team_color_pair(key: Optional[str]) -> Tuple[str, str]:
     """(primary, secondary) club colours. Safe fallback for unknown clubs."""
     pair = TEAM_COLORS.get(_normalise(key))
     return pair if pair else (_FALLBACK_COLOR, _FALLBACK_SECONDARY)
+
+
+def player_photo_url(code) -> str:
+    """Official PL headshot for a player `code` (plain code, no 'p' prefix).
+    Callers should provide an onerror/kit fallback for missing photos."""
+    try:
+        return ("https://resources.premierleague.com/premierleague25/"
+                f"photos/players/110x140/{int(code)}.png")
+    except (TypeError, ValueError):
+        return ""

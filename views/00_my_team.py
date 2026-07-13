@@ -672,24 +672,27 @@ def _column_chart_dialog(label: str, season_col: str, gw_field, pool: pd.DataFra
                 hist = _gw_stats(int(r["fpl_id"]))
                 vals = [float(h.get(gw_field) or 0) for h in hist][-int(n):]
                 rows.append((str(r["web_name"]), round(sum(vals), 1),
-                             r.get("team_short")))
+                             r.get("team_short"), r.get("code")))
         rows.sort(key=lambda x: -x[1])
         rows = rows[:10]
         sub = f"summed over the last {int(n)} gameweeks · candidates ranked live"
     else:
         rows = [(str(r["web_name"]), round(float(r[season_col] or 0), 1),
-                 r.get("team_short")) for _, r in top.head(10).iterrows()]
+                 r.get("team_short"), r.get("code"))
+                for _, r in top.head(10).iterrows()]
         sub = "current season snapshot"
     st.caption(sub)
+    from components.team_identity import player_photo_url as _ppu
     opt = charts.bar_option(
-        x=[nm for nm, _, _ in rows], y=[v for _, v, _ in rows],
-        colors=[_tc(ts) for _, _, ts in rows], horizontal=True)
-    for item, (_nm, v, _ts) in zip(opt["series"][0]["data"], rows):
+        x=[nm for nm, _, _, _ in rows], y=[v for _, v, _, _ in rows],
+        colors=[_tc(ts) for _, _, ts, _ in rows], horizontal=True)
+    for item, (_nm, v, _ts, _cd) in zip(opt["series"][0]["data"], rows):
         item["label"] = {"show": True, "position": "right", "formatter": f"{v:g}",
                          "color": "rgba(255,255,255,0.75)", "fontSize": 11}
-    opt["grid"]["left"] = 110
+    charts.with_image_labels(opt, [_ppu(cd) for _, _, _, cd in rows])
+    opt["grid"]["left"] = 150
     opt["grid"]["right"] = 46
-    charts.render(opt, height="340px", key=f"colchart_{season_col}")
+    charts.render(opt, height="380px", key=f"colchart_{season_col}")
 
 
 def _replacement_panel(out_name: str, out_pos: str, out_price: float,
