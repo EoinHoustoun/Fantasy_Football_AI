@@ -50,6 +50,7 @@ def _answers():
         "minutes": pb.minutes_importance(summary),
         "intensity": pb.minutes_intensity(summary),
         "captaincy": pb.premium_captaincy(arch, summary),
+        "icon_field": pb.icon_vs_field(summary),
         "bench": pb.bench_doctrine(summary),
         "defcon_mix": pb.defcon_mix(summary),
     }
@@ -407,8 +408,39 @@ _question(
     f"home-first rule · barely above just captaining one of them forever. Rule: "
     f"<b>a ~£9m set-and-forget captain + the savings spent in the XI beat the "
     f"£14m icon</b> unless the icon is dramatically outscoring everyone. "
-    f"Captaincy consistency matters more than captaincy ceiling.",
+    f"Captaincy consistency matters more than captaincy ceiling. "
+    f"<i>Honest caveat: a £9m player scoring like Fernandes did is rare · but "
+    f"the ten-season base rate below says betting AGAINST the crown price is "
+    f"the percentage play, even when you can't name the challenger in advance.</i>",
     "#FFD700")
+
+# Ten-season base rate: the priciest player vs the best cheaper premium
+_iv = A["icon_field"]
+if not _iv.empty:
+    _beat = int((_iv["delta"] > 0).sum())
+    st.markdown(
+        f'<div style="font-size:12px;color:rgba(255,255,255,0.55);margin:2px 0 8px;">'
+        f'Across {len(_iv)} seasons, a premium at least £2m cheaper outscored the '
+        f'most expensive player in <b style="color:#00FF87;">{_beat} of {len(_iv)}</b> '
+        f'· the icon price bought the best armband only '
+        f'{len(_iv) - _beat} times (picked with hindsight · read it as a base '
+        f'rate on the crown price, not a guarantee you\'d find the challenger).</div>',
+        unsafe_allow_html=True)
+    opt = charts.bar_option(
+        x=[f"{r.season} · {r.challenger} vs {r.icon}" for r in _iv.itertuples()],
+        y=[int(r.delta) for r in _iv.itertuples()],
+        colors=["#00FF87" if r.delta > 0 else "#FF4B4B" for r in _iv.itertuples()],
+        horizontal=True)
+    for item, r in zip(opt["series"][0]["data"], _iv.itertuples()):
+        item["tooltip"] = {"formatter": (
+            f"<b>{r.season}</b><br/>Icon: {r.icon} £{r.icon_price:.1f}m · {r.icon_pts} pts"
+            f"<br/>Challenger: {r.challenger} £{r.ch_price:.1f}m · {r.ch_pts} pts"
+            f"<br/>{r.delta:+d} pts while saving £{r.saved:.1f}m")}
+    opt["title"] = {"text": "Cheaper premium vs the priciest player · ten seasons",
+                    "textStyle": CHART_TITLE}
+    opt["grid"]["top"] = 36
+    opt["grid"]["left"] = 210
+    charts.render(opt, height="330px", key="pb_icon_field")
 _c1, _c2 = st.columns(2)
 with _c1:
     opt = charts.bar_option(

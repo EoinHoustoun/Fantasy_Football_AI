@@ -31,6 +31,7 @@ def optimize_squad(
     bench_weight: float = 0.1,
     captain: bool = True,
     time_limit: int = 60,
+    bench_budget: Optional[float] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -59,6 +60,11 @@ def optimize_squad(
     prob += pulp.lpSum(lineup[i] for i in idx) == 11
     prob += pulp.lpSum(cap[i] for i in idx) == (1 if captain else 0)
     prob += pulp.lpSum(df.loc[i, "price"] * squad[i] for i in idx) <= budget
+    if bench_budget is not None:
+        # Playbook Q11 doctrine: bench money is dead money · cap what the four
+        # non-starters may cost so the surplus is forced into the XI.
+        prob += pulp.lpSum(df.loc[i, "price"] * (squad[i] - lineup[i])
+                           for i in idx) <= bench_budget
 
     for pos, n in limits.items():
         pos_idx = [i for i in idx if df.loc[i, "position"] == pos]

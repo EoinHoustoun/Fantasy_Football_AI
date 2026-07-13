@@ -455,3 +455,32 @@ def defcon_mix(summary: pd.DataFrame, season: str = "2025-26",
                                      + n_prem * stats["premium"]["price"]
                                      + n_fod * stats["fodder"]["price"], 1)})
     return {"stats": stats, "mixes": mixes}
+
+
+def icon_vs_field(summary: pd.DataFrame) -> pd.DataFrame:
+    """Every archive season: the priciest heavy-minutes player vs the best
+    cheaper premium (≥£7.5m, at least £2m cheaper). Hindsight picks the
+    challenger, so read it as a base rate on the ICON's price, not as
+    'you'd have found him' · in most seasons the crown price wasn't the
+    best armband."""
+    rows = []
+    for season in sorted(summary["season"].unique()):
+        s = summary[(summary["season"] == season) & (summary["minutes"] >= 2000)]
+        if s.empty or s["start_price"].isna().all():
+            continue
+        icon = s.loc[s["start_price"].idxmax()]
+        ch_pool = s[(s["start_price"] <= icon["start_price"] - 2.0)
+                    & (s["start_price"] >= 7.5)]
+        if ch_pool.empty:
+            continue
+        ch = ch_pool.loc[ch_pool["total_points"].idxmax()]
+        rows.append({
+            "season": season,
+            "icon": str(icon["web_name"]), "icon_price": float(icon["start_price"]),
+            "icon_pts": int(icon["total_points"]),
+            "challenger": str(ch["web_name"]), "ch_price": float(ch["start_price"]),
+            "ch_pts": int(ch["total_points"]),
+            "delta": int(ch["total_points"] - icon["total_points"]),
+            "saved": round(float(icon["start_price"] - ch["start_price"]), 1),
+        })
+    return pd.DataFrame(rows)

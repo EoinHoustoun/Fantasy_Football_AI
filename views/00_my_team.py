@@ -20,7 +20,7 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
-from components.loading import LINES_SOLVER, LINES_SQUAD, fpl_loader
+from components.loading import LINES_GENERIC, LINES_SOLVER, LINES_SQUAD, fpl_loader
 
 from ui import charts
 from ui.charts import with_mark_line
@@ -632,6 +632,66 @@ with link_cols[2]:
 
 
 # ── Shared replacement panel (edit mode + future-GW planner) ─────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def _gw_stats(fpl_id: int) -> list:
+    """Per-GW stat lines for one player (element-summary), for column charts."""
+    import requests
+    try:
+        r = requests.get(
+            f"https://fantasy.premierleague.com/api/element-summary/{int(fpl_id)}/",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
+        r.raise_for_status()
+        hist = r.json().get("history", []) or []
+    except Exception:  # noqa: BLE001 · charts degrade to season snapshot
+        return []
+    keep = ("round", "total_points", "minutes", "goals_scored", "assists",
+            "bonus", "defensive_contribution", "expected_goals",
+            "expected_goal_involvements")
+    return [{k: h.get(k) for k in keep} for h in hist]
+
+
+@st.dialog("Column leaders", width="large")
+def _column_chart_dialog(label: str, season_col: str, gw_field, pool: pd.DataFrame) -> None:
+    """Top ten of one stat across the current candidate pool. Per-GW stats get
+    a window slider (default the last 6 gameweeks · slide out to the season)."""
+    from components.team_identity import team_color as _tc
+    st.markdown(
+        f'<div style="font-family:\'Archivo\',sans-serif;font-size:20px;'
+        f'font-weight:900;color:#fff;">Top ten · {label}</div>',
+        unsafe_allow_html=True)
+    top = pool.dropna(subset=[season_col]).nlargest(15, season_col)
+    if top.empty:
+        st.info("No data for this column.")
+        return
+    if gw_field:
+        n = st.slider("Window · last N gameweeks", 2, 38, 6,
+                      key=f"colchart_n_{season_col}")
+        rows = []
+        with fpl_loader(f"Fetching gameweek histories", LINES_GENERIC):
+            for _, r in top.iterrows():
+                hist = _gw_stats(int(r["fpl_id"]))
+                vals = [float(h.get(gw_field) or 0) for h in hist][-int(n):]
+                rows.append((str(r["web_name"]), round(sum(vals), 1),
+                             r.get("team_short")))
+        rows.sort(key=lambda x: -x[1])
+        rows = rows[:10]
+        sub = f"summed over the last {int(n)} gameweeks · candidates ranked live"
+    else:
+        rows = [(str(r["web_name"]), round(float(r[season_col] or 0), 1),
+                 r.get("team_short")) for _, r in top.head(10).iterrows()]
+        sub = "current season snapshot"
+    st.caption(sub)
+    opt = charts.bar_option(
+        x=[nm for nm, _, _ in rows], y=[v for _, v, _ in rows],
+        colors=[_tc(ts) for _, _, ts in rows], horizontal=True)
+    for item, (_nm, v, _ts) in zip(opt["series"][0]["data"], rows):
+        item["label"] = {"show": True, "position": "right", "formatter": f"{v:g}",
+                         "color": "rgba(255,255,255,0.75)", "fontSize": 11}
+    opt["grid"]["left"] = 110
+    opt["grid"]["right"] = 46
+    charts.render(opt, height="340px", key=f"colchart_{season_col}")
+
+
 def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                        avail_budget: float, owned_ids: set,
                        key_prefix: str = "repl", out_id: int = 0,
@@ -751,66 +811,106 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                     'title="Price likely to fall soon">▼</span>')
         return ""
 
-    # Ultra-compact rows: tiny kit instead of the club's name, one line per
-    # player, minutes column (90 = nailed), micro sign/compare buttons.
-    from components.team_identity import shirt_url as _srl, shirt_fallback_url as _sfb
+    # ── Sortable stats table · pick your columns, sort any header, chart any
+    # column (📊 → top ten with a gameweek-window slider), select a row to act.
+    from components.team_identity import shirt_url as _srl
     st.markdown(
         f"""<style>
-        div[class*="st-key-{key_prefix}_sign_"] button,
-        div[class*="st-key-{key_prefix}_cmp_"] button {{
-            font-size: 11px !important; padding: 0px 4px !important;
-            min-height: 24px !important; height: 24px !important; width: 100%;
+        div[class*="st-key-{key_prefix}_"] button {{
+            font-size: 11px !important; padding: 1px 6px !important;
+            min-height: 26px !important; width: 100%;
         }}</style>""", unsafe_allow_html=True)
 
-    def _mini_stat(val, label, color):
-        return (f"<div style='text-align:center;width:34px;'>"
-                f"<div style='font-size:11.5px;font-weight:800;color:{color};"
-                f"line-height:1.1;'>{val}</div>"
-                f"<div style='font-size:8px;color:rgba(255,255,255,0.38);'>{label}</div></div>")
+    # label: (universe column, per-GW field for the chart window, format)
+    _COLS = {
+        "Form":   ("form", "total_points", "%.1f"),
+        "xP":     ("ep_next", None, "%.1f"),
+        "Pts":    ("total_points", "total_points", "%d"),
+        "Mins":   ("avg_minutes", "minutes", "%d"),
+        "Goals":  ("goals_scored", "goals_scored", "%d"),
+        "DEFCON": ("defensive_contribution", "defensive_contribution", "%d"),
+        "Assists": ("assists", "assists", "%d"),
+        "xG":     ("xg", "expected_goals", "%.1f"),
+        "xGI/90": ("fpl_xgi_per90", "expected_goal_involvements", "%.2f"),
+        "Bonus":  ("bonus", "bonus", "%d"),
+        "Own%":   ("ownership", None, "%.1f"),
+        "Pts/£m": ("points_per_million", None, "%.1f"),
+    }
+    _defaults = ["Form", "xP", "Pts", "Mins", "Goals", "DEFCON"]
+
+    # Backfill any missing stat columns straight from the bootstrap · on BOTH
+    # the display rows and the full pool (the chart dialog ranks the pool).
+    _bs = st.session_state.get("bootstrap") or {}
+    _by_id = {int(e["id"]): e for e in _bs.get("elements", [])}
+    for _df in (pool, cand):
+        for _lbl, (_col, _f, _fmt) in _COLS.items():
+            if _col not in _df.columns:
+                _df[_col] = pd.to_numeric(
+                    _df["fpl_id"].astype(int).map(
+                        lambda i: _by_id.get(i, {}).get(_col)),
+                    errors="coerce")
+
+    _picked = st.multiselect(
+        "Columns", list(_COLS.keys()), default=_defaults,
+        key=f"{key_prefix}_cols", label_visibility="collapsed",
+        placeholder="Choose stat columns…")
+
+    # 📊 chart buttons · one per active column, three per row
+    if _picked:
+        for _ri in range(0, len(_picked), 3):
+            _chunk = _picked[_ri:_ri + 3]
+            _ccols = st.columns(3)
+            for _cc, _lbl in zip(_ccols, _chunk):
+                with _cc:
+                    if st.button(f"📊 {_lbl}", key=f"{key_prefix}_chart_{_COLS[_lbl][0]}",
+                                 use_container_width=True,
+                                 help=f"Top ten by {_lbl} · with a gameweek window"):
+                        _column_chart_dialog(_lbl, _COLS[_lbl][0], _COLS[_lbl][1], pool)
+
+    _show = cand.copy()
+    _show["_kit"] = [
+        _srl(int(tc or 1), str(pos) == "GKP")
+        for tc, pos in zip(_show.get("team_code", 1), _show["position"])]
+    _flag_map = {"rise": "▲", "fall": "▼"}
+    _show["_move"] = _show["fpl_id"].astype(int).map(
+        lambda i: _flag_map.get(_pflags.get(i), ""))
+    _tbl_cols = ["_kit", "web_name", "price", "_move"] + [
+        _COLS[l][0] for l in _picked]
+    _cfg = {
+        "_kit": st.column_config.ImageColumn("", width=34),
+        "web_name": st.column_config.TextColumn("Player", width=110),
+        "price": st.column_config.NumberColumn("£", format="%.1f", width=52),
+        "_move": st.column_config.TextColumn("Δ£", width=34,
+                                             help="▲ price rise likely · ▼ fall"),
+    }
+    for _lbl in _picked:
+        _col, _f, _fmt = _COLS[_lbl]
+        _cfg[_col] = st.column_config.NumberColumn(_lbl, format=_fmt, width=60)
+
+    _event = st.dataframe(
+        _show[_tbl_cols], column_config=_cfg, hide_index=True,
+        on_select="rerun", selection_mode="single-row",
+        height=min(520, 42 + 35 * len(_show)),
+        key=f"{key_prefix}_tbl")
 
     result = (None, None)
-    for _, pc in cand.iterrows():
-        _is_gkp = str(pc.get("position", "")) == "GKP"
-        _kit = _srl(int(pc.get("team_code", 1) or 1), _is_gkp)
-        _mins = pd.to_numeric(pd.Series([pc.get("avg_minutes")]),
-                              errors="coerce").iloc[0]
-        if pd.isna(_mins):
-            _mins_s, _mins_c = "-", "rgba(255,255,255,0.5)"
-        else:
-            _mins_s = f"{_mins:.0f}"
-            _mins_c = "#00FF87" if _mins >= 80 else (
-                "#FFD60A" if _mins >= 60 else "#FF8C42")
-        _row, _b1, _b2 = st.columns([5.2, 1.1, 0.8], gap="small",
-                                    vertical_alignment="center")
-        with _row:
-            st.markdown(
-                f"""<div style="display:flex;align-items:center;gap:7px;
-                    background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.07);
-                    border-radius:8px;padding:3px 8px;">
-                  <img src="{_kit}" width="20" onerror="this.src='{_sfb(_is_gkp)}'"
-                       style="flex-shrink:0;"/>
-                  <div style="flex:1;min-width:0;">
-                    <span style="font-size:12.5px;font-weight:800;color:#fff;">{pc['web_name']}</span>
-                    <span style="font-size:10px;color:rgba(255,255,255,0.45);">
-                     £{float(pc['price']):.1f}</span> {_price_badge(pc)}
-                  </div>
-                  {_mini_stat(f"{float(pc.get('form', 0) or 0):.1f}", "FORM", "#00FF87")}
-                  {_mini_stat(f"{float(pc.get('ep_next', 0) or 0):.1f}", "xP", "#04f5ff")}
-                  {_mini_stat(f"{int(pc.get('total_points', 0) or 0)}", "PTS", "#fff")}
-                  {_mini_stat(_mins_s, "MINS", _mins_c)}
-                </div>""",
-                unsafe_allow_html=True,
-            )
+    _sel_rows = (_event.selection.rows
+                 if _event and hasattr(_event, "selection") else [])
+    if _sel_rows:
+        _pc = cand.iloc[_sel_rows[0]]
+        _b1, _b2, _sp = st.columns([1.3, 1.3, 2])
         with _b1:
-            if st.button("✅ Sign", key=f"{key_prefix}_sign_{int(pc['fpl_id'])}",
-                         use_container_width=True,
-                         help=f"Sign {pc['web_name']}"):
-                result = ("sign", pc)
+            if st.button(f"✅ Sign {str(_pc['web_name'])[:12]}",
+                         key=f"{key_prefix}_sign_sel", type="primary",
+                         use_container_width=True):
+                result = ("sign", _pc)
         with _b2:
-            if st.button("⚖", key=f"{key_prefix}_cmp_{int(pc['fpl_id'])}",
+            if st.button(f"⚖ vs {out_name[:10]}", key=f"{key_prefix}_cmp_sel",
                          use_container_width=True,
-                         help=f"Head-to-head: {out_name} vs {pc['web_name']}"):
-                result = ("compare", pc)
+                         help=f"Head-to-head: {out_name} vs {_pc['web_name']}"):
+                result = ("compare", _pc)
+    else:
+        st.caption("Select a row to sign or compare · click any header to sort.")
 
     if st.button("Cancel axe", key=f"{key_prefix}_cancel"):
         result = ("cancel", None)

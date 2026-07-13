@@ -170,11 +170,13 @@ def _build_draft_universe():
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Solving optimal draft (exact MILP)…")
-def _solve_draft(uni: pd.DataFrame, budget: float, bench_weight: float):
+def _solve_draft(uni: pd.DataFrame, budget: float, bench_weight: float,
+                 bench_budget: float = 18.5):
     from analytics.squad_milp import optimize_squad
     d = uni.rename(columns={"predicted_start_price": "price",
                             "projected_points": "pts"})
-    return optimize_squad(d, budget=budget, bench_weight=bench_weight, time_limit=90)
+    return optimize_squad(d, budget=budget, bench_weight=bench_weight,
+                          time_limit=90, bench_budget=bench_budget)
 
 
 uni, price_bt, validation = _build_draft_universe()
@@ -228,8 +230,13 @@ with c1:
 with c2:
     bench_weight = st.slider("Bench weighting", 0.0, 0.5, 0.1, 0.05,
                              help="How much bench points matter vs pure XI.")
+    bench_budget = st.slider(
+        "Bench budget cap (£m)", 16.5, 25.0, 18.5, 0.5,
+        help="Playbook Q11: bench money is dead money. The cap forces the "
+             "solver to spend on the eleven who score · ~£18.5 funds one "
+             "playing DEFCON defender as first sub plus fodder.")
 
-res = _solve_draft(uni, budget, bench_weight)
+res = _solve_draft(uni, budget, bench_weight, bench_budget)
 if res is None:
     st.error("Solver found no feasible squad · widen the budget.")
     st.stop()

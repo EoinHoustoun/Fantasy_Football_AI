@@ -140,8 +140,7 @@ def render_player_detail(fpl_id: int, universe: pd.DataFrame,
             f'style="display:block;border-radius:10px;'
             f'filter:drop-shadow(0 4px 8px rgba(0,0,0,0.45));" '
             f"onerror=\"this.parentElement.innerHTML='{kit.replace(chr(34), chr(39))}';\"/>"
-            f'<span style="position:absolute;bottom:-6px;right:-8px;transform:scale(0.55);'
-            f'transform-origin:bottom right;">{kit}</span></div>'
+            f'</div>'
         )
     else:
         face = kit
