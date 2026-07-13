@@ -273,7 +273,10 @@ def _legend(interactive: bool = False) -> str:
         + chip("#00FF87", "D", "DEFCON", "#043")
         + chip("#FF4B4B", "", "Injury/doubt", "#fff")
         + planner
-        + '<span>xP = expected points · fixture = OPP(H/A), FDR colour</span>'
+        + ('<span>xP = projected points for the viewed gameweek · '
+           'fixture = OPP(H/A), FDR colour</span>' if interactive else
+           '<span>xP = projected points, next gameweek · '
+           'fixture = OPP(H/A), FDR colour</span>')
         + '</div>'
     )
 

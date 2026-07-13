@@ -305,6 +305,8 @@ st.markdown(
 )
 
 if "ownership" in diffs.columns and "form" in diffs.columns:
+    from components.team_identity import player_photo_url as _ppu
+    _code_by_name = dict(zip(players_df["web_name"], players_df.get("code")))
     sizes = charts.scale_sizes(list(diffs["differential_score"]))
     top_name = str(diffs.iloc[0]["web_name"])
     groups = []
@@ -313,11 +315,13 @@ if "ownership" in diffs.columns and "form" in diffs.columns:
         pts = []
         for i, (_, r) in enumerate(sub.iterrows()):
             idx = diffs.index.get_loc(r.name)
+            _code = _code_by_name.get(str(r["web_name"]))
             pts.append({
                 "x": round(float(r["ownership"]), 2),
                 "y": round(float(r["form"]), 2),
                 "name": str(r["web_name"]),
-                "size": sizes[idx],
+                "size": max(20.0, sizes[idx]),
+                "image": _ppu(_code) if _code else None,
                 "tip": (f"<b>{r['web_name']}</b><br/>"
                         f"Own {r['ownership']:.1f}% · Form {r['form']:.2f}<br/>"
                         f"£{r['price']:.1f} · {int(r['total_points'])} pts"),

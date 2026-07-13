@@ -325,7 +325,12 @@ def score_breakdown_chart(top5: pd.DataFrame, title: str, key: str) -> None:
         for comp, label, color in zip(components, labels, colors)
     ]
     opt = charts.stacked_bars_option(names, series, horizontal=True, title=title)
-    charts.render(opt, height="240px", key=key)
+    from components.team_identity import player_photo_url as _ppu
+    _code_by_name = dict(zip(players_df["web_name"], players_df.get("code")))
+    charts.with_image_labels(opt, [_ppu(_code_by_name.get(n)) for n in names],
+                             size=20)
+    opt["grid"]["left"] = 122
+    charts.render(opt, height="250px", key=key)
 
 
 # ── Main layout ────────────────────────────────────────────────────────────────

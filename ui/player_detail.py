@@ -166,7 +166,10 @@ def render_player_detail(fpl_id: int, universe: pd.DataFrame,
         ])
         st.markdown(
             f'<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;'
-            f'padding-top:6px;">{tiles}</div>', unsafe_allow_html=True)
+            f'padding-top:6px;">{tiles}</div>'
+            f'<div style="text-align:right;font-size:9px;color:rgba(255,255,255,0.35);'
+            f'padding-top:4px;">points = season total · form = pts/match last 30 days · '
+            f'xP = next gameweek projection</div>', unsafe_allow_html=True)
 
     # ── Charts row: radar (strengths) + form + xG ─────────────────────────────
     c_radar, c_form, c_xg = st.columns([1.15, 1, 1])

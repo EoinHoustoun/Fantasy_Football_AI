@@ -367,10 +367,15 @@ if not preds_filtered.empty:
                 f"<b>{r['web_name']}</b> ({r['position']})<br/>"
                 f"{r['predicted_pts']:.1f} pts predicted "
                 f"(range {lo:.1f}–{hi:.1f})")}
+        from components.team_identity import player_photo_url as _ppu
+        _code_by_name = dict(zip(players_df["web_name"], players_df.get("code")))
+        charts.with_image_labels(
+            opt, [_ppu(_code_by_name.get(n)) for n in top15["web_name"]], size=20)
         opt["title"] = {"text": f"Top 15 Predicted · GW{captain_gw}", "textStyle": {
             "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
         opt["grid"]["top"] = 40
-        charts.render(opt, height="420px", key="pred_top15")
+        opt["grid"]["left"] = 128
+        charts.render(opt, height="460px", key="pred_top15")
 
 st.markdown("---")
 
@@ -477,11 +482,16 @@ else:
                 f"Consistency: {r['defcon_consistency']:.2f}<br/>"
                 f"Avg CBIT: {r['defcon_cbit_per_game']:.1f}<br/>"
                 f"Position: {r['position']}")}
+        from components.team_identity import player_photo_url as _ppu2
+        _code_by_name2 = dict(zip(players_df["web_name"], players_df.get("code")))
+        charts.with_image_labels(
+            opt, [_ppu2(_code_by_name2.get(n)) for n in dc_chart["web_name"]], size=20)
         opt["title"] = {"text": "Defcon Monster Score (reliability × consistency)",
                         "textStyle": {"color": "#eef1f5", "fontSize": 12,
                                       "fontWeight": "bold"}}
         opt["grid"]["top"] = 40
-        charts.render(opt, height="420px", key="pred_defcon")
+        opt["grid"]["left"] = 128
+        charts.render(opt, height="460px", key="pred_defcon")
 
         # Table
         show_dc = dc_df[["web_name", "team", "position", "price",

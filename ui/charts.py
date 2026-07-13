@@ -400,6 +400,10 @@ def multi_scatter_option(series: List[Tuple[str, str, List[Dict[str, Any]]]],
                 "itemStyle": {"color": col, "opacity": 0.85,
                               "borderColor": "rgba(0,0,0,0.35)", "borderWidth": 0.5},
             }
+            if p.get("image"):
+                # Player-face symbols · the point IS the player.
+                item["symbol"] = f"image://{p['image']}"
+                item["symbolSize"] = p.get("size", 24)
             if p.get("tip"):
                 item["tooltip"] = {"formatter": p["tip"]}
             if p.get("label"):
