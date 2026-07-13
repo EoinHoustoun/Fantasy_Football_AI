@@ -52,42 +52,61 @@ def _write(raw: Dict[str, Any]) -> None:
         json.dump(raw, f, indent=1)
 
 
-def _load_ns(ns: str, team_id: int) -> Dict[int, List[Dict[str, Any]]]:
+def normalize_entry(entry) -> Dict[str, Any]:
+    """A plan/draft entry is {"transfers": [...], "captain": id|None,
+    "chip": "BB"|"TC"|"WC"|"FH"|None}. Legacy entries were bare transfer
+    lists · normalise on read so old saves keep working."""
+    if isinstance(entry, list):
+        return {"transfers": entry, "captain": None, "chip": None}
+    if isinstance(entry, dict):
+        return {"transfers": entry.get("transfers", []) or [],
+                "captain": entry.get("captain"),
+                "chip": entry.get("chip")}
+    return {"transfers": [], "captain": None, "chip": None}
+
+
+def _is_empty(entry: Dict[str, Any]) -> bool:
+    return not (entry.get("transfers") or entry.get("captain") or entry.get("chip"))
+
+
+def _load_ns(ns: str, team_id: int) -> Dict[int, Dict[str, Any]]:
     section = _read().get(ns, {}).get(str(int(team_id)), {})
-    return {int(gw): transfers for gw, transfers in section.items()}
+    return {int(gw): normalize_entry(e) for gw, e in section.items()}
 
 
 def _save_ns(ns: str, team_id: int, gw: int,
-             transfers: Optional[List[Dict[str, Any]]]) -> None:
+             entry: Optional[Dict[str, Any]]) -> None:
     raw = _read()
     team = raw[ns].get(str(int(team_id)), {})
-    if transfers:
-        team[str(int(gw))] = transfers
+    entry = normalize_entry(entry) if entry is not None else None
+    if entry is not None and (ns == "drafts" or not _is_empty(entry)):
+        team[str(int(gw))] = entry
     else:
         team.pop(str(int(gw)), None)
     raw[ns][str(int(team_id))] = team
     _write(raw)
 
 
-def load_plans(team_id: int) -> Dict[int, List[Dict[str, Any]]]:
-    """Saved {gw: [transfer, ...]} for this team. Missing file → empty."""
-    return {g: t for g, t in _load_ns("plans", team_id).items() if t}
+def load_plans(team_id: int) -> Dict[int, Dict[str, Any]]:
+    """Saved {gw: entry} for this team (entries normalised). Missing → empty."""
+    return {g: e for g, e in _load_ns("plans", team_id).items() if not _is_empty(e)}
 
 
-def save_plan(team_id: int, gw: int, transfers: List[Dict[str, Any]]) -> None:
-    """Persist one GW's transfer list (empty list deletes the GW's plan)."""
-    _save_ns("plans", team_id, gw, transfers)
+def save_plan(team_id: int, gw: int, entry) -> None:
+    """Persist one GW's plan entry (empty entry deletes the GW's plan).
+    Accepts a bare transfer list or a full entry dict."""
+    _save_ns("plans", team_id, gw, normalize_entry(entry))
 
 
-def load_drafts(team_id: int) -> Dict[int, List[Dict[str, Any]]]:
-    """Working (unsaved) moves per GW. A gw key may hold an empty list, which
-    means 'draft says no transfers' and overrides a saved plan on display."""
+def load_drafts(team_id: int) -> Dict[int, Dict[str, Any]]:
+    """Working (unsaved) entries per GW. A gw key may hold an empty entry,
+    which means 'draft says nothing this week' and overrides a saved plan."""
     return _load_ns("drafts", team_id)
 
 
-def save_draft(team_id: int, gw: int, transfers: List[Dict[str, Any]]) -> None:
-    """Persist the working moves for one GW (call on every mutation)."""
-    _save_ns("drafts", team_id, gw, transfers if transfers is not None else [])
+def save_draft(team_id: int, gw: int, entry) -> None:
+    """Persist the working entry for one GW (call on every mutation)."""
+    _save_ns("drafts", team_id, gw, normalize_entry(entry if entry is not None else []))
 
 
 def clear_draft(team_id: int, gw: int) -> None:
@@ -109,23 +128,32 @@ def clear_all_plans(team_id: int) -> None:
 
 # ── Free-transfer banking ──────────────────────────────────────────────────────
 
-def free_transfers_for(plans: Dict[int, List[Dict[str, Any]]],
+def _entry(plans: Dict[int, Any], gw: int) -> Dict[str, Any]:
+    return normalize_entry(plans.get(int(gw), []))
+
+
+def free_transfers_for(plans: Dict[int, Any],
                        gw: int, first_gw: int, base_fts: int = 1) -> int:
     """Free transfers available AT `gw`, given saved plans for earlier weeks.
 
     Start the first planning week with `base_fts`. Each following week:
     carry over what you didn't use (never below 0), gain 1, cap at FT_CAP.
     Skip a week without saving a transfer → the FT banks. Skip six → still 5.
+    Wildcard / Free Hit weeks don't consume free transfers.
     """
     fts = base_fts
     for g in range(int(first_gw), int(gw)):
-        used = len(plans.get(g, []))
+        e = _entry(plans, g)
+        used = 0 if e.get("chip") in ("WC", "FH") else len(e["transfers"])
         fts = min(FT_CAP, max(0, fts - used) + 1)
     return fts
 
 
-def hit_cost(n_transfers: int, fts: int) -> int:
-    """Points cost of making `n_transfers` with `fts` free ones available."""
+def hit_cost(n_transfers: int, fts: int, chip: Optional[str] = None) -> int:
+    """Points cost of making `n_transfers` with `fts` free ones available.
+    Free on a Wildcard / Free Hit week."""
+    if chip in ("WC", "FH"):
+        return 0
     return max(0, int(n_transfers) - int(fts)) * HIT_COST
 
 
@@ -146,11 +174,18 @@ def effective_squad(base_squad: pd.DataFrame,
     """
     squad = base_squad.copy()
     all_transfers: List[Dict[str, Any]] = []
+    captain_id: Optional[int] = None
     for g in range(int(first_gw), int(up_to_gw) + 1):
-        all_transfers.extend(plans.get(g, []))
+        e = _entry(plans, g)
+        # Free Hit squads revert · that week's moves only count ON that week.
+        if e.get("chip") == "FH" and g < int(up_to_gw):
+            continue
+        all_transfers.extend(e["transfers"])
+        if g == int(up_to_gw) and e.get("captain"):
+            captain_id = int(e["captain"])
     all_transfers.extend(extra_pending or [])
 
-    if not all_transfers:
+    if not all_transfers and captain_id is None:
         return squad
 
     lookup = players_df.set_index("fpl_id")
@@ -174,31 +209,41 @@ def effective_squad(base_squad: pd.DataFrame,
         squad = squad[~mask]
         squad = pd.concat([squad, pd.DataFrame([row])], ignore_index=True)
 
+    if captain_id is not None and (squad["fpl_id"].astype(int) == captain_id).any():
+        squad["is_captain"] = squad["fpl_id"].astype(int) == captain_id
+        squad.loc[squad["is_captain"], "is_vice_captain"] = False
+
     if "squad_position" in squad.columns:
         squad = squad.sort_values("squad_position").reset_index(drop=True)
     return squad
 
 
 def bank_after(base_bank: float,
-               plans: Dict[int, List[Dict[str, Any]]],
+               plans: Dict[int, Any],
                up_to_gw: int, first_gw: int,
                extra_pending: Optional[List[Dict[str, Any]]] = None) -> float:
-    """Bank balance after every saved (+ pending) transfer up to `up_to_gw`."""
+    """Bank balance after every saved (+ pending) transfer up to `up_to_gw`.
+    Free Hit weeks revert, so their price deltas only count on the week."""
     bank = float(base_bank)
     for g in range(int(first_gw), int(up_to_gw) + 1):
-        for t in plans.get(g, []):
+        e = _entry(plans, g)
+        if e.get("chip") == "FH" and g < int(up_to_gw):
+            continue
+        for t in e["transfers"]:
             bank += float(t.get("price_out", 0)) - float(t.get("price_in", 0))
     for t in (extra_pending or []):
         bank += float(t.get("price_out", 0)) - float(t.get("price_in", 0))
     return round(bank, 2)
 
 
-def total_hits(plans: Dict[int, List[Dict[str, Any]]],
+def total_hits(plans: Dict[int, Any],
                first_gw: int, last_gw: int, base_fts: int = 1) -> int:
     """Total points spent on hits across the whole saved plan."""
     cost = 0
     for g in range(int(first_gw), int(last_gw) + 1):
-        used = len(plans.get(g, []))
+        e = _entry(plans, g)
+        used = len(e["transfers"])
         if used:
-            cost += hit_cost(used, free_transfers_for(plans, g, first_gw, base_fts))
+            cost += hit_cost(used, free_transfers_for(plans, g, first_gw, base_fts),
+                             chip=e.get("chip"))
     return cost

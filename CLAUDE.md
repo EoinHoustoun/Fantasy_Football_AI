@@ -189,6 +189,19 @@ axed player (fixtures, winner-highlighted stats, xP/price verdict, radar
 overlay). Player radars always compare vs the ±£1m positional price band
 (`ui/player_detail.price_band_baseline`).
 
+More planner rules (2026-07-13): the whole planner runs inside `@st.fragment`
+(in-fragment actions use `st.rerun(scope="fragment")` · dialogs keep app
+scope). Multi-axe: ✕ queues any number of players (`plan_axes` session list,
+pooled budget, radio slot picker); ✕ again un-queues. Plan entries are dicts
+{transfers, captain, chip} (legacy bare lists normalise on read) · captain set
+from the Player Intel dialog, chip via the per-week selectbox; WC/FH are
+hit-free and don't consume FTs, FH squads revert next week, BB/TC feed the
+Squad xP chip. Player photos: resources.premierleague.com/premierleague25/
+photos/players/110x140/{code}.png (plain code, no 'p' prefix) with kit
+fallback. `ui/player_detail.intel_lookup(universe)` is the app-wide intel
+expander. Off-season the squad fetch's form is 0.0 for everyone · My Team
+overrides it from the universe (self-healed) or captain scores break.
+
 ## Data gotcha · player xG
 Understat matches by name and silently misses most players. `build_player_universe()` backfills `xg`/`xa` from FPL Opta season totals (joined at source, full coverage guaranteed). The stable player `code` is on the universe · always join archive data by `code`, never by name.
 

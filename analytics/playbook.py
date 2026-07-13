@@ -339,3 +339,119 @@ def team_value_growth(gw_archive: pd.DataFrame,
                  "price rises £0.1 for every £0.2 of price rise, so realised "
                  "budget gain is roughly half the raw growth."),
     }
+
+
+# ── Q10-Q12 · 2026-27 squad-build doctrine (added 2026-07) ─────────────────────
+
+def premium_captaincy(gw_archive: pd.DataFrame, summary: pd.DataFrame,
+                      season: str = "2025-26") -> Dict:
+    """Is the premium captain worth it? Set-and-forget vs rotation vs
+    reallocating the price difference into the rest of the XI."""
+    import itertools
+
+    g = gw_archive[gw_archive["season"] == season]
+    s = summary[(summary["season"] == season) & (summary["minutes"] >= 2000)]
+    prem = s[s["start_price"] >= 8.0].nlargest(8, "total_points")
+    codes = prem["code"].tolist()
+    name = dict(zip(prem["code"], prem["web_name"]))
+    price = dict(zip(prem["code"], prem["start_price"]))
+
+    pg = (g[g["code"].isin(codes)].groupby(["code", "gw"])["total_points"].sum()
+          .unstack(fill_value=0).reindex(columns=range(1, 39), fill_value=0))
+    saf = pg.sum(axis=1).sort_values(ascending=False)
+
+    home = (g[g["code"].isin(codes)].groupby(["code", "gw"])["was_home"].max()
+            .unstack(fill_value=False))
+
+    def _home_rot(a, b):
+        tot = 0.0
+        for w in range(1, 39):
+            ha = bool(home[w].get(a, False)) if w in home.columns else False
+            hb = bool(home[w].get(b, False)) if w in home.columns else False
+            pick = a if (ha and not hb) else (
+                b if (hb and not ha) else (a if saf[a] >= saf[b] else b))
+            tot += float(pg.loc[pick, w])
+        return tot
+
+    pairs = []
+    for a, b in itertools.combinations(codes, 2):
+        perfect = float(pg.loc[[a, b]].max(axis=0).sum())
+        pairs.append({"pair": f"{name[a]} + {name[b]}", "perfect": round(perfect),
+                      "home_rule": round(_home_rot(a, b)),
+                      "combined_price": round(price[a] + price[b], 1)})
+    pairs.sort(key=lambda x: -x["perfect"])
+
+    # What does the freed budget buy? Season points by attacker price band.
+    att = summary[(summary["season"] == season) & (summary["minutes"] >= 900)
+                  & (summary["position"].isin(["MID", "FWD"]))]
+    bands = pd.cut(att["start_price"], [4.0, 5.5, 7.0, 8.5, 10.0, 15.5])
+    curve = att.groupby(bands, observed=True)["total_points"].agg(["mean", "count"])
+    curve.index = [f"£{i.left:g}–{i.right:g}m" for i in curve.index]
+
+    top = [{"name": name[c], "extra": int(v), "price": price[c]}
+           for c, v in saf.items()]
+    return {"saf": top, "pairs": pairs[:5], "budget_curve": curve.round(1)}
+
+
+def bench_doctrine(summary: pd.DataFrame, season: str = "2025-26") -> Dict:
+    """Strong bench or cheap bench? Autosub demand vs the XI opportunity cost."""
+    s = summary[(summary["season"] == season) & (summary["minutes"] >= 900)]
+    reg = s[s["starts_total"] >= 25]
+    missed_per_starter = float((38 - reg["games_played"]).clip(lower=0).mean())
+    autosub_events = missed_per_starter * 10          # 10 outfield XI slots
+
+    bands = pd.cut(s["start_price"], [3.9, 4.5, 5.0, 5.5, 6.5])
+    ppg = s.groupby(bands, observed=True).apply(
+        lambda d: float((d["total_points"] / d["games_played"].clip(lower=1)).mean()))
+    ppg.index = [f"£{i.left:g}–{i.right:g}m" for i in ppg.index]
+
+    # Tiers: 3 outfield bench slots at a band each · autosub pts vs XI cost.
+    tiers = []
+    labels = list(ppg.index)
+    for ti, lbl in enumerate(labels[:3]):
+        sub_ppg = float(ppg.iloc[ti])
+        autosub_pts = autosub_events * sub_ppg
+        extra_cost = ti * 3 * 0.5      # each band step ≈ +£0.5m per slot × 3
+        tiers.append({"tier": f"3 subs at {lbl}", "autosub_pts": round(autosub_pts),
+                      "extra_cost": round(extra_cost, 1)})
+    return {"missed_per_starter": round(missed_per_starter, 1),
+            "autosub_events": round(autosub_events),
+            "bench_ppg": ppg.round(2), "tiers": tiers}
+
+
+def defcon_mix(summary: pd.DataFrame, season: str = "2025-26",
+               def_budget: float = 26.0) -> Dict:
+    """How many DEFCON defenders? Sweep squad mixes under a fixed budget,
+    scoring realistic usage (3 start weekly, the 4th plays half the weeks)."""
+    d = summary[(summary["season"] == season) & (summary["minutes"] >= 900)
+                & (summary["position"] == "DEF")]
+    groups = {
+        "monster": d[d["defcon_points"] >= 20],
+        "premium": d[d["start_price"] >= 5.8],
+        "fodder":  d[d["start_price"] <= 4.5],
+    }
+    stats = {k: {"price": round(float(v["start_price"].mean()), 1),
+                 "pts": round(float(v["total_points"].mean())),
+                 "n": int(len(v))} for k, v in groups.items()}
+
+    mixes = []
+    for k in range(0, 6):
+        slots = 5 - k
+        budget = def_budget - k * stats["monster"]["price"]
+        n_prem = 0
+        while (n_prem < slots
+               and budget - stats["premium"]["price"]
+               >= (slots - n_prem - 1) * stats["fodder"]["price"]):
+            n_prem += 1
+            budget -= stats["premium"]["price"]
+        n_fod = slots - n_prem
+        pool = ([stats["monster"]["pts"]] * k + [stats["premium"]["pts"]] * n_prem
+                + [stats["fodder"]["pts"]] * n_fod)
+        pool.sort(reverse=True)
+        usage = sum(pool[:3]) + (pool[3] * 0.5 if len(pool) > 3 else 0)
+        mixes.append({"mix": f"{k} DEFCON · {n_prem} premium · {n_fod} fodder",
+                      "k": k, "usable_pts": round(usage),
+                      "spend": round(k * stats["monster"]["price"]
+                                     + n_prem * stats["premium"]["price"]
+                                     + n_fod * stats["fodder"]["price"], 1)})
+    return {"stats": stats, "mixes": mixes}

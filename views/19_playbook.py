@@ -49,6 +49,9 @@ def _answers():
         "value": pb.team_value_growth(arch),
         "minutes": pb.minutes_importance(summary),
         "intensity": pb.minutes_intensity(summary),
+        "captaincy": pb.premium_captaincy(arch, summary),
+        "bench": pb.bench_doctrine(summary),
+        "defcon_mix": pb.defcon_mix(summary),
     }
 
 
@@ -381,6 +384,126 @@ _question(
     "#FF4B4B")
 
 # ── The distilled plan ────────────────────────────────────────────────────────
+# ── Q10 Premium captaincy ─────────────────────────────────────────────────────
+cap = A["captaincy"]
+_saf = cap["saf"]
+_haal = next((x for x in _saf if x["name"] == "Haaland"), _saf[0])
+_second = next((x for x in _saf if x["name"] != _haal["name"]), _saf[1])
+_freed = _haal["price"] - _second["price"]
+_curve = cap["budget_curve"]
+_up_gain = float(_curve["mean"].iloc[3] - _curve["mean"].iloc[1]) \
+    if len(_curve) >= 4 else 0.0
+_pair = cap["pairs"][0]
+_question(
+    10, "Is the premium captain worth it · or captain a cheaper set-and-forget?",
+    f"The armband case for Haaland was real but tiny: set-and-forget "
+    f"Haaland banked <b>+{_haal['extra']}</b> captain points vs "
+    f"<b>+{_second['extra']}</b> for {_second['name']} · just "
+    f"{_haal['extra'] - _second['extra']} points for <b>£{_freed:.0f}m more</b>. "
+    f"That freed £{_freed:.0f}m upgraded a £5.5–7m attacker into the £8.5–10m "
+    f"band, historically worth <b>~+{_up_gain:.0f} season points</b>. Rotation "
+    f"reality check: the best pair ({_pair['pair']}) hit +{_pair['perfect']} with "
+    f"perfect hindsight but only <b>+{_pair['home_rule']}</b> on an honest "
+    f"home-first rule · barely above just captaining one of them forever. Rule: "
+    f"<b>a ~£9m set-and-forget captain + the savings spent in the XI beat the "
+    f"£14m icon</b> unless the icon is dramatically outscoring everyone. "
+    f"Captaincy consistency matters more than captaincy ceiling.",
+    "#FFD700")
+_c1, _c2 = st.columns(2)
+with _c1:
+    opt = charts.bar_option(
+        x=[x["name"] for x in _saf],
+        y=[x["extra"] for x in _saf],
+        colors=["#FFD700" if x["name"] == _haal["name"] else "#04f5ff"
+                for x in _saf],
+        horizontal=True)
+    for item, x in zip(opt["series"][0]["data"], _saf):
+        item["tooltip"] = {"formatter": (f"<b>{x['name']}</b> · £{x['price']:.0f}m"
+                                         f"<br/>+{x['extra']} captain pts if "
+                                         f"captained every week")}
+    opt["title"] = {"text": "Set-and-forget captain · extra points banked",
+                    "textStyle": CHART_TITLE}
+    opt["grid"]["top"] = 36
+    charts.render(opt, height="300px", key="pb_saf_captain")
+with _c2:
+    _pp = cap["pairs"]
+    opt = charts.grouped_bars_option(
+        x=[p["pair"].replace(" + ", "\n+ ") for p in _pp],
+        series=[("Perfect rotation (hindsight)", [p["perfect"] for p in _pp], "#8891A5"),
+                ("Home-first rule (honest)", [p["home_rule"] for p in _pp], "#00FF87")])
+    opt["title"] = {"text": "Rotating pairs · hindsight vs honest rule",
+                    "textStyle": CHART_TITLE}
+    opt["grid"]["top"] = 46
+    opt["legend"]["top"] = 22
+    opt["xAxis"]["axisLabel"]["fontSize"] = 8
+    charts.render(opt, height="300px", key="pb_pair_captain")
+
+# ── Q11 Bench strength ────────────────────────────────────────────────────────
+bn = A["bench"]
+_question(
+    11, "Strong bench or cheap bench?",
+    f"A nailed starter missed only <b>{bn['missed_per_starter']:.1f} gameweeks</b> "
+    f"a season, so a full XI generates roughly {bn['autosub_events']:.0f} autosub "
+    f"appearances a year. Upgrading all three outfield bench slots from £4.0–4.5 "
+    f"to £5.0–5.5 buys ~<b>+{bn['tiers'][2]['autosub_pts'] - bn['tiers'][0]['autosub_pts']} "
+    f"autosub points for ~£{bn['tiers'][2]['extra_cost']:.0f}m</b> · the same money "
+    f"moved INTO the XI buys 3–8× that (see the price-band curve in Q10). Rule: "
+    f"<b>bench money is dead money · one playing £4.5 DEFCON defender as first "
+    f"sub, fodder behind him</b>, and spend everything else on the eleven who "
+    f"score every week. DEFCON quietly strengthened this: the best cheap "
+    f"defenders now carry a real floor, so your first sub is decent by default.",
+    "#04f5ff")
+opt = charts.grouped_bars_option(
+    x=[t["tier"] for t in bn["tiers"]],
+    series=[("Autosub points / season", [t["autosub_pts"] for t in bn["tiers"]], "#04f5ff"),
+            ("Extra cost (£m ×10)", [t["extra_cost"] * 10 for t in bn["tiers"]], "#FF8C42")])
+opt["title"] = {"text": "Bench tiers · what upgrades actually return",
+                "textStyle": CHART_TITLE}
+opt["grid"]["top"] = 46
+opt["legend"]["top"] = 22
+opt["tooltip"]["trigger"] = "item"
+charts.render(opt, height="280px", key="pb_bench_tiers")
+
+# ── Q12 How many DEFCON defenders? ───────────────────────────────────────────
+dm = A["defcon_mix"]
+_st = dm["stats"]
+_best = max(dm["mixes"], key=lambda m: (m["usable_pts"], -m["k"]))
+_question(
+    12, "How many DEFCON defenders should the squad carry?",
+    f"The cheapest points in the game: a DEFCON monster (20+ DEFCON pts) averaged "
+    f"<b>{_st['monster']['pts']} points at £{_st['monster']['price']:.1f}m</b> vs "
+    f"{_st['fodder']['pts']} for ordinary cheap defenders at £{_st['fodder']['price']:.1f}m "
+    f"· <b>~+{_st['monster']['pts'] - _st['fodder']['pts']} points per slot for "
+    f"£0.3m</b>. Sweeping full five-defender mixes under one budget (usable points: "
+    f"3 start weekly, the 4th half the time), value climbs with every monster and "
+    f"flattens at <b>{_best['k']}</b>. Rule: <b>carry {min(_best['k'], 4)} DEFCON "
+    f"defenders</b> · the fifth adds nothing you can field, and one premium "
+    f"attacking defender keeps the ceiling. Watch the curated role map "
+    f"(<code>assets/defender_roles_2025_26.json</code>) · stat filters mislabel "
+    f"set-piece CBs, and roles must be re-checked for 2026-27.",
+    "#00FF87")
+opt = charts.bar_option(
+    x=[m["mix"] for m in dm["mixes"]],
+    y=[m["usable_pts"] for m in dm["mixes"]],
+    colors=["#00FF87" if m["k"] == _best["k"] else "rgba(4,245,255,0.55)"
+            for m in dm["mixes"]],
+    horizontal=True)
+for item, m in zip(opt["series"][0]["data"], dm["mixes"]):
+    item["tooltip"] = {"formatter": f"<b>{m['mix']}</b><br/>{m['usable_pts']} usable "
+                                    f"pts · £{m['spend']:.1f}m of the £26m defender budget"}
+opt["title"] = {"text": "Five-defender mixes · usable points under one budget",
+                "textStyle": CHART_TITLE}
+opt["grid"]["top"] = 36
+opt["grid"]["left"] = 200
+charts.render(opt, height="300px", key="pb_defcon_mix")
+
+st.markdown(
+    f'<div style="font-size:12px;color:{MUTED};margin-top:6px;">📌 Coming when the '
+    f'2026-27 game launches: bookmaker goal + clean-sheet odds folded into these '
+    f'doctrines for the GW1 draft. The 2025-26 archive behind every number here is '
+    f'preserved in git · it does not depend on any external source surviving.</div>',
+    unsafe_allow_html=True)
+
 st.markdown(
     f'<div style="display:flex;align-items:center;gap:14px;margin:38px 0 12px;">'
     f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'

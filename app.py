@@ -156,19 +156,23 @@ with st.sidebar:
             st.session_state[_key] = None
         st.rerun()
 
-    # Off-season sandbox · default on when the season is over so the "next
-    # gameweek" planning tools (transfers, free hit, pick team) have fixtures.
+    # Off-season sandbox · only OFFERED while the season is over, and it
+    # auto-disappears (forced off) the moment the new season's fixtures are
+    # live, so nothing plans against synthetic gameweeks by accident.
     try:
         from data.fetchers.fpl_api import get_season_phase as _gsp
         _offseason = _gsp(load_bootstrap()).get("phase") == "offseason"
     except Exception:
         _offseason = False
-    sim_gw39 = st.toggle(
-        "🧪 Simulate GW39", value=_offseason, key="sim_gw39",
-        help="Off-season sandbox: replays GW1's fixtures as a synthetic next "
-             "gameweek so you can plan transfers, free hits and pick your team "
-             "for the future. Turn off once the real season launches.",
-    )
+    if _offseason:
+        sim_gw39 = st.toggle(
+            "🧪 Simulate GW39", value=True, key="sim_gw39",
+            help="Off-season sandbox: replays GW1-5's fixtures as synthetic "
+                 "future gameweeks so the My Team planner, free hit and pick "
+                 "team tools work. Disappears automatically at season launch.",
+        )
+    else:
+        st.session_state.sim_gw39 = False
 
     _cache = Path("data/cache/fpl_bootstrap.json")
     if _cache.exists():

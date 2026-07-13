@@ -500,3 +500,10 @@ if squad_df is None:
                                   key="cap_breakdown_global")
         cards_g = "".join(_mini_card(global_top5.iloc[i], i+1) for i in range(len(global_top5)))
         st.markdown(cards_g, unsafe_allow_html=True)
+
+# ── Consistent player intel across the app ────────────────────────────────────
+try:
+    from ui.player_detail import intel_lookup
+    intel_lookup(players_df, key="06_captain_picker_intel")
+except Exception:  # noqa: BLE001 · intel is an extra, never break the page
+    pass

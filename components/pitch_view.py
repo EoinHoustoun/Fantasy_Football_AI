@@ -196,6 +196,9 @@ def _card(row: pd.Series, is_bench: bool = False,
     tcol   = team_color(row.get("team_short"))
     opacity = "0.62" if is_bench else "1"
     is_new = bool(row.get("_is_new", False))
+    is_axed = bool(row.get("_is_axed", False))
+    if is_axed:
+        opacity = "0.38"
 
     shirt = _shirt_img(code, is_gkp)
     if interactive and fpl_id:
@@ -204,6 +207,9 @@ def _card(row: pd.Series, is_bench: bool = False,
     axe = _axe_badge(fpl_id, fixture_gw) if interactive and fpl_id else ""
     ring = ("box-shadow:0 0 0 2px #00FF87,0 0 18px rgba(0,255,135,0.5);"
             "border-radius:8px;" if is_new else "")
+    if is_axed:
+        ring = ("outline:2px dashed #FF4B4B;outline-offset:2px;"
+                "border-radius:8px;")
 
     return (
         f'<div style="display:flex;flex-direction:column;align-items:center;'

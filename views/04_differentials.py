@@ -331,3 +331,10 @@ if "ownership" in diffs.columns and "form" in diffs.columns:
         charts.multi_scatter_option(groups, x_name="Ownership (%)", y_name="Form"),
         height="480px", key="diff_own_form",
     )
+
+# ── Consistent player intel across the app ────────────────────────────────────
+try:
+    from ui.player_detail import intel_lookup
+    intel_lookup(players_df, key="04_differentials_intel")
+except Exception:  # noqa: BLE001 · intel is an extra, never break the page
+    pass

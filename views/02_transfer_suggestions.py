@@ -674,3 +674,10 @@ with tab_fixtures:
         render_fixture_ticker(suggestions_with_fixtures, top_n=min(top_n, len(suggestions_with_fixtures)))
     else:
         st.info("Fixture data not available.")
+
+# ── Consistent player intel across the app ────────────────────────────────────
+try:
+    from ui.player_detail import intel_lookup
+    intel_lookup(players_df, key="02_transfer_suggestions_intel")
+except Exception:  # noqa: BLE001 · intel is an extra, never break the page
+    pass

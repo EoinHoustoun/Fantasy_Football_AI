@@ -326,3 +326,10 @@ for p in pairings:
         _pair_card(p["sell"], p["buy"], bank_m, fdr_col),
         unsafe_allow_html=True,
     )
+
+# ── Consistent player intel across the app ────────────────────────────────────
+try:
+    from ui.player_detail import intel_lookup
+    intel_lookup(players_df, key="07_buy_sell_intel")
+except Exception:  # noqa: BLE001 · intel is an extra, never break the page
+    pass

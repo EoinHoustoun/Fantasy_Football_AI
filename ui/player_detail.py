@@ -123,16 +123,33 @@ def render_player_detail(fpl_id: int, universe: pd.DataFrame,
     pos = str(row.get("position", ""))
     peers = universe[universe["position"] == pos]
 
-    # ── Header: kit + identity + role tags + key stats ────────────────────────
+    # ── Header: face (kit fallback) + identity + role tags + key stats ───────
     is_gkp = pos == "GKP"
     kit = shirt_html(int(row.get("team_code", 1) or 1), is_gkp=is_gkp, width=54)
     tcol = team_color(row.get("team_short"))
     tags = render_badges(row, size="sm")
 
+    # Official player headshot · falls back to the club kit if the photo CDN
+    # misses (new signings, youth players).
+    _code = row.get("code")
+    if pd.notna(_code):
+        face = (
+            f'<div style="position:relative;width:64px;flex-shrink:0;">'
+            f'<img src="https://resources.premierleague.com/premierleague25/'
+            f'photos/players/110x140/{int(_code)}.png" width="64" loading="lazy" '
+            f'style="display:block;border-radius:10px;'
+            f'filter:drop-shadow(0 4px 8px rgba(0,0,0,0.45));" '
+            f"onerror=\"this.parentElement.innerHTML='{kit.replace(chr(34), chr(39))}';\"/>"
+            f'<span style="position:absolute;bottom:-6px;right:-8px;transform:scale(0.55);'
+            f'transform-origin:bottom right;">{kit}</span></div>'
+        )
+    else:
+        face = kit
+
     hcol_id, hcol_stats = st.columns([1.2, 2])
     with hcol_id:
         st.markdown(
-            f'<div style="display:flex;align-items:center;gap:12px;">{kit}'
+            f'<div style="display:flex;align-items:center;gap:12px;">{face}'
             f'<div><div style="font-family:\'Archivo\',sans-serif;font-size:22px;font-weight:900;'
             f'color:#fff;line-height:1;">{row.get("web_name","?")}</div>'
             f'<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:3px;">'
@@ -195,3 +212,18 @@ def render_player_detail(fpl_id: int, universe: pd.DataFrame,
             ]), height="240px", key=f"{key_prefix}_xg_{fpl_id}")
         else:
             st.caption("No gameweek history available.")
+
+
+def intel_lookup(universe: pd.DataFrame, key: str = "intel") -> None:
+    """Drop-in "🔍 Player intel" expander for any page · search any player and
+    get the same face/radar/form/xG panel the My Team pitch shows. Keeps the
+    stats experience consistent across the app."""
+    with st.expander("🔍 Player intel · face, form, price-peer radar, xG"):
+        opts = universe.sort_values("total_points", ascending=False)
+        ids = opts["fpl_id"].astype(int).tolist()
+        names = dict(zip(opts["fpl_id"].astype(int),
+                         opts["web_name"] + " · " + opts["team"].astype(str)))
+        pid = st.selectbox("Player", ids, format_func=lambda i: names.get(i, str(i)),
+                           key=f"{key}_pick", label_visibility="collapsed")
+        if pid:
+            render_player_detail(int(pid), universe, key_prefix=key)

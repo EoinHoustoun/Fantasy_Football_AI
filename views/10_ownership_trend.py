@@ -183,6 +183,52 @@ if top_faller is not None:
 
 st.markdown("---")
 
+# ── Price pressure radar ──────────────────────────────────────────────────────
+st.markdown("### 💰 Price Pressure Radar")
+st.caption("Net transfers scaled by ownership · who is closest to a price move. "
+           "Heuristic ordering, not FPL's secret algorithm. Buy risers before "
+           "the rise; a faller banks you only half the drop.")
+
+from analytics.price_radar import price_watch
+_risers, _fallers = price_watch(players_df, top_n=8)
+
+def _pressure_rows(df, accent, arrow):
+    if df.empty:
+        return ("<div style='padding:14px;color:rgba(255,255,255,0.45);"
+                "font-size:12px;'>Market asleep · price pressure returns "
+                "with the season.</div>")
+    rows = ""
+    for _, r in df.iterrows():
+        bar = int(r["pressure"])
+        rows += (
+            f"<div style='display:flex;align-items:center;gap:10px;padding:6px 0;"
+            f"border-bottom:1px solid rgba(255,255,255,0.05);'>"
+            f"<span style='color:{accent};font-weight:900;width:16px;'>{arrow}</span>"
+            f"<span style='flex:1;color:#fff;font-weight:700;font-size:13px;'>"
+            f"{r['web_name']}<span style='color:rgba(255,255,255,0.4);font-weight:400;"
+            f"font-size:11px;'> · {r.get('team', '')} · £{float(r['price']):.1f}m</span></span>"
+            f"<span style='width:90px;height:6px;background:rgba(255,255,255,0.07);"
+            f"border-radius:3px;overflow:hidden;'><span style='display:block;height:100%;"
+            f"width:{bar}%;background:{accent};'></span></span>"
+            f"<span style='width:56px;text-align:right;font-size:11px;"
+            f"color:rgba(255,255,255,0.5);'>{int(r['transfer_balance']) // 1000:+d}k</span>"
+            f"</div>")
+    return rows
+
+_pc1, _pc2 = st.columns(2)
+with _pc1:
+    st.markdown("<div style='font-size:11px;letter-spacing:0.16em;text-transform:"
+                "uppercase;font-weight:800;color:#00FF87;margin-bottom:6px;'>"
+                "Likely risers</div>" + _pressure_rows(_risers, "#00FF87", "▲"),
+                unsafe_allow_html=True)
+with _pc2:
+    st.markdown("<div style='font-size:11px;letter-spacing:0.16em;text-transform:"
+                "uppercase;font-weight:800;color:#FF4B4B;margin-bottom:6px;'>"
+                "Likely fallers</div>" + _pressure_rows(_fallers, "#FF4B4B", "▼"),
+                unsafe_allow_html=True)
+
+st.markdown("---")
+
 # ── Rising vs Falling scatter ──────────────────────────────────────────────────
 st.markdown("### Season Ownership Movement")
 st.caption("Each bubble is a player. Right = owned more now. Left = owned less. Size = current ownership.")
