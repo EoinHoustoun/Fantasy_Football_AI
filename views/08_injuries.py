@@ -257,6 +257,12 @@ else:
                     st.markdown(_player_alert_card(p), unsafe_allow_html=True)
 
             if not low_own.empty:
-                with st.expander(f"Lower ownership ({len(low_own)} more)"):
-                    for _, p in low_own.iterrows():
-                        st.markdown(_player_alert_card(p, show_shirt=False), unsafe_allow_html=True)
+                # Streamlit forbids nested expanders (we're already inside the
+                # status-group one) · a native <details> collapses the same way.
+                _cards = "".join(_player_alert_card(p, show_shirt=False)
+                                 for _, p in low_own.iterrows())
+                st.markdown(
+                    f"<details><summary style='cursor:pointer;font-size:13px;"
+                    f"color:rgba(255,255,255,0.6);padding:4px 0;'>Lower ownership "
+                    f"({len(low_own)} more)</summary>{_cards}</details>",
+                    unsafe_allow_html=True)
