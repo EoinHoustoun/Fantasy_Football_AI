@@ -209,6 +209,11 @@ try:
     st.session_state.current_gw = get_current_gameweek(bs)
     st.session_state.plan_gw = _sim if _sim else st.session_state.current_gw
     st.session_state.season_phase = get_season_phase(bs)
+
+    # Pre-warm the points model in the background (daemon thread, once per
+    # process) so the first click on Predictions / Free Hit is instant.
+    from analytics.model_store import prewarm_async
+    prewarm_async()
 except Exception as e:  # noqa: BLE001 · surface any load failure to the UI
     st.error(f"Failed to load data: {e}")
     st.info("Check your internet connection and try **🔄 Refresh Data**.")

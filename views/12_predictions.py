@@ -23,29 +23,33 @@ SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 
 # ── Data loading ───────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def run_model(current_gw: int, captain_gw: int):
-    """Train model and return predictions + metrics. Cached 6 hours."""
+    """Predictions + metrics · reads the pre-warmed disk bundle when fresh
+    (app.py trains it in the background at startup), trains on demand only
+    when the bundle is stale."""
     from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, get_fixtures_df
     from data.fetchers.understat import fetch_understat_players
     from data.processors.player_stats import build_player_universe
-    from analytics.points_model import run_pipeline
+    from analytics.model_store import load_bundle, train_and_store
 
     bs = fetch_bootstrap()
     understat_df = fetch_understat_players()
     players_df = build_player_universe(bootstrap=bs, understat_df=understat_df)
 
-    # Build next-GW FDR map
-    fixtures_raw = fetch_fixtures()
-    fixtures_df  = get_fixtures_df(fixtures_raw, bs)
-    gw_fix = fixtures_df[fixtures_df["gameweek"] == captain_gw]
-    fdr_map = {}
-    for _, row in gw_fix.iterrows():
-        fdr_map[int(row["home_team_id"])] = float(row["home_fdr"])
-        fdr_map[int(row["away_team_id"])] = float(row["away_fdr"])
+    bundle = load_bundle(current_gw)
+    if bundle is None:
+        # Build next-GW FDR map and train (the themed loader covers this)
+        fixtures_raw = fetch_fixtures()
+        fixtures_df  = get_fixtures_df(fixtures_raw, bs)
+        gw_fix = fixtures_df[fixtures_df["gameweek"] == captain_gw]
+        fdr_map = {}
+        for _, row in gw_fix.iterrows():
+            fdr_map[int(row["home_team_id"])] = float(row["home_fdr"])
+            fdr_map[int(row["away_team_id"])] = float(row["away_fdr"])
+        bundle = train_and_store(players_df, current_gw, fdr_map=fdr_map)
 
-    predictions, metrics = run_pipeline(players_df, current_gw, fdr_map=fdr_map)
-    return predictions, metrics, players_df
+    return bundle["predictions"], bundle["metrics"], players_df
 
 
 @st.cache_data(ttl=1800, show_spinner=False)

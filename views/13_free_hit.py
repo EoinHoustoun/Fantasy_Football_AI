@@ -19,27 +19,31 @@ POS_ORDER  = ["GKP", "DEF", "MID", "FWD"]
 
 # ── Data helpers ───────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def run_model(current_gw: int, captain_gw: int):
+    """Shares the pre-warmed disk bundle with the Predictions page · no more
+    training the same model twice."""
     from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, get_fixtures_df
     from data.fetchers.understat import fetch_understat_players
     from data.processors.player_stats import build_player_universe
-    from analytics.points_model import run_pipeline
+    from analytics.model_store import load_bundle, train_and_store
 
     bs = fetch_bootstrap()
     understat_df = fetch_understat_players()
     players_df = build_player_universe(bootstrap=bs, understat_df=understat_df)
 
-    fixtures_raw = fetch_fixtures()
-    fixtures_df  = get_fixtures_df(fixtures_raw, bs)
-    gw_fix = fixtures_df[fixtures_df["gameweek"] == captain_gw]
-    fdr_map = {}
-    for _, row in gw_fix.iterrows():
-        fdr_map[int(row["home_team_id"])] = float(row["home_fdr"])
-        fdr_map[int(row["away_team_id"])] = float(row["away_fdr"])
+    bundle = load_bundle(current_gw)
+    if bundle is None:
+        fixtures_raw = fetch_fixtures()
+        fixtures_df  = get_fixtures_df(fixtures_raw, bs)
+        gw_fix = fixtures_df[fixtures_df["gameweek"] == captain_gw]
+        fdr_map = {}
+        for _, row in gw_fix.iterrows():
+            fdr_map[int(row["home_team_id"])] = float(row["home_fdr"])
+            fdr_map[int(row["away_team_id"])] = float(row["away_fdr"])
+        bundle = train_and_store(players_df, current_gw, fdr_map=fdr_map)
 
-    predictions, metrics = run_pipeline(players_df, current_gw, fdr_map=fdr_map)
-    return predictions, metrics, players_df
+    return bundle["predictions"], bundle["metrics"], players_df
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
