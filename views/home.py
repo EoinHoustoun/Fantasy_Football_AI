@@ -479,12 +479,16 @@ with pulse_cols[0]:
         f"{float(top_form['form']):.1f} pts/game · {top_form['team']}", "#00FF87"),
         unsafe_allow_html=True)
 with pulse_cols[1]:
-    st.markdown(_pulse_tile("📈", "Most transferred in", f"{top_in['web_name']}",
-        f"+{int(top_in['transfers_in_event']):,} this GW", "#04f5ff"),
+    _in_n = int(top_in['transfers_in_event'])
+    st.markdown(_pulse_tile("📈", "Most transferred in",
+        f"{top_in['web_name']}" if _in_n else "Market closed",
+        f"+{_in_n:,} this GW" if _in_n else "moves return at launch", "#04f5ff"),
         unsafe_allow_html=True)
 with pulse_cols[2]:
-    st.markdown(_pulse_tile("📤", "Most transferred out", f"{top_out['web_name']}",
-        f"-{int(top_out['transfers_out_event']):,} this GW", "#FF4B4B"),
+    _out_n = int(top_out['transfers_out_event'])
+    st.markdown(_pulse_tile("📤", "Most transferred out",
+        f"{top_out['web_name']}" if _out_n else "Market closed",
+        f"-{_out_n:,} this GW" if _out_n else "moves return at launch", "#FF4B4B"),
         unsafe_allow_html=True)
 with pulse_cols[3]:
     st.markdown(_pulse_tile("🚑", "Unavailable", f"{n_injured} injured",
