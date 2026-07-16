@@ -308,3 +308,24 @@ _Read `CLAUDE.md` for the design-system reference. Start each new session here f
   answer with numbers); added the Net xP chip to the planner strip.
 - **Bug fixed:** animation/theme CSS was injected once per session, so every
   rerun after the first dropped hover/count-up styling. Now injected per run.
+
+## Sessions 2026-07-13 → 07-16 · Super-tool build-out + spotless polish
+- **Fluid planner:** whole Pitch View tab in a fragment; pitch clicks go
+  through components/pitch_click (bidirectional component · never use
+  ?query-param links, they full-reload and wipe session). Multi-axe queue,
+  full-width Transfer Desk table (sortable, column chooser, pinned kit+name,
+  📊 per-column top-ten dialogs with GW-window slider), per-week captain +
+  chips, Optimise (suggest_plan) + Analyse (analyse_plan) dialogs.
+- **Shared engines:** xp_engine (per-GW horizon), model_store (disk bundle +
+  startup pre-warm thread → Predictions/Free Hit render in seconds),
+  price_radar, plan_optimizer.
+- **Playbook Q10-Q12** (premium captaincy incl. ten-season icon-vs-field
+  8/10 + armband pricing ~25 pts/£m; bench doctrine; DEFCON carry 3-4).
+- **Faces everywhere:** face_html + with_image_labels + image scatter
+  symbols; intel popup (with per-GW history table) opens from kits on every
+  pitch mode and via intel_lookup on scouting pages.
+- **Fixes:** Buy/Sell unique targets (was pairing everyone with one player);
+  bootstrap defensive_contribution is raw ACTIONS → "DEF acts"; off-season
+  squad form=0 override; nested-expander crash on Injuries; CSS must
+  re-inject every rerun; None cells coerced.
+- Launch app with `nohup streamlit run app.py --server.port 8510 &`.
