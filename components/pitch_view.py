@@ -187,7 +187,8 @@ def _axe_badge(fpl_id: int, gw: Optional[int] = None) -> str:
 
 
 def _card(row: pd.Series, is_bench: bool = False,
-          interactive: bool = False, fixture_gw: Optional[int] = None) -> str:
+          interactive: bool = False, fixture_gw: Optional[int] = None,
+          detail_only: bool = False) -> str:
     code   = int(row.get("team_code", 1) or 1)
     is_gkp = str(row.get("position", "")) == "GKP"
     name   = str(row.get("web_name", "?"))
@@ -201,7 +202,7 @@ def _card(row: pd.Series, is_bench: bool = False,
         opacity = "0.38"
 
     shirt = _shirt_img(code, is_gkp)
-    if interactive and fpl_id:
+    if (interactive or detail_only) and fpl_id:
         # Whole kit is a click target → opens the player's stats popup.
         shirt = (f'<span data-ffaction="detail" data-ffid="{fpl_id}">{shirt}</span>')
     axe = _axe_badge(fpl_id, fixture_gw) if interactive and fpl_id else ""
@@ -228,9 +229,11 @@ def _card(row: pd.Series, is_bench: bool = False,
 
 
 def _position_row(players: List[pd.Series], interactive: bool = False,
-                  fixture_gw: Optional[int] = None) -> str:
+                  fixture_gw: Optional[int] = None,
+                  detail_only: bool = False) -> str:
     return (f'<div style="{_ROW_STYLE}border-bottom:1px solid rgba(255,255,255,0.14);">'
-            + "".join(_card(p, interactive=interactive, fixture_gw=fixture_gw)
+            + "".join(_card(p, interactive=interactive, fixture_gw=fixture_gw,
+                            detail_only=detail_only)
                       for p in players) + '</div>')
 
 
@@ -283,7 +286,9 @@ def _legend(interactive: bool = False) -> str:
 
 def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
                       fixture_gw: Optional[int] = None,
-                      title_right: str = "") -> None:
+                      title_right: str = "",
+                      detail_only: bool = False,
+                      key: str = "ff_pitch_planner"):
     """Render the live squad on the stadium pitch (GK→DEF→MID→FWD, top to bottom).
 
     Required columns: web_name, position, team_code, is_captain, is_vice_captain,
@@ -305,7 +310,8 @@ def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
               for p in ("GKP", "DEF", "MID", "FWD")}
     formation = f"{len(by_pos['DEF'])}-{len(by_pos['MID'])}-{len(by_pos['FWD'])}"
     bench_cards = "".join(
-        _card(r, is_bench=True, interactive=interactive, fixture_gw=fixture_gw)
+        _card(r, is_bench=True, interactive=interactive, fixture_gw=fixture_gw,
+              detail_only=detail_only)
         for _, r in bench.iterrows())
 
     html = (
@@ -313,24 +319,25 @@ def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
         + _formation_bar(formation, title_right)
         + f'<div style="{_PITCH_BG}">' + _PITCH_LINES
         + '<div style="position:relative;z-index:2;">'
-        + _position_row(by_pos["GKP"], interactive, fixture_gw)
-        + _position_row(by_pos["DEF"], interactive, fixture_gw)
-        + _position_row(by_pos["MID"], interactive, fixture_gw)
-        + _position_row(by_pos["FWD"], interactive, fixture_gw)
+        + _position_row(by_pos["GKP"], interactive, fixture_gw, detail_only)
+        + _position_row(by_pos["DEF"], interactive, fixture_gw, detail_only)
+        + _position_row(by_pos["MID"], interactive, fixture_gw, detail_only)
+        + _position_row(by_pos["FWD"], interactive, fixture_gw, detail_only)
         + '</div>'
         + _bench_strip(bench_cards)
         + '</div>'
         + _legend(interactive)
         + '</div>'
     )
-    if interactive:
-        return _pitch_click(html=html, key="ff_pitch_planner", default=None)
+    if interactive or detail_only:
+        return _pitch_click(html=html, key=key, default=None)
     st.markdown(html, unsafe_allow_html=True)
     return None
 
 
 # ── Generic pitch for Season Lab squads (perfect season, drafts) ───────────────
-def _simple_card(row: Dict, stat_label: str, is_bench: bool = False) -> str:
+def _simple_card(row: Dict, stat_label: str, is_bench: bool = False,
+                 interactive: bool = False) -> str:
     code = int(row.get("team_code", 1) or 1)
     is_gkp = str(row.get("position", "")) == "GKP"
     name = str(row.get("web_name", "?"))
@@ -357,17 +364,23 @@ def _simple_card(row: Dict, stat_label: str, is_bench: bool = False) -> str:
                      f'<span style="color:rgba(255,255,255,0.5);font-weight:500;font-size:10px;">'
                      f'{stat_label}</span></div>')
 
+    _shirt = _shirt_img(code, is_gkp)
+    _pid = row.get("fpl_id")
+    if interactive and _pid:
+        _shirt = f'<span data-ffaction="detail" data-ffid="{int(_pid)}">{_shirt}</span>'
     return (
         f'<div style="display:flex;flex-direction:column;align-items:center;'
         f'width:96px;opacity:{opacity};">'
         f'<div style="position:relative;display:inline-block;">'
-        f'{_shirt_img(code, is_gkp)}{markers}</div>'
+        f'{_shirt}{markers}</div>'
         f'{_nameplate(name, tcol)}{fixture_html}{price_html}{stat_html}</div>'
     )
 
 
 def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
-                       title_right: str = "") -> None:
+                       title_right: str = "",
+                       interactive: bool = False,
+                       key: str = "ff_pitch_replay"):
     """Generic pitch for Season Lab squads (GK→DEF→MID→FWD, top to bottom).
 
     Each player dict: web_name, position (GKP/DEF/MID/FWD), team_code, on_bench.
@@ -387,9 +400,11 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
 
     def _row(ps):
         return (f'<div style="{_ROW_STYLE}border-bottom:1px solid rgba(255,255,255,0.14);">'
-                + "".join(_simple_card(p, stat_label) for p in ps) + '</div>')
+                + "".join(_simple_card(p, stat_label, interactive=interactive)
+                          for p in ps) + '</div>')
 
-    bench_cards = "".join(_simple_card(p, stat_label, is_bench=True) for p in bench)
+    bench_cards = "".join(_simple_card(p, stat_label, is_bench=True,
+                                       interactive=interactive) for p in bench)
 
     html = (
         '<div style="font-family:sans-serif;max-width:900px;margin:0 auto;">'
@@ -402,4 +417,7 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
         + _bench_strip(bench_cards)
         + '</div></div>'
     )
+    if interactive:
+        return _pitch_click(html=html, key=key, default=None)
     st.markdown(html, unsafe_allow_html=True)
+    return None

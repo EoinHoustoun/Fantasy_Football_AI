@@ -839,8 +839,10 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                     "full games when he plays"),
         "Goals":   ("goals_scored", "goals_scored", "%d",
                     "Goals · full 2025-26 season"),
-        "DEFCON":  ("defensive_contribution", "defensive_contribution", "%d",
-                    "Defensive-contribution points · full 2025-26 season"),
+        "DEF acts": ("defensive_contribution", "defensive_contribution", "%d",
+                     "Defensive actions (tackles, interceptions, CBI, "
+                     "recoveries) · full 2025-26 season · the raw volume "
+                     "behind DEFCON points"),
         "Assists": ("assists", "assists", "%d",
                     "Assists · full 2025-26 season"),
         "xG":      ("xg", "expected_goals", "%.1f",
@@ -854,7 +856,7 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
         "Pts/£m":  ("points_per_million", None, "%.1f",
                     "Season points per £m of current price"),
     }
-    _defaults = ["Form", "xP", "Pts", "Mins/G", "Goals", "DEFCON"]
+    _defaults = ["Form", "xP", "Pts", "Mins/G", "Goals", "DEF acts"]
 
     # Backfill any missing stat columns straight from the bootstrap · on BOTH
     # the display rows and the full pool (the chart dialog ranks the pool).
@@ -886,6 +888,9 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                         _column_chart_dialog(_lbl, _COLS[_lbl][0], _COLS[_lbl][1], pool)
 
     _show = cand.copy()
+    for _lbl in _picked:
+        _c = _COLS[_lbl][0]
+        _show[_c] = pd.to_numeric(_show[_c], errors="coerce")
     _show["_kit"] = [
         _srl(int(tc or 1), str(pos) == "GKP")
         for tc, pos in zip(_show.get("team_code", 1), _show["position"])]
@@ -894,10 +899,20 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
         lambda i: _flag_map.get(_pflags.get(i), ""))
     _tbl_cols = ["_kit", "web_name", "price", "_move"] + [
         _COLS[l][0] for l in _picked]
+    def _col(kind, *a, **k):
+        # Column pinning shipped in newer Streamlit · degrade gracefully.
+        try:
+            return kind(*a, **k)
+        except TypeError:
+            k.pop("pinned", None)
+            return kind(*a, **k)
+
     _cfg = {
-        "_kit": st.column_config.ImageColumn("", width=34),
-        "web_name": st.column_config.TextColumn("Player", width=110),
-        "price": st.column_config.NumberColumn("£", format="%.1f", width=52),
+        "_kit": _col(st.column_config.ImageColumn, "", width=34, pinned=True),
+        "web_name": _col(st.column_config.TextColumn, "Player", width=110,
+                         pinned=True),
+        "price": st.column_config.NumberColumn("£", format="%.1f", width=52,
+                                               help="Current price"),
         "_move": st.column_config.TextColumn("Δ£", width=34,
                                              help="▲ price rise likely · ▼ fall"),
     }
@@ -909,6 +924,7 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
     _event = st.dataframe(
         _show[_tbl_cols], column_config=_cfg, hide_index=True,
         on_select="rerun", selection_mode="single-row",
+        use_container_width=True,
         height=min(520, 42 + 35 * len(_show)),
         key=f"{key_prefix}_tbl")
 
@@ -917,6 +933,14 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                  if _event and hasattr(_event, "selection") else [])
     if _sel_rows:
         _pc = cand.iloc[_sel_rows[0]]
+        st.markdown(
+            f'<div style="padding:8px 14px;margin:2px 0 6px;border-radius:10px;'
+            f'background:linear-gradient(135deg,rgba(0,255,135,0.10),rgba(0,0,0,0.35));'
+            f'border:1px solid rgba(0,255,135,0.35);font-size:13px;color:#fff;">'
+            f'Selected: <b style="color:#00FF87;">{_pc["web_name"]}</b> '
+            f'<span style="color:rgba(255,255,255,0.55);">£{float(_pc["price"]):.1f}m · '
+            f'replaces {out_name}</span></div>',
+            unsafe_allow_html=True)
         _b1, _b2, _sp = st.columns([1.3, 1.3, 2])
         with _b1:
             if st.button(f"✅ Sign {str(_pc['web_name'])[:12]}",
@@ -929,7 +953,11 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                          help=f"Head-to-head: {out_name} vs {_pc['web_name']}"):
                 result = ("compare", _pc)
     else:
-        st.caption("Select a row to sign or compare · click any header to sort.")
+        st.markdown(
+            '<div style="padding:6px 12px;font-size:12px;color:rgba(255,255,255,0.55);">'
+            '👆 <b>Tick a row</b> (leftmost column) to sign or compare · '
+            'click any header to sort · 📊 charts the column.</div>',
+            unsafe_allow_html=True)
 
     if st.button("Cancel axe", key=f"{key_prefix}_cancel"):
         result = ("cancel", None)
@@ -1298,6 +1326,20 @@ with tab_pitch:
         def _player_dialog(pid: int, plan_gw: Optional[int] = None) -> None:
             from ui.player_detail import render_player_detail
             render_player_detail(pid, players_df_all, key_prefix="dlg")
+            with st.expander("📋 Gameweek-by-gameweek history table"):
+                _h = _gw_stats(int(pid))
+                if _h:
+                    _hdfv = pd.DataFrame(_h).rename(columns={
+                        "round": "GW", "total_points": "Pts", "minutes": "Mins",
+                        "goals_scored": "Goals", "assists": "Assists",
+                        "bonus": "Bonus", "defensive_contribution": "DEF acts",
+                        "expected_goals": "xG",
+                        "expected_goal_involvements": "xGI"})
+                    st.dataframe(_hdfv, hide_index=True, use_container_width=True,
+                                 height=min(420, 42 + 35 * len(_hdfv)))
+                    st.caption("One row per gameweek · most recent season on record.")
+                else:
+                    st.caption("No gameweek history available for this player yet.")
             if plan_gw:
                 _nm = players_df_all.loc[players_df_all["fpl_id"] == int(pid), "web_name"]
                 _nm = str(_nm.iloc[0]) if not _nm.empty else "him"
@@ -1445,7 +1487,37 @@ with tab_pitch:
                         st.toast("Saved · the full suggested plan")
                         st.rerun()
 
-                _oc1, _oc2 = st.columns([1.6, 1])
+                @st.dialog("Plan review", width="large")
+                def _plan_review_dialog(cards, summary) -> None:
+                    _vc = "#00FF87" if summary["net"] >= 0 else "#FF4B4B"
+                    st.markdown(
+                        f'<div style="text-align:center;padding:4px 0 10px;">'
+                        f'<span style="font-family:\'Archivo\',sans-serif;font-size:26px;'
+                        f'font-weight:900;color:{_vc};">{summary["net"]:+.1f} xP</span>'
+                        f'<span style="font-size:12px;color:rgba(255,255,255,0.55);"> net '
+                        f'across the plan · {summary["n_moves"]} move'
+                        f'{"s" if summary["n_moves"] != 1 else ""} · {summary["hits"]} '
+                        f'hit{"s" if summary["hits"] != 1 else ""}</span></div>',
+                        unsafe_allow_html=True)
+                    _vcol = {"great": "#00FF87", "good": "#04f5ff",
+                             "marginal": "#FFA500", "negative": "#FF4B4B"}
+                    for c in cards:
+                        st.markdown(
+                            f'<div style="background:rgba(255,255,255,0.03);border:1px solid '
+                            f'rgba(255,255,255,0.08);border-left:3px solid {_vcol[c["verdict"]]};'
+                            f'border-radius:8px;padding:8px 12px;margin-bottom:5px;font-size:13px;'
+                            f'color:rgba(255,255,255,0.85);">{c["text"]}'
+                            + (f'<div style="font-size:12px;color:#FFD700;margin-top:4px;">'
+                               f'💡 Better available: {c["better"]}</div>' if c["better"] else "")
+                            + '</div>', unsafe_allow_html=True)
+                    if not cards:
+                        st.info("No transfers in the plan yet · scrub forward, ✕ a "
+                                "player and sign a replacement, then review here.")
+                    st.caption("Verdicts come straight from the projections: each move's "
+                               "xP over the remaining weeks, hits at −4, and the best "
+                               "same-position alternative you could have afforded.")
+
+                _oc1, _oc15, _oc2 = st.columns([1.5, 1.2, 1])
                 with _oc1:
                     if st.button("✨ Optimise my next 5 weeks", key="optimise_plan",
                                  use_container_width=True,
@@ -1469,6 +1541,29 @@ with tab_pitch:
                             for g in range(_hfirst, _hfirst + _hn):
                                 planner.save_draft(int(team_id), g, _plan_map.get(g, []))
                             _plan_summary_dialog(_notes, _plan_map, _sumry, _hfirst, _hn)
+                with _oc15:
+                    if st.button("🧠 Analyse my plan", key="analyse_plan",
+                                 use_container_width=True,
+                                 help="Data-driven review of every saved/draft move "
+                                      "across the horizon: what each buys, what the "
+                                      "hits cost, and where a better move existed."):
+                        _hz_an = _xp_horizon()
+                        if _hz_an is None:
+                            st.warning("Projections unavailable right now.")
+                        else:
+                            from analytics.plan_optimizer import analyse_plan
+                            _hdf2, _hfirst2, _hn2 = _hz_an
+                            _all = dict(plans)
+                            _all.update({g: e for g, e in drafts.items()})
+                            _base2 = squad_df.copy()
+                            if "team_id" not in _base2.columns:
+                                _base2 = _base2.merge(
+                                    players_df_all[["fpl_id", "team_id"]],
+                                    on="fpl_id", how="left")
+                            _cards, _sumry2 = analyse_plan(
+                                _base2, players_df_all, _hdf2, _all,
+                                _hfirst2, _hn2, bank_m)
+                            _plan_review_dialog(_cards, _sumry2)
                 with _oc2:
                     if st.button("🧹 Discard all drafts", key="optimise_clear",
                                  use_container_width=True,
@@ -1554,13 +1649,8 @@ with tab_pitch:
                 eff_now["_is_axed"] = eff_now["fpl_id"].astype(int).isin(
                     {int(a["id"]) for a in _axes})
 
-                if _axes:
-                    _pcol, _rcol = st.columns([1.35, 1], gap="large")
-                else:
-                    _pcol = st.container()
-                with _pcol:
-                    _click = render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
-                                               title_right=f"GW{view_gw} plan")
+                _click = render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
+                                           title_right=f"GW{view_gw} plan")
 
                 # Handle a FRESH pitch click (the component re-reports its last value
                 # every rerun · the nonce dedupes).
@@ -1591,7 +1681,14 @@ with tab_pitch:
                             st.session_state.plan_axes = _axes
                             st.rerun(scope="fragment")
                 if _axes:
-                    with _rcol:
+                    st.markdown(
+                        '<div style="margin:16px 0 8px;display:flex;align-items:center;gap:14px;">'
+                        '<div style="font-size:11px;letter-spacing:0.22em;color:#FF4B4B;'
+                        'text-transform:uppercase;font-weight:800;">Transfer desk · sign the '
+                        'replacements</div>'
+                        '<div style="flex:1;height:1px;background:rgba(255,75,75,0.25);"></div></div>',
+                        unsafe_allow_html=True)
+                    with st.container():
                         # Which axed slot are we filling? (✕ as many as you like ·
                         # the pooled budget assumes every queued player is sold)
                         if len(_axes) > 1:

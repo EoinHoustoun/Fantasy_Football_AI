@@ -15,7 +15,7 @@ import pandas as pd
 from typing import Optional, List, Dict, Any
 
 from components.badges import render_badges
-from components.team_identity import shirt_html, team_color
+from components.team_identity import face_html, shirt_html, team_color
 
 # set_page_config is owned by the app.py router (st.navigation)
 
@@ -200,7 +200,7 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
 
       <!-- Shirt -->
       <div style="text-align:center; flex-shrink:0; padding-left:12px;">
-        {shirt_html(code, is_gkp, width=80)}
+        {face_html(player.get('code'), code, is_gkp, width=76)}
       </div>
 
       <!-- Info -->
@@ -280,7 +280,7 @@ def _mini_card(player: pd.Series, rank: int) -> str:
         margin-bottom:8px;
     ">
       <div style="font-size:18px; width:28px; text-align:center; flex-shrink:0;">{rank_labels.get(rank, str(rank))}</div>
-      {shirt_html(code, is_gkp, width=42)}
+      {face_html(player.get('code'), code, is_gkp, width=40)}
       <div style="flex:1; min-width:0;">
         <div style="font-size:15px; font-weight:800; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
           {name}{dgw_tag}

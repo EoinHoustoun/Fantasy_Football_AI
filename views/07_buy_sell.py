@@ -71,9 +71,11 @@ def find_best_replacement(
     return candidates.sort_values("transfer_score", ascending=False).iloc[0]
 
 
-def _shirt_with_crest(code: int, is_gkp: bool) -> str:
-    """52px kit image. (Crest omitted · PL crest CDN unreliable; the kit carries
-    club identity.)"""
+def _shirt_with_crest(code: int, is_gkp: bool, player_code=None) -> str:
+    """Player face when we know him (kit fallback), else the 52px kit."""
+    if player_code is not None:
+        from components.team_identity import face_html
+        return face_html(player_code, code, is_gkp, width=52)
     return (
         f'<img src="{shirt_url(code, is_gkp)}" width="52" '
         f'onerror="this.src=\'{shirt_fallback_url(is_gkp)}\'"/>'
@@ -262,12 +264,21 @@ fdr_col = f"avg_fdr_next_{FIXTURE_LOOKAHEAD}"
 team_id_counts = Counter(squad_df["team_id"].tolist())
 
 # Build pairings
+# Each target can only be signed ONCE · rank the squad by upgrade potential
+# first, then hand out the best remaining replacement to each player in turn.
+# (Before this, three forwards could all be paired with the same Bowen.)
 pairings = []
+_taken_ids = set()
 with fpl_loader("Ranking the replacements", LINES_MODEL):
-    for _, player in xi.iterrows():
+    _xi_rows = list(xi.iterrows())
+    for _, player in _xi_rows:
         sell_price = float(player.get("price", 0) or 0)
         budget = bank_m + sell_price
-        replacement = find_best_replacement(player, players_df, budget, owned_ids, team_id_counts)
+        replacement = find_best_replacement(
+            player, players_df[~players_df["fpl_id"].isin(_taken_ids)],
+            budget, owned_ids, team_id_counts)
+        if replacement is not None:
+            _taken_ids.add(int(replacement.get("fpl_id", 0) or 0))
         if replacement is not None:
             ppg_gain   = float(replacement.get("points_per_game", 0) or 0) - float(player.get("form", 0) or 0)
             sell_fdr   = float(player.get(fdr_col, 3.0) or 3.0)

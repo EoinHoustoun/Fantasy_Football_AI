@@ -268,9 +268,16 @@ with hint_col:
 
 # ── Command card renderer ───────────────────────────────────────────────────────
 def _command_card(kicker: str, headline: str, sub: str, accent: str,
-                   dot_short: Optional[str] = None) -> str:
+                   dot_short: Optional[str] = None,
+                   player_code=None, team_code=None) -> str:
     crest = ""
-    if dot_short is not None:
+    if player_code is not None:
+        from components.team_identity import face_html
+        crest = (
+            f'<span style="position:absolute;top:12px;right:12px;">'
+            f'{face_html(player_code, int(team_code or 1), width=44)}</span>'
+        )
+    elif dot_short is not None:
         crest = (
             f'<span style="position:absolute;top:16px;right:16px;">'
             f'{team_dot(dot_short, size=14)}</span>'
@@ -341,6 +348,7 @@ else:
                 "Captain pick", str(cap["web_name"]),
                 f"{float(cap.get('ep_next') or 0):.1f} xP · {cap.get('team_short','')}",
                 "#FFD700", cap.get("team_short"),
+                player_code=cap.get("code"), team_code=cap.get("team_code"),
             ), unsafe_allow_html=True)
         else:
             st.markdown(_command_card("Captain pick", "-", "No squad data", "#FFD700"),
@@ -353,6 +361,7 @@ else:
                 "Best transfer in", str(top_in.get("web_name", "-")),
                 f"{float(top_in.get('ep_next') or 0):.1f} xP · {top_in.get('team_short','')} · {top_in.get('position','')}",
                 "#00FF87", top_in.get("team_short"),
+                player_code=top_in.get("code"), team_code=top_in.get("team_code"),
             ), unsafe_allow_html=True)
         else:
             st.markdown(_command_card("Best transfer in", "-", "No target found", "#00FF87"),

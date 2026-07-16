@@ -112,3 +112,21 @@ def player_photo_url(code) -> str:
                 f"photos/players/110x140/{int(code)}.png")
     except (TypeError, ValueError):
         return ""
+
+
+def face_html(player_code, team_code: int, is_gkp: bool = False,
+              width: int = 56) -> str:
+    """Player headshot with an automatic kit fallback · use anywhere a card
+    talks about ONE player. Falls back to the club kit when the photo CDN
+    has no image (new signings, youth) or no code is known."""
+    kit = shirt_html(int(team_code or 1), is_gkp=is_gkp, width=max(40, width - 8))
+    photo = player_photo_url(player_code)
+    if not photo:
+        return kit
+    kit_js = kit.replace('"', "'")
+    return (
+        f'<img src="{photo}" width="{width}" loading="lazy" '
+        f'style="border-radius:10px;display:block;'
+        f'filter:drop-shadow(0 4px 8px rgba(0,0,0,0.45));" '
+        f'onerror="this.outerHTML=\'{kit_js}\';"/>'
+    )

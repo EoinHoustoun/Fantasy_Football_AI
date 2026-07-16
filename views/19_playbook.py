@@ -441,6 +441,34 @@ if not _iv.empty:
     opt["grid"]["top"] = 36
     opt["grid"]["left"] = 210
     charts.render(opt, height="330px", key="pb_icon_field")
+
+    # ── So what is a CONSISTENT captain worth in £? ──────────────────────
+    # Convert points to pounds with the price-band curve: what one saved £m
+    # buys when respent in the XI, then price the armband edge against it.
+    _slope = (float(_curve["mean"].iloc[3] - _curve["mean"].iloc[1])
+              / 3.0) if len(_curve) >= 4 else 25.0     # ≈ pts per reallocated £m
+    _avg_delta = float(_iv["delta"].mean())            # challenger − icon
+    _avg_saved = float(_iv["saved"].mean())
+    st.markdown(
+        f'<div class="fplh-card-hover" style="{CARD}border-left:3px solid #FFD700;'
+        f'margin-top:10px;">'
+        f'<div style="font-size:13px;font-weight:800;color:#FFD700;margin-bottom:6px;">'
+        f'💰 Pricing the armband · what consistency is worth</div>'
+        f'<div style="font-size:12.5px;color:rgba(255,255,255,0.75);line-height:1.6;">'
+        f'Every £1m NOT spent on the captain buys roughly <b>{_slope:.0f} points</b> '
+        f'when respent in the XI (the price-band curve above). So a pricier '
+        f'"consistent" captain must out-captain the cheaper option by '
+        f'<b>~{_slope:.0f} pts per £1m of premium</b> just to break even · a £14m '
+        f'icon over a £9m alternative needs a <b>{5 * _slope:.0f}-point armband '
+        f'edge</b>. History says he does not deliver it: across ten seasons the '
+        f'cheaper premium actually finished <b>{_avg_delta:+.0f} pts ahead</b> on '
+        f'average while saving £{_avg_saved:.1f}m. Rule of thumb: <b>pay up to '
+        f'£10-11m for a captain you genuinely trust</b>; above that, the icon must '
+        f'be projected to beat everyone by {_slope:.0f}+ points per extra £m, and '
+        f'if no Fernandes-style value premium exists this season, the SECOND price '
+        f'tier (~£10-11m) is where consistency and budget balance · not the crown '
+        f'price.</div></div>',
+        unsafe_allow_html=True)
 _c1, _c2 = st.columns(2)
 with _c1:
     opt = charts.bar_option(

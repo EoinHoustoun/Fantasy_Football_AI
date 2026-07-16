@@ -21,7 +21,7 @@ from typing import Optional, List, Dict, Any
 from config import HAUL_THRESHOLD, TWENTY_PLUS_THRESHOLD, ACCENT_COLOR, FIXTURE_LOOKAHEAD
 from components.badges import render_badges
 from components.animations import inject_global_animations
-from components.team_identity import shirt_html, team_color
+from components.team_identity import face_html, shirt_html, team_color
 
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
@@ -134,7 +134,7 @@ def render_hero(player: pd.Series, reasoning: str) -> None:
     margin-bottom:18px;
 ">
   <div style="text-align:center;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.45));">
-    {shirt_html(code, pos == "GKP", width=110)}
+    {face_html(player.get('code'), code, pos == "GKP", width=104)}
   </div>
 
   <div>
@@ -221,7 +221,7 @@ def render_podium(close_list: List[Dict[str, Any]]) -> None:
     {_position_chip(pos)}
   </div>
   <div style="display:flex;align-items:center;gap:14px;">
-    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{shirt_html(code, pos == "GKP", width=62)}</div>
+    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{face_html(p.get("code"), code, pos == "GKP", width=58)}</div>
     <div style="flex:1;min-width:0;">
       <div style="font-size:20px;font-weight:900;color:#fff;white-space:nowrap;
                   overflow:hidden;text-overflow:ellipsis;">{name}</div>
@@ -282,7 +282,7 @@ def render_target_grid(df: pd.DataFrame, n: int = 12) -> None:
     font-family:'Inter',sans-serif;
 ">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{shirt_html(code, pos == "GKP", width=50)}</div>
+    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{face_html(row.get("code"), code, pos == "GKP", width=48)}</div>
     <div style="flex:1;min-width:0;">
       <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;
                   overflow:hidden;text-overflow:ellipsis;">{name}</div>

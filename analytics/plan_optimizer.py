@@ -160,3 +160,109 @@ def suggest_plan(base_squad: pd.DataFrame,
         notes.append("No move clears the bar · your squad already tracks the "
                      "xP frontier for this horizon. Bank the transfer.")
     return plan, notes, _summary
+
+
+def analyse_plan(base_squad: pd.DataFrame,
+                 players_df: pd.DataFrame,
+                 xp: pd.DataFrame,
+                 plans: Dict[int, Any],
+                 first_gw: int,
+                 horizon: int,
+                 bank: float,
+                 ft_start: int = 1,
+                 ) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    """Review a SAVED multi-week plan move by move, entirely from the data.
+
+    For every transfer: the rest-of-horizon xP it buys, whether it needed a
+    hit, and · the coaching part · whether a clearly better same-position
+    move was available at that moment (same budget rules the user faced).
+
+    Returns (cards, summary): cards are per-move dicts {gw, text, verdict,
+    better}; summary = {"xp_gain", "hits", "net", "n_moves"}.
+    """
+    from analytics.squad_planner import normalize_entry, free_transfers_for
+
+    gws = [g for g in range(int(first_gw), int(first_gw) + int(horizon))
+           if g in xp.columns]
+
+    def _xp_rest(pid: int, from_gw: int) -> float:
+        cols = [g for g in gws if g >= from_gw]
+        if int(pid) not in xp.index or not cols:
+            return 0.0
+        return float(xp.loc[int(pid), cols].sum())
+
+    squad: List[Dict[str, Any]] = []
+    for _, r in base_squad.iterrows():
+        squad.append({"fpl_id": int(r["fpl_id"]), "web_name": str(r["web_name"]),
+                      "position": str(r["position"]), "price": float(r["price"]),
+                      "team_id": int(r.get("team_id") or 0),
+                      "on_bench": bool(r.get("on_bench", False))})
+    pool = players_df[players_df["status"] == "a"].copy()
+    pool["_mins_ok"] = pd.to_numeric(pool.get("avg_minutes"),
+                                     errors="coerce").fillna(0) >= 45
+
+    cards: List[Dict[str, Any]] = []
+    summary = {"xp_gain": 0.0, "hits": 0, "net": 0.0, "n_moves": 0}
+    bank = float(bank)
+
+    for gw in gws:
+        entry = normalize_entry(plans.get(gw, []))
+        moves = entry.get("transfers", [])
+        if not moves:
+            continue
+        fts = free_transfers_for(plans, gw, int(first_gw), ft_start)
+        for i, t in enumerate(moves):
+            out_id, in_id = int(t["out_id"]), int(t["in_id"])
+            out_rest = _xp_rest(out_id, gw)
+            in_rest = _xp_rest(in_id, gw)
+            gain = in_rest - out_rest
+            uses_hit = (i >= fts) and entry.get("chip") not in ("WC", "FH")
+            if uses_hit:
+                summary["hits"] += 1
+            summary["xp_gain"] += gain
+            summary["n_moves"] += 1
+
+            # Was there a clearly better option at that moment?
+            budget = bank + float(t.get("price_out", 0))
+            owned = {p["fpl_id"] for p in squad}
+            alt = pool[
+                (pool["position"] == str(t.get("position")))
+                & (pool["price"] <= budget + 0.01)
+                & (~pool["fpl_id"].isin(owned))
+                & (pool["_mins_ok"])
+            ]
+            better = None
+            if not alt.empty:
+                alt = alt.assign(
+                    _rest=[_xp_rest(int(x), gw) for x in alt["fpl_id"]])
+                best = alt.loc[alt["_rest"].idxmax()]
+                if int(best["fpl_id"]) != in_id \
+                        and float(best["_rest"]) - in_rest > 2.0:
+                    better = (f"{best['web_name']} (£{float(best['price']):.1f}m) "
+                              f"projected {float(best['_rest']) - in_rest:+.1f} xP "
+                              f"more over the run")
+
+            verdict = ("great" if gain >= 6 else
+                       "good" if gain >= 2 else
+                       "marginal" if gain >= 0 else "negative")
+            cards.append({
+                "gw": gw,
+                "text": (f"GW{gw}: {t.get('out_name')} → {t.get('in_name')} · "
+                         f"{gain:+.1f} xP over the run"
+                         + (" · costs a −4 hit" if uses_hit else " · free")),
+                "verdict": verdict,
+                "better": better,
+            })
+            # apply move to working state
+            bank += float(t.get("price_out", 0)) - float(t.get("price_in", 0))
+            squad = [p for p in squad if p["fpl_id"] != out_id]
+            row = players_df[players_df["fpl_id"] == in_id]
+            squad.append({
+                "fpl_id": in_id, "web_name": str(t.get("in_name")),
+                "position": str(t.get("position")),
+                "price": float(t.get("price_in", 0)),
+                "team_id": int(row.iloc[0].get("team_id") or 0) if not row.empty else 0,
+                "on_bench": False})
+
+    summary["net"] = summary["xp_gain"] - summary["hits"] * HIT_COST
+    return cards, summary
