@@ -14,7 +14,8 @@ from ui import charts
 import streamlit as st
 
 from components.animations import inject_global_animations
-from config import CACHE_DIR, LAST_COMPLETE_SEASON
+from components.team_identity import team_dot
+from config import CACHE_DIR, LAST_COMPLETE_SEASON, NEXT_SEASON
 
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
@@ -141,6 +142,58 @@ try:
     st.page_link("views/18_draft_2026_27.py", label="→ See the named optimal squad in the 26/27 Draft")
 except Exception:
     pass
+
+# ── 2026/27 Value Read · live launch prices ────────────────────────────────────
+st.markdown(
+    f'<div style="display:flex;align-items:center;gap:14px;margin:30px 0 4px;">'
+    f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
+    f'color:#00FF87;white-space:nowrap;">💷 {NEXT_SEASON} value read · live launch prices</div>'
+    f'<div style="flex:1;height:1px;background:rgba(0,255,135,0.22);"></div></div>'
+    f'<div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:12px;">'
+    f'The rules above, applied to the prices that actually shipped. Full board + scout '
+    f'questions live on the 26/27 Draft page.</div>',
+    unsafe_allow_html=True)
+
+try:
+    from ui.value_board import build_board
+    from analytics.value_verdicts import VERDICTS
+    _vb, _vscout, _, _ = build_board()
+except Exception:
+    _vb = None
+
+if _vb is not None and not _vb.empty:
+    def _mini(df: pd.DataFrame, title: str, accent: str, stat_fn) -> str:
+        rows = "".join(
+            f'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;'
+            f'border-bottom:1px solid rgba(255,255,255,0.05);">'
+            f'{team_dot(r.get("team_short"), size=11)}'
+            f'<div style="flex:1;min-width:0;font-size:12px;font-weight:700;color:#fff;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["web_name"]}</div>'
+            f'<div style="font-size:11px;color:{accent};font-weight:800;white-space:nowrap;">{stat_fn(r)}</div>'
+            f'</div>'
+            for _, r in df.iterrows())
+        return (f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid {accent};">'
+                f'<div style="font-size:13px;font-weight:800;color:#fff;margin-bottom:8px;">{title}</div>'
+                f'{rows}</div>')
+
+    _nec = _vb[_vb["verdict"] == VERDICTS.NECESSITY].nlargest(6, "projected_points")
+    # Value sorted by projection, not raw pts/£m · surfaces the high-ceiling
+    # bargains rather than six £4.0 keepers who always win pure pts/£m.
+    _val = _vb[_vb["verdict"] == VERDICTS.VALUE].nlargest(6, "projected_points")
+    _over = _vb[_vb["verdict"] == VERDICTS.OVERPRICED].nlargest(6, "actual_price")
+    st.markdown(
+        '<div class="fplh-stagger" style="display:grid;'
+        'grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">'
+        + _mini(_nec, "🥇 Necessity · build around", "#FFD700",
+                lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
+        + _mini(_val, "🟢 Value · came in under price", "#00FF87",
+                lambda r: f'£{r["actual_price"]:.1f} · {r["value_score"]:.1f}/£m')
+        + _mini(_over, "🔴 Overpriced · swerve", "#FF4B4B",
+                lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
+        + "</div>",
+        unsafe_allow_html=True)
+else:
+    st.caption("Value read loads once the 26/27 board is built.")
 
 # ── Q1 Formation ──────────────────────────────────────────────────────────────
 f = A["formation"]

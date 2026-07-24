@@ -145,60 +145,6 @@ def _lane(df: pd.DataFrame, accent: str) -> None:
     )
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Pricing the board · projections vs actual 26/27 prices…")
-def _build_board():
-    from data.processors.archive import load_gw_archive, load_season_summary
-    from analytics.price_predictor import train_price_model, predict_next_season_prices
-    from analytics.season_projection import project_season, validate_projection
-    from analytics.value_verdicts import build_value_verdicts
-    from data.fetchers.fpl_api import fetch_bootstrap
-
-    summary = load_season_summary()
-    if summary is None:
-        return None, None, None, None
-
-    trained = train_price_model(summary)
-    prices = predict_next_season_prices(summary, trained)
-    proj = project_season(summary, LAST_COMPLETE_SEASON)
-    validation = validate_projection(summary)
-
-    arch = load_gw_archive()
-    teams = (arch[arch["season"] == LAST_COMPLETE_SEASON]
-             .groupby("code")["team_id"].last().reset_index())
-    uni = (proj.merge(prices[["code", "predicted_start_price", "price_2025_26_end"]], on="code")
-           .merge(teams, on="code"))
-
-    # shirt / colour identity from the archived final bootstrap
-    import json as _json
-    from config import CACHE_DIR as _CD
-    bs_path = _CD / "archive" / "fpl_bootstrap_2025_26_final.json"
-    if bs_path.exists():
-        with open(bs_path) as f:
-            _bs = _json.load(f)
-        tc_map = {int(e["code"]): int(e["team_code"]) for e in _bs["elements"]}
-        uni["team_code"] = uni["code"].map(tc_map).fillna(1).astype(int)
-        ts_map = {int(e["code"]): e.get("team") for e in _bs["elements"]}
-        short_by_id = {int(t["id"]): t["short_name"] for t in _bs["teams"]}
-        uni["team_short"] = uni["code"].map(ts_map).map(short_by_id)
-    else:
-        uni["team_code"] = 1
-        uni["team_short"] = None
-
-    # nailed-ness signals used by the verdict engine + scout questions
-    ss = (summary[summary["season"] == LAST_COMPLETE_SEASON]
-          [["code", "starts_total", "games_played"]].copy())
-    uni = uni.merge(ss, on="code", how="left")
-    uni["mins_share"] = (uni["projected_minutes"] / 3420.0).clip(0, 1).round(2)
-    uni["starts_ratio"] = (uni["starts_total"] / uni["games_played"]).round(2)
-
-    live_bs = fetch_bootstrap()
-    verdicts, scout = build_value_verdicts(uni, live_bs)
-
-    bt = dict(trained["backtest"][trained["winner"]])
-    bt["model"] = trained["winner"]
-    return verdicts, scout, bt, validation
-
-
 @st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
 def _solve_draft(board: pd.DataFrame, budget: float, bench_weight: float):
     from analytics.squad_milp import optimize_squad
@@ -206,7 +152,8 @@ def _solve_draft(board: pd.DataFrame, budget: float, bench_weight: float):
     return optimize_squad(d, budget=budget, bench_weight=bench_weight, time_limit=90)
 
 
-board, scout, price_bt, validation = _build_board()
+from ui.value_board import build_board
+board, scout, price_bt, validation = build_board()
 if board is None:
     st.error("Archive not built · run `python scripts/build_archive.py` first.")
     st.stop()
