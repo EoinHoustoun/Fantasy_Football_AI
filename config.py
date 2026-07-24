@@ -148,9 +148,11 @@ TEAM_COLORS = {
     "BHA": ("#0057B8", "#FFFFFF"),   # Brighton
     "BUR": ("#6C1D45", "#99D6EA"),   # Burnley
     "CHE": ("#034694", "#FFFFFF"),   # Chelsea
+    "COV": ("#6CADDF", "#0E1B3D"),   # Coventry City
     "CRY": ("#1B458F", "#C4122E"),   # Crystal Palace
     "EVE": ("#003399", "#FFFFFF"),   # Everton
     "FUL": ("#000000", "#FFFFFF"),   # Fulham
+    "HUL": ("#F5A12D", "#000000"),   # Hull City
     "IPS": ("#3A64A3", "#FFFFFF"),   # Ipswich
     "LEE": ("#FFCD00", "#1D428A"),   # Leeds
     "LEI": ("#003090", "#FDBE11"),   # Leicester
