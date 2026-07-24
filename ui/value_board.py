@@ -88,10 +88,16 @@ def _defcon_codes() -> list:
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
 def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
+                risk: float = 0.3, exclude_names: tuple = (),
                 max_attackers_per_club: int = 1):
-    """Solve one named draft strategy on ACTUAL prices. Applies the standing
-    preference of at most one attack-correlated player per club (DEFCON mids
-    exempt). Returns the optimize_squad dict or None."""
+    """Solve one named draft strategy on ACTUAL prices.
+
+    `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
+    1 maximises the confidence FLOOR (safety) · in between blends them, so
+    wide-range punts (low-confidence, fullbacks) get discounted as risk rises.
+    `exclude_names` are players to veto. Also applies the standing rule of at
+    most one attack-correlated player per club (DEFCON mids exempt).
+    """
     from analytics.squad_milp import optimize_squad
 
     def _code(name: str):
@@ -99,17 +105,24 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
         return int(m.iloc[0]["code"]) if not m.empty else None
 
     haaland, fernandes = _code("Haaland"), _code("B.Fernandes")
-    force, exclude, bench = (), (), 0.1
-    if "Haaland + Fernandes" in strategy:
+    is_safe = "Haaland + Fernandes" in strategy
+    force, exclude = (), tuple(c for c in (_code(n) for n in exclude_names) if c)
+    if is_safe:
         force = tuple(c for c in (haaland, fernandes) if c)
+        bench = 0.2                      # a bench that actually plays
     elif "no Haaland" in strategy:
         force = tuple(c for c in (fernandes,) if c)
-        exclude = tuple(c for c in (haaland,) if c)
+        exclude = exclude + tuple(c for c in (haaland,) if c)
+        bench = 0.1
     elif "Bench Boost" in strategy:
         bench = 1.0
+    else:
+        bench = 0.1
 
     d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
-    return optimize_squad(d, budget=budget, bench_weight=bench, time_limit=90,
+    r = max(0.0, min(1.0, float(risk)))
+    d["obj"] = d["pts"] * (1.0 - r) + d["proj_lo"].fillna(d["pts"]) * r
+    return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
                           force_codes=list(force), exclude_codes=list(exclude),
                           max_attackers_per_club=max_attackers_per_club,
                           defcon_codes=_defcon_codes())

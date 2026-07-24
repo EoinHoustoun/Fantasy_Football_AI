@@ -255,17 +255,24 @@ BLURBS = {
     "🔋 Bench Boost GW1": "All 15 count equally, so the bench actually plays · set up to Bench Boost GW1 with no transfer prep.",
 }
 
-c1, c2 = st.columns([2, 1])
-with c1:
-    mode = st.radio("Draft strategy", DRAFT_STRATEGIES, horizontal=True, label_visibility="collapsed")
-with c2:
-    budget = st.slider("Budget (£m)", 95.0, 105.0, 100.0, 0.5)
-
+mode = st.radio("Draft strategy", DRAFT_STRATEGIES, horizontal=True, label_visibility="collapsed")
 st.caption(BLURBS[mode])
 
-res = solve_draft(board, mode, budget)
+c1, c2 = st.columns([1, 1])
+with c1:
+    budget = st.slider("Budget (£m)", 95.0, 105.0, 100.0, 0.5)
+with c2:
+    risk = st.slider("Risk appetite · Upside ↔ Safety", 0.0, 1.0, 0.3, 0.05,
+                     help="0 maximises the mean projection (chase upside). 1 maximises the "
+                          "confidence floor (safety-first) · low-confidence punts and fullbacks "
+                          "get discounted as you slide right.")
+excluded = st.multiselect(
+    "Don't trust · exclude these players", options=sorted(board["web_name"].tolist()),
+    help="Veto anyone you're not convinced by · the optimiser rebuilds around them.")
+
+res = solve_draft(board, mode, budget, risk, tuple(excluded))
 if res is None:
-    st.error("Solver found no feasible squad · widen the budget or change strategy.")
+    st.error("Solver found no feasible squad · widen the budget, lower risk, or un-exclude a player.")
     st.stop()
 
 squad = res["squad"]
@@ -278,8 +285,11 @@ _sec = lambda t: st.markdown(
     unsafe_allow_html=True)
 
 _bb = " · bench counts (BB-ready)" if "Bench Boost" in mode else ""
+_xi = squad[squad["in_xi"]]
+_xi_mean = float(_xi["pts"].sum())
+_xi_floor = float(_xi["proj_lo"].sum()) if "proj_lo" in _xi.columns else _xi_mean
 _sec(f"{mode.split(' ', 1)[1] if ' ' in mode else mode} · £{res['squad_cost']:.1f}m real spend · "
-     f"{res['xi_points']:.0f} projected XI pts (incl. captain){_bb}")
+     f"XI {_xi_mean:.0f} pts mean / {_xi_floor:.0f} floor{_bb}")
 
 from components.pitch_view import render_squad_pitch
 
