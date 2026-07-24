@@ -329,3 +329,61 @@ _Read `CLAUDE.md` for the design-system reference. Start each new session here f
   squad form=0 override; nested-expander crash on Injuries; CSS must
   re-inject every rerun; None cells coerced.
 - Launch app with `nohup streamlit run app.py --server.port 8510 &`.
+
+## Session 2026-07-24 · 2026-27 season rollover + Value Board planning suite
+
+Branch `season-rollover-2026-27` (15 commits, not yet merged to main).
+
+**Phase 1 · rollover to live 2026-27.** FPL API flipped to the new season
+(555 players, GW1 deadline 2026-08-21). `get_season_phase` auto-reads
+"preseason", so the GW39 off-season sim stands down on its own. Added
+Coventry (COV) + Hull (HUL) to `config.TEAM_COLORS` (only two clubs missing).
+`scripts/verify_rollover.py` is the acceptance harness (phase/GW1/prices/colours).
+Seeded `assets/defender_roles_2026_27.json` from last season (100 stayers).
+**Preseason has zero played GWs** → fixed 2 hard crashes (Predictions, Free Hit:
+the points model backtests an empty test set) + noisy model pre-warm; shared
+guard `ui/preseason.stop_if_preseason()` gives honest empty-states on the 8
+squad/model pages. Team ID updated to **45595** in `.env`.
+
+**Phase 2 · the Value Board (the big build).** The 26/27 Draft is now a live
+**Value Board**: actual prices vs archive-projected points, bucketed by
+`analytics/value_verdicts.py` (Necessity / Value / Overpriced / Fair / Scout).
+Key signal `pricing_surprise = predicted − actual` (FPL bargain vs tax). Shared
+builder `ui/value_board.py:build_board()` (cached) feeds the Draft AND the
+Playbook 26/27 read. `solve_draft()` runs the optimal squad on real prices.
+
+**Projection realism (the model can't know these · encoded by hand):**
+- `analytics/projection_overrides.py` + `assets/player_overrides_2026_27.json`:
+  fitness/role/regression overrides (Isak/Palmer/Havertz/Mosquera minutes up,
+  Dubravka benched, Fernandes/Thiago haircut, Anderson Forest→City haircut).
+  `minutes` recomputes points from the per-90 rate; `pts_mult` haircuts.
+- Live club/status/set-piece order come from the LIVE bootstrap inside the
+  verdict engine, so transfers self-correct (Senesi→Spurs, Isak→Liverpool).
+- `analytics/projection_confidence.py`: High/Medium/Low tier + honest range
+  (proj_lo..proj_hi) from last-season minutes sample; **overrides, fullbacks,
+  and new-club players are knocked down a tier**. Isak dialled to 151, Low.
+
+**Optimiser rules (Eoin's, in `analytics/squad_milp.optimize_squad`):**
+`max_attackers_per_club=1` (DEFCON mids exempt via
+`assets/defcon_players_2026_27.json`), `max_defenders_per_club=1`,
+`force_codes`/`exclude_codes`. `solve_draft` also does a **risk-aware objective**
+(`risk` 0-1 blends mean vs floor) and an **opening-fixtures weight** (`opening`
+0-1, GW1-6 ease via `OPENING_FIXTURES`), plus a per-player veto.
+
+**Draft UI:** 4 strategies (Optimal value / Safe Haaland+Fernandes /
+Punt Fernandes-only / Bench Boost GW1), risk + opening + budget sliders,
+"don't trust" veto multiselect, verdict lanes with confidence dots + ranges +
+set-piece + injury + override notes, and a **player inspector** (25/26 evidence:
+goals/xGI/DEFCON/minutes + position-rank chart).
+
+**Chip Planner** rebuilt (`analytics/chip_timing.py` + `views/14_chip_planner.py`):
+first-half only (GW1-19, since 26/27 gives two chip sets and set one expires at
+GW19), runs on a chosen draft, recommends BB (with GW1 no-prep callout) / TC / FH
+by fixture ease.
+
+**Gotcha (bit us twice):** Streamlit escapes st.markdown HTML if an interpolated
+placeholder leaves a whitespace-only line. Always collapse card HTML to one line:
+`"".join(s.strip() for s in html.splitlines())`.
+
+**Still open:** Wildcard fixture-swing timing; Value Lab 26/27 lens; merge the
+branch to main.

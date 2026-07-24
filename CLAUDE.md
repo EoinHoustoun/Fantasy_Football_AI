@@ -99,6 +99,7 @@ Call `inject_global_animations()` at the top of every page. Provides:
 4. **No duplicate sections.** If a dedicated page exists (e.g., Transfers, Captain), link to it · don't re-render a smaller copy inside another page.
 5. **Never call `st.rerun()` in a button handler.** Streamlit already reruns on click. Double-rerun caused a race with the animation overlay SVG mount (TypeError).
 6. **Streamlit strips `style` attributes that contain only CSS custom properties.** `<span style="--x:5">` arrives with no style attribute at all. Carry custom-property values in a per-instance `<style>` rule instead (see `animations.count_up`).
+6b. **`st.markdown` escapes HTML when a line is whitespace-only.** A multi-line HTML card with an interpolated placeholder (`{flag_html}`) that is empty leaves a blank/whitespace line, which makes the markdown parser stop passing raw HTML through and render the rest as literal `<span>` text. **Always collapse card HTML to one line:** `return "".join(seg.strip() for seg in html.splitlines())`. (Bit us on the Value Board cards; see `views/18_draft_2026_27.py`.)
 7. **No em dashes anywhere.** UI copy, comments, commit messages. Use the mid-dot `·`, a comma, or a full stop.
 
 ## Stack
@@ -131,6 +132,13 @@ Call `inject_global_animations()` at the top of every page. Provides:
 | `analytics/perfect_season.py` | Hindsight-optimal season MILP (set-and-forget + transfers + chips) |
 | `analytics/price_predictor.py` | Next-season start-price model (XGBoost on season-pairs) |
 | `analytics/season_projection.py` | Next-season points projector (fitted minutes + pp90 carryover) |
+| `ui/value_board.py` | **26/27 Value Board builder** (cached `build_board()`) + `solve_draft()` (risk/opening/veto/club-rules). Shared by the Draft + Playbook + Chip Planner. |
+| `analytics/value_verdicts.py` | Buckets players (Necessity/Value/Overpriced/Fair/Scout) from actual price vs projection; pulls live club/status/set-piece order from the bootstrap |
+| `analytics/projection_overrides.py` | Manual fitness/role/regression overrides (`assets/player_overrides_2026_27.json`) |
+| `analytics/projection_confidence.py` | Confidence tier + range; downgrades overrides, fullbacks, new-club players |
+| `analytics/chip_timing.py` | First-half (GW1-19) BB/TC/FH timing by fixture ease |
+| `assets/player_overrides_2026_27.json` | Hand overrides (minutes/pts_mult); user-editable |
+| `assets/defcon_players_2026_27.json` | DEFCON mids exempt from the 1-attacker-per-club rule |
 | `analytics/playbook.py` | Empirical strategy answers (formation, defenders, hits, minutes, horizons) |
 | `assets/defender_roles_2025_26.json` | Curated CB/FB labels (user-editable; refresh each season) |
 | `docs/WORKFLOW.md` | Session log, data source matrix, full architecture |
@@ -209,7 +217,7 @@ Understat matches by name and silently misses most players. `build_player_univer
 `data/cache/archive/` holds the one-shot 2025-26 FPL API harvest (the API wiped this data at the 2026-27 launch) plus the 10-season archive. Rebuild archive: `python scripts/build_archive.py`. Perfect Season rerun: `python scripts/run_perfect_season.py`. The generic `data/cache/` purge advice does NOT apply to `data/cache/archive/`.
 
 ## Team
-- Default team ID: **38148** ("Vicario Kart"), manager Eoin Houstoun
+- Default team ID: **45595** (2026-27; was 38148 in 2025-26), manager Eoin Houstoun
 - Track the private mini-league (not the public `Spurs & Ireland` type ones · those are league_type `s`, the user wants `c`)
 
 ## Credentials
@@ -235,14 +243,31 @@ Understat matches by name and silently misses most players. `build_player_univer
 - **`views/00_my_team.py`** · "✏️ Lineup" tab (subs/captain + live xP) and enhanced "🔁 Pick Team / Transfers" edit mode (search + sort + full replacement list).
 - **`views/18_draft_2026_27.py`** · Minutes-First Target Board (nailed value / premium / rotation-risk / enabler lanes + scout questions).
 
-## Current priorities (pulled from user)
-Done in the 2026-07 overhaul: grouped nav, team-identity/crest→dot visual rollout (all card pages), honest season framing, GW39 off-season sandbox, Minutes-First Target Board, Transfer Planner with verdicts, My Team Lineup editor + enhanced Pick Team transfers, fun loaders, keeper-kit + white-circle bug fixes.
+## 2026-27 Value Board & planning suite (2026-07-24, branch `season-rollover-2026-27`)
+The season rolled over to live 2026-27 data. The **26/27 Draft is now a live Value
+Board** (`views/18_draft_2026_27.py` + `ui/value_board.py`): actual prices vs
+archive projections, bucketed by `analytics/value_verdicts.py`. Projections are
+made honest by three layers the base model can't derive: **manual overrides**
+(fitness/role/regression), **live-bootstrap corrections** (club/status/set-pieces,
+so transfers self-heal), and a **confidence tier + range** (downgrades overrides,
+fullbacks, new-club players). The MILP (`analytics/squad_milp.py`) enforces Eoin's
+rules: **max 1 attacker per club** (DEFCON-exempt), **max 1 defender per club**,
+plus a **risk dial** (mean↔floor), **opening-fixtures weight** (GW1-6), player
+**veto**, and force/exclude. The **Chip Planner** (`analytics/chip_timing.py`) plans
+the first chip set over GW1-19 on a chosen draft. See `docs/WORKFLOW.md` 2026-07-24.
+
+Rollover mechanics: `get_season_phase` auto-detects "preseason"; GW39 sim stands
+down on its own; COV+HUL added to `TEAM_COLORS`; `scripts/verify_rollover.py` is
+the acceptance harness; preseason (zero played GWs) is handled by
+`ui/preseason.stop_if_preseason()` on squad/model pages.
 
 Open / next up:
-1. Mobile responsiveness · fixed-width HTML cards for phone viewing.
-3. When 2026-27 launches: re-run Target Board with real prices + promoted clubs; refresh `defender_roles` file; turn off GW39 sim.
-4. Wire FFHub once credentials arrive (biggest accuracy upgrade).
-5. Mini-league: default to **private** leagues (league_type `c`), toggle for public.
+1. **Wildcard fixture-swing timing** · per-GW "which week do lots of my players'
+   fixtures swing worth a full reset" (not raw points). Keep the MILP team-builder.
+2. **Value Lab 26/27 lens** (deferred) · overlay actual prices on the value frontier.
+3. **Merge `season-rollover-2026-27` to `main`** (15+ commits ahead).
+4. Mobile responsiveness · fixed-width HTML cards for phone viewing.
+5. Wire FFHub once credentials arrive; Mini-league default to private (`c`).
 
 ## Do not
 - Write Co-Authored-By / AI attribution in git commits.
