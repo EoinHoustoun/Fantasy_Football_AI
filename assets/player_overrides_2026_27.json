@@ -1,6 +1,6 @@
 {
   "_readme": "Manual 2026/27 projection overrides · the things a last-season model cannot know: fitness, new role, regression. Keyed by FPL player code. `minutes` = expected 26/27 minutes (points are recomputed from the per-90 rate); `pts_mult` = a regression haircut on projected points; `benched`/`nailed` = shortcuts (config.PROJECTION_OVERRIDE minutes). `note` shows on the board. Edit freely · the Value Board reloads this file.",
-  "219168": {"name": "Isak", "minutes": 3000, "note": "Fit again · Liverpool's nailed starting striker"},
+  "219168": {"name": "Isak", "minutes": 2600, "note": "Fit-again assumption · Liverpool starter, but only 694 min last year (low confidence)"},
   "244851": {"name": "Palmer", "minutes": 3000, "note": "Chelsea talisman, fit again · penalties"},
   "219847": {"name": "Havertz", "minutes": 2300, "pts_mult": 0.9, "note": "Fit, but the rate is a small sample and Arsenal rotate up top"},
   "500040": {"name": "Mosquera", "minutes": 2900, "note": "Starts early with Saliba injured · £5.5m, Arsenal's defence"},

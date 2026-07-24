@@ -50,7 +50,9 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
 
     # Manual overrides · fitness / role / regression the model can't know.
     from analytics.projection_overrides import apply_overrides
+    from analytics.projection_confidence import add_confidence
     uni = apply_overrides(uni)
+    uni = add_confidence(uni)
 
     verdicts, scout = build_value_verdicts(uni, fetch_bootstrap())
 

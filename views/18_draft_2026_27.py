@@ -86,6 +86,9 @@ def _verdict_card(row: pd.Series) -> str:
     reason = str(row.get("verdict_reason", "") or "")
     onote = str(row.get("override_note", "") or "")
     status = str(row.get("status", "a") or "a")
+    conf = str(row.get("confidence", "") or "")
+    plo = float(row.get("proj_lo") or 0)
+    phi = float(row.get("proj_hi") or 0)
     share = max(0.0, min(1.0, float(row.get("mins_share") or 0)))
     is_scout = verdict == VERDICTS.SCOUT
 
@@ -96,6 +99,14 @@ def _verdict_card(row: pd.Series) -> str:
                  f'flex-shrink:0;">⚕ {flag}</span>' if flag else "")
     note_html = (f'<div style="font-size:10px;color:#04f5ff;margin-bottom:6px;">'
                  f'✎ {onote}</div>' if onote else "")
+    conf_col = {"High": "#00FF87", "Medium": "#FFA500", "Low": "#FF6B6B"}.get(conf, MUTED)
+    conf_html = (f'<span style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;" '
+                 f'title="Projection confidence: {conf}">'
+                 f'<span style="width:7px;height:7px;border-radius:50%;background:{conf_col};"></span>'
+                 f'<span style="font-size:9px;font-weight:800;color:{conf_col};text-transform:uppercase;">{conf}</span>'
+                 f'</span>' if conf else "")
+    range_html = (f'<div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:8px;">'
+                  f'Likely range {plo:.0f}–{phi:.0f} pts</div>' if (conf and not is_scout) else "")
 
     surp_col = "#00FF87" if surp > 0 else "#FF4B4B" if surp < 0 else MUTED
     surp_txt = (f"+£{surp:.1f}m under model" if surp > 0
@@ -120,29 +131,33 @@ def _verdict_card(row: pd.Series) -> str:
                f'background:{accent};"></div></div>'
                f'<div style="font-size:10px;color:{surp_col};font-weight:700;margin-bottom:8px;">{surp_txt}</div>')
 
-    return f"""
+    _html = f"""
 <div class="fplh-card-hover" style="background:rgba(22,26,34,0.85);
      border:1px solid rgba(255,255,255,0.08);border-top:3px solid {accent};
      border-radius:12px;padding:14px 16px;font-family:'Inter',sans-serif;">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
     {team_dot(row.get("team_short"), size=14)}
     <div style="min-width:0;flex:1;">
-      <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;
-           text-overflow:ellipsis;">{name}</div>
+      <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>
       <div style="font-size:11px;color:rgba(255,255,255,0.45);">{team}</div>
     </div>
     {flag_html}
-    <span style="background:{pc};color:#000;border-radius:4px;padding:1px 7px;font-size:10px;
-          font-weight:900;flex-shrink:0;">{pos}</span>
+    <span style="background:{pc};color:#000;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:900;flex-shrink:0;">{pos}</span>
     <span style="font-size:14px;flex-shrink:0;" title="{verdict}">{emoji}</span>
   </div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">{conf_html}</div>
   <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:8px;">{mid}</div>
+  {range_html}
   {bar}
   {note_html}
   <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-bottom:8px;line-height:1.35;">{reason}</div>
   <ul style="margin:0;padding-left:16px;font-size:11px;color:rgba(255,255,255,0.55);">{q_html}</ul>
 </div>
 """
+    # Collapse to a single line · empty interpolations on their own line create
+    # whitespace-only lines that make Streamlit's markdown stop passing raw HTML
+    # through and escape the rest of the card.
+    return "".join(seg.strip() for seg in _html.splitlines())
 
 
 def _lane(df: pd.DataFrame, accent: str) -> None:
@@ -284,10 +299,25 @@ render_squad_pitch(
 _sec("🎯 The verdict · who to want, who to swerve")
 st.markdown(
     f'<div style="font-size:13px;color:{MUTED};margin:-2px 0 12px;">'
-    f'Projected points come from last season, so injury returnees look cheap in points '
-    f'until minutes are confirmed · use the scout reads on each card.</div>',
+    f'Each card carries a confidence dot · how much to trust its number. '
+    f'Green = big minutes sample, red = small sample or a manual assumption.</div>',
     unsafe_allow_html=True,
 )
+with st.expander("ℹ️ What is 'projected', and how much should I trust it?"):
+    st.markdown(
+        "**Projected points** = a player's per-90 scoring rate × his projected minutes, "
+        "both regressed from last season and 9 historical season-pairs. It is a *map, not a promise*: "
+        "predicting a season from the year before validates at **Spearman ≈ 0.4** with a "
+        "**±38-point average error**, so treat every number as the middle of a wide range.\n\n"
+        "**Confidence dot** on each card:\n"
+        "- 🟢 **High** · 2500+ minutes last season, no assumptions (Haaland, Fernandes)\n"
+        "- 🟠 **Medium** · a partial season (1500–2500 min)\n"
+        "- 🔴 **Low** · a small sample **or** a manual override\n\n"
+        "**Manual overrides** (the ✎ notes) are calls the model can't make · fitness, a new role, "
+        "regression · and they live in `assets/player_overrides_2026_27.json`, editable by hand. "
+        "**Isak is the honest example**: his 5.24 per-90 came from just **694 minutes** last year, and "
+        "his minutes are *assumed*, so he's flagged Low with a wide range. The number is a scenario, "
+        "not a forecast · trust the dot, not the decimal.")
 
 n_nec = board[board["verdict"] == VERDICTS.NECESSITY].sort_values("projected_points", ascending=False)
 n_val = board[board["verdict"] == VERDICTS.VALUE].sort_values("value_score", ascending=False).head(18)
@@ -336,11 +366,11 @@ charts.render(
 _sec("Every price · every verdict")
 tab_all, tab_surprise = st.tabs(["All players", "Biggest bargains & taxes"])
 
-table = board[["web_name", "position", "team_name", "verdict", "price_2025_26_end",
-               "actual_price", "pricing_surprise", "projected_points", "value_score",
-               "ownership", "last_season_points"]].copy()
-table.columns = ["Player", "Pos", "Team", "Verdict", "End 25/26 (£m)", "Price 26/27 (£m)",
-                 "vs model (£m)", "Proj pts", "Pts/£m", "Owned %", "25/26 pts"]
+table = board[["web_name", "position", "team_name", "verdict", "confidence",
+               "actual_price", "pricing_surprise", "projected_points", "proj_lo", "proj_hi",
+               "value_score", "ownership", "last_season_points"]].copy()
+table.columns = ["Player", "Pos", "Team", "Verdict", "Conf.", "Price 26/27 (£m)",
+                 "vs model (£m)", "Proj pts", "Low", "High", "Pts/£m", "Owned %", "25/26 pts"]
 table = table.round(2)
 
 with tab_all:

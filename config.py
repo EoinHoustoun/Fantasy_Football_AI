@@ -123,6 +123,16 @@ VALUE_VERDICTS = {
 # "nailed"/"benched" flag maps to when no explicit minutes are given.
 PROJECTION_OVERRIDE = {"nailed_minutes": 3100, "bench_minutes": 200}
 
+# Projection confidence (analytics/projection_confidence.py). How much to trust a
+# projected-points number, driven by last season's minutes sample and whether a
+# manual override (an assumption) was applied. `spread` is the +/- fraction used
+# to turn a point estimate into an honest range per tier.
+PROJECTION_CONFIDENCE = {
+    "high_minutes": 2500,     # near a full season · reliable rate
+    "medium_minutes": 1500,   # partial season
+    "spread": {"High": 0.18, "Medium": 0.30, "Low": 0.45},
+}
+
 # Perfect Season (hindsight MILP) configuration
 PERFECT_SEASON = {
     "season": LAST_COMPLETE_SEASON,
