@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 import pandas as pd
 import streamlit as st
 
-from config import LAST_COMPLETE_SEASON
+from config import LAST_COMPLETE_SEASON, NEXT_SEASON
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Pricing the board · projections vs actual 26/27 prices…")
@@ -48,6 +48,11 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     uni["mins_share"] = (uni["projected_minutes"] / 3420.0).clip(0, 1).round(2)
     uni["starts_ratio"] = (uni["starts_total"] / uni["games_played"]).round(2)
 
+    # Defender role (CB/FB) · fullbacks are flagged harder-to-predict downstream.
+    from analytics.playbook import _load_defender_roles
+    roles = _load_defender_roles(NEXT_SEASON)   # {code: 'CB'|'FB'}
+    uni["role"] = uni["code"].map(roles)
+
     # Manual overrides · fitness / role / regression the model can't know.
     from analytics.projection_overrides import apply_overrides
     from analytics.projection_confidence import add_confidence
@@ -70,10 +75,23 @@ DRAFT_STRATEGIES = [
 ]
 
 
+def _defcon_codes() -> list:
+    """DEFCON mids exempt from the one-attacker-per-club rule (editable JSON)."""
+    import json
+    from config import ROOT_DIR, NEXT_SEASON
+    path = ROOT_DIR / "assets" / f"defcon_players_{NEXT_SEASON.replace('-', '_')}.json"
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text())
+    return [int(k) for k in raw if not str(k).startswith("_")]
+
+
 @st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
-def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0):
-    """Solve one named draft strategy on ACTUAL prices. Returns the optimize_squad
-    dict (squad/lineup/captain + totals) or None."""
+def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
+                max_attackers_per_club: int = 1):
+    """Solve one named draft strategy on ACTUAL prices. Applies the standing
+    preference of at most one attack-correlated player per club (DEFCON mids
+    exempt). Returns the optimize_squad dict or None."""
     from analytics.squad_milp import optimize_squad
 
     def _code(name: str):
@@ -92,4 +110,6 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0):
 
     d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
     return optimize_squad(d, budget=budget, bench_weight=bench, time_limit=90,
-                          force_codes=list(force), exclude_codes=list(exclude))
+                          force_codes=list(force), exclude_codes=list(exclude),
+                          max_attackers_per_club=max_attackers_per_club,
+                          defcon_codes=_defcon_codes())

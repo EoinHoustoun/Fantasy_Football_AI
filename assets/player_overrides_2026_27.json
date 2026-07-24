@@ -6,5 +6,6 @@
   "500040": {"name": "Mosquera", "minutes": 2900, "note": "Starts early with Saliba injured · £5.5m, Arsenal's defence"},
   "67089": {"name": "Dubravka", "benched": true, "note": "Backup keeper at Spurs · near-zero minutes"},
   "141746": {"name": "B.Fernandes", "pts_mult": 0.85, "note": "Regression from a career-high haul"},
-  "502500": {"name": "Thiago", "pts_mult": 0.82, "note": "Likely overperformed 25/26 · hard to replicate"}
+  "502500": {"name": "Thiago", "pts_mult": 0.82, "note": "Likely overperformed 25/26 · hard to replicate"},
+  "215379": {"name": "Anderson", "minutes": 1900, "pts_mult": 0.7, "note": "Moved Forest to Man City · rotation risk + fewer DEFCON points in a possession side"}
 }

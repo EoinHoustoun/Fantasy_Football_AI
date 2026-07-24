@@ -56,6 +56,10 @@ def _live_price_frame(bootstrap: dict) -> pd.DataFrame:
             "team_short": t_short.get(tid),
             "team_name": t_name.get(tid),
             "team_code": t_code.get(tid, 1),
+            # Official 26/27 set-piece order (1 = first choice; None = not on them).
+            "pens_order": e.get("penalties_order"),
+            "fk_order": e.get("direct_freekicks_order"),
+            "corners_order": e.get("corners_and_indirect_freekicks_order"),
         })
     return pd.DataFrame(rows)
 

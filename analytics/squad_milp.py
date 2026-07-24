@@ -34,6 +34,8 @@ def optimize_squad(
     bench_budget: Optional[float] = None,
     force_codes: Optional[List] = None,
     exclude_codes: Optional[List] = None,
+    max_attackers_per_club: Optional[int] = None,
+    defcon_codes: Optional[List] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -86,6 +88,20 @@ def optimize_squad(
         for team in df["team_id"].dropna().unique():
             t_idx = [i for i in idx if df.loc[i, "team_id"] == team]
             prob += pulp.lpSum(squad[i] for i in t_idx) <= PERFECT_SEASON["max_per_club"]
+
+    # Attack-correlation cap · at most N attack-correlated (MID/FWD) players per
+    # club. DEFCON mids (Garner) are exempt · their points don't ride the team's
+    # attack, so a same-club defcon+attacker pair stays legal.
+    if max_attackers_per_club is not None and "team_id" in df.columns:
+        defcon = set(defcon_codes or [])
+        has_code = "code" in df.columns
+        for team in df["team_id"].dropna().unique():
+            a_idx = [i for i in idx
+                     if df.loc[i, "team_id"] == team
+                     and df.loc[i, "position"] in ("MID", "FWD")
+                     and not (has_code and df.loc[i, "code"] in defcon)]
+            if a_idx:
+                prob += pulp.lpSum(squad[i] for i in a_idx) <= max_attackers_per_club
 
     for i in idx:
         prob += lineup[i] <= squad[i]

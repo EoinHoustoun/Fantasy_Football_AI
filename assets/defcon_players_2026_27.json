@@ -1,0 +1,6 @@
+{
+  "_readme": "DEFCON / non-attacking midfielders whose points come from defensive contributions and set-pieces, NOT open-play attack · so they are uncorrelated with a team's attacking output. The optimiser's 'max 1 attacker per club' rule exempts these, which is why a same-club pair like Garner + Ndiaye (defcon + pens) is allowed. Keyed by FPL player code. Edit freely.",
+  "232928": {"name": "Garner", "team": "EVE", "why": "Free-kick #1 + DEFCON, not attack-reliant"},
+  "441266": {"name": "Gravenberch", "team": "LIV", "why": "Deep midfield, DEFCON floor"},
+  "486672": {"name": "Caicedo", "team": "CHE", "why": "Defensive midfield, DEFCON"}
+}

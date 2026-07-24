@@ -41,3 +41,14 @@ def test_missing_override_column_is_ok():
     df = _df().drop(columns=["override_note"])
     out = add_confidence(df)
     assert out[out["web_name"] == "FullSeason"].iloc[0]["confidence"] == "High"
+
+
+def test_fullback_is_downgraded_one_tier_with_note():
+    df = _df().copy()
+    df["role"] = ["FB", "CB", "", ""]   # FullSeason is a fullback
+    out = add_confidence(df)
+    fb = out[out["web_name"] == "FullSeason"].iloc[0]
+    cb = out[out["web_name"] == "PartSeason"].iloc[0]
+    assert fb["confidence"] == "Medium"          # High -> Medium
+    assert "Fullback" in fb["confidence_note"]
+    assert cb["confidence"] == "Medium" and cb["confidence_note"] == ""   # CB untouched

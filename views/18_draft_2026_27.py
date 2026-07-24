@@ -108,6 +108,28 @@ def _verdict_card(row: pd.Series) -> str:
     range_html = (f'<div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:8px;">'
                   f'Likely range {plo:.0f}–{phi:.0f} pts</div>' if (conf and not is_scout) else "")
 
+    # Set-piece / penalty flag from the official FPL order.
+    pens = row.get("pens_order")
+    fk = row.get("fk_order")
+    corn = row.get("corners_order")
+    def _num(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+    pens, fk, corn = _num(pens), _num(fk), _num(corn)
+    if pens == 1:
+        sp_html = ('<span style="background:rgba(255,215,0,0.15);color:#FFD700;border-radius:4px;'
+                   'padding:1px 6px;font-size:9px;font-weight:900;flex-shrink:0;">⚽ PENS</span>')
+    elif (fk in (1, 2)) or (corn in (1, 2)) or (pens in (2, 3)):
+        sp_html = ('<span style="background:rgba(4,245,255,0.12);color:#04f5ff;border-radius:4px;'
+                   'padding:1px 6px;font-size:9px;font-weight:900;flex-shrink:0;">◎ SET-PC</span>')
+    else:
+        sp_html = ""
+    cnote = str(row.get("confidence_note", "") or "")
+    cnote_html = (f'<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px;">◇ {cnote}</div>'
+                  if cnote else "")
+
     surp_col = "#00FF87" if surp > 0 else "#FF4B4B" if surp < 0 else MUTED
     surp_txt = (f"+£{surp:.1f}m under model" if surp > 0
                 else f"£{-surp:.1f}m over model" if surp < 0 else "at model price")
@@ -145,10 +167,11 @@ def _verdict_card(row: pd.Series) -> str:
     <span style="background:{pc};color:#000;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:900;flex-shrink:0;">{pos}</span>
     <span style="font-size:14px;flex-shrink:0;" title="{verdict}">{emoji}</span>
   </div>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">{conf_html}</div>
+  <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-bottom:6px;">{sp_html}{conf_html}</div>
   <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:8px;">{mid}</div>
   {range_html}
   {bar}
+  {cnote_html}
   {note_html}
   <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-bottom:8px;line-height:1.35;">{reason}</div>
   <ul style="margin:0;padding-left:16px;font-size:11px;color:rgba(255,255,255,0.55);">{q_html}</ul>
