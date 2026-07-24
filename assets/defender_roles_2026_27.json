@@ -1,0 +1,613 @@
+{
+  "_readme": "Provisional CB/FB roles for 2026-27, carried from 2025-26 for players still in the pool. 'provisional': true means unverified for the new season \u00b7 edit freely, the Playbook reloads this file. Keyed by FPL player code.",
+  "466075": {
+    "name": "Calafiori",
+    "team": "Arsenal",
+    "role": "FB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "226597": {
+    "name": "Gabriel",
+    "team": "Arsenal",
+    "role": "CB",
+    "provisional": true
+  },
+  "448104": {
+    "name": "Hincapie",
+    "team": "Arsenal",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "445122": {
+    "name": "J.Timber",
+    "team": "Arsenal",
+    "role": "FB",
+    "provisional": true
+  },
+  "500040": {
+    "name": "Mosquera",
+    "team": "Arsenal",
+    "role": "CB",
+    "provisional": true
+  },
+  "462424": {
+    "name": "Saliba",
+    "team": "Arsenal",
+    "role": "CB",
+    "provisional": true
+  },
+  "515597": {
+    "name": "Bogarde",
+    "team": "Aston Villa",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "199796": {
+    "name": "Cash",
+    "team": "Aston Villa",
+    "role": "FB",
+    "provisional": true
+  },
+  "101188": {
+    "name": "Digne",
+    "team": "Aston Villa",
+    "role": "FB",
+    "provisional": true
+  },
+  "199798": {
+    "name": "Konsa",
+    "team": "Aston Villa",
+    "role": "CB",
+    "provisional": true
+  },
+  "184667": {
+    "name": "Lindel\u00f6f",
+    "team": "Aston Villa",
+    "role": "CB",
+    "provisional": true
+  },
+  "441302": {
+    "name": "Maatsen",
+    "team": "Aston Villa",
+    "role": "FB",
+    "provisional": true
+  },
+  "149484": {
+    "name": "Mings",
+    "team": "Aston Villa",
+    "role": "CB",
+    "provisional": true
+  },
+  "244954": {
+    "name": "Pau",
+    "team": "Aston Villa",
+    "role": "CB",
+    "provisional": true
+  },
+  "242882": {
+    "name": "Diakit\u00e9",
+    "team": "Bournemouth",
+    "role": "CB",
+    "provisional": true
+  },
+  "463981": {
+    "name": "Hill",
+    "team": "Bournemouth",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "221466": {
+    "name": "Senesi",
+    "team": "Bournemouth",
+    "role": "CB",
+    "provisional": true
+  },
+  "54469": {
+    "name": "Smith",
+    "team": "Bournemouth",
+    "role": "FB",
+    "provisional": true
+  },
+  "494521": {
+    "name": "Truffert",
+    "team": "Bournemouth",
+    "role": "FB",
+    "provisional": true
+  },
+  "191866": {
+    "name": "Ajer",
+    "team": "Brentford",
+    "role": "CB",
+    "provisional": true
+  },
+  "432830": {
+    "name": "Collins",
+    "team": "Brentford",
+    "role": "CB",
+    "provisional": true
+  },
+  "194010": {
+    "name": "Henry",
+    "team": "Brentford",
+    "role": "FB",
+    "provisional": true
+  },
+  "607464": {
+    "name": "Kayode",
+    "team": "Brentford",
+    "role": "FB",
+    "provisional": true
+  },
+  "249231": {
+    "name": "Lewis-Potter",
+    "team": "Brentford",
+    "role": "FB",
+    "provisional": true
+  },
+  "444765": {
+    "name": "Van den Berg",
+    "team": "Brentford",
+    "role": "CB",
+    "provisional": true
+  },
+  "465730": {
+    "name": "De Cuyper",
+    "team": "Brighton",
+    "role": "FB",
+    "provisional": true
+  },
+  "83299": {
+    "name": "Dunk",
+    "team": "Brighton",
+    "role": "CB",
+    "provisional": true
+  },
+  "231416": {
+    "name": "F.Kad\u0131o\u011flu",
+    "team": "Brighton",
+    "role": "FB",
+    "provisional": true
+  },
+  "469142": {
+    "name": "Van Hecke",
+    "team": "Brighton",
+    "role": "CB",
+    "provisional": true
+  },
+  "180736": {
+    "name": "Chalobah",
+    "team": "Chelsea",
+    "role": "CB",
+    "provisional": true
+  },
+  "444463": {
+    "name": "Fofana",
+    "team": "Chelsea",
+    "role": "CB",
+    "provisional": true
+  },
+  "482609": {
+    "name": "Gusto",
+    "team": "Chelsea",
+    "role": "FB",
+    "provisional": true
+  },
+  "551210": {
+    "name": "Hato",
+    "team": "Chelsea",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "225796": {
+    "name": "James",
+    "team": "Chelsea",
+    "role": "FB",
+    "provisional": true
+  },
+  "651426": {
+    "name": "Canvot",
+    "team": "Crystal Palace",
+    "role": "CB",
+    "provisional": true
+  },
+  "437499": {
+    "name": "Lacroix",
+    "team": "Crystal Palace",
+    "role": "CB",
+    "provisional": true
+  },
+  "244723": {
+    "name": "Mitchell",
+    "team": "Crystal Palace",
+    "role": "FB",
+    "provisional": true
+  },
+  "247348": {
+    "name": "Mu\u00f1oz",
+    "team": "Crystal Palace",
+    "role": "FB",
+    "provisional": true
+  },
+  "427623": {
+    "name": "Richards",
+    "team": "Crystal Palace",
+    "role": "CB",
+    "provisional": true
+  },
+  "106611": {
+    "name": "Keane",
+    "team": "Everton",
+    "role": "CB",
+    "provisional": true
+  },
+  "224967": {
+    "name": "Mykolenko",
+    "team": "Everton",
+    "role": "FB",
+    "provisional": true
+  },
+  "512462": {
+    "name": "O'Brien",
+    "team": "Everton",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "17761": {
+    "name": "Tarkowski",
+    "team": "Everton",
+    "role": "CB",
+    "provisional": true
+  },
+  "174874": {
+    "name": "Andersen",
+    "team": "Fulham",
+    "role": "CB",
+    "provisional": true
+  },
+  "232892": {
+    "name": "Bassey",
+    "team": "Fulham",
+    "role": "CB",
+    "provisional": true
+  },
+  "166477": {
+    "name": "Castagne",
+    "team": "Fulham",
+    "role": "FB",
+    "provisional": true
+  },
+  "246301": {
+    "name": "J.Cuenca",
+    "team": "Fulham",
+    "role": "CB",
+    "provisional": true
+  },
+  "169528": {
+    "name": "Robinson",
+    "team": "Fulham",
+    "role": "FB",
+    "provisional": true
+  },
+  "167074": {
+    "name": "Tete",
+    "team": "Fulham",
+    "role": "FB",
+    "provisional": true
+  },
+  "434752": {
+    "name": "Bijol",
+    "team": "Leeds",
+    "role": "CB",
+    "provisional": true
+  },
+  "226182": {
+    "name": "Bogle",
+    "team": "Leeds",
+    "role": "FB",
+    "provisional": true
+  },
+  "243526": {
+    "name": "Gudmundsson",
+    "team": "Leeds",
+    "role": "FB",
+    "provisional": true
+  },
+  "220627": {
+    "name": "Justin",
+    "team": "Leeds",
+    "role": "FB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "214225": {
+    "name": "Rodon",
+    "team": "Leeds",
+    "role": "CB",
+    "provisional": true
+  },
+  "222694": {
+    "name": "Struijk",
+    "team": "Leeds",
+    "role": "CB",
+    "provisional": true
+  },
+  "492777": {
+    "name": "Bradley",
+    "team": "Liverpool",
+    "role": "FB",
+    "provisional": true
+  },
+  "216094": {
+    "name": "Frimpong",
+    "team": "Liverpool",
+    "role": "FB",
+    "provisional": true
+  },
+  "544877": {
+    "name": "Kerkez",
+    "team": "Liverpool",
+    "role": "FB",
+    "provisional": true
+  },
+  "122798": {
+    "name": "Robertson",
+    "team": "Liverpool",
+    "role": "FB",
+    "provisional": true
+  },
+  "97032": {
+    "name": "Virgil",
+    "team": "Liverpool",
+    "role": "CB",
+    "provisional": true
+  },
+  "448514": {
+    "name": "A\u00eft-Nouri",
+    "team": "Man City",
+    "role": "FB",
+    "provisional": true
+  },
+  "209036": {
+    "name": "Gu\u00e9hi",
+    "team": "Man City",
+    "role": "CB",
+    "provisional": true
+  },
+  "477424": {
+    "name": "Gvardiol",
+    "team": "Man City",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "578153": {
+    "name": "Khusanov",
+    "team": "Man City",
+    "role": "CB",
+    "provisional": true
+  },
+  "465351": {
+    "name": "Matheus N.",
+    "team": "Man City",
+    "role": "FB",
+    "provisional": true
+  },
+  "472769": {
+    "name": "O'Reilly",
+    "team": "Man City",
+    "role": "FB",
+    "provisional": true
+  },
+  "171314": {
+    "name": "R\u00faben",
+    "team": "Man City",
+    "role": "CB",
+    "provisional": true
+  },
+  "216051": {
+    "name": "Dalot",
+    "team": "Man Utd",
+    "role": "FB",
+    "provisional": true
+  },
+  "209365": {
+    "name": "De Ligt",
+    "team": "Man Utd",
+    "role": "CB",
+    "provisional": true
+  },
+  "596777": {
+    "name": "Dorgu",
+    "team": "Man Utd",
+    "role": "FB",
+    "provisional": true
+  },
+  "606745": {
+    "name": "Heaven",
+    "team": "Man Utd",
+    "role": "CB",
+    "provisional": true
+  },
+  "95658": {
+    "name": "Maguire",
+    "team": "Man Utd",
+    "role": "CB",
+    "provisional": true
+  },
+  "221820": {
+    "name": "Martinez",
+    "team": "Man Utd",
+    "role": "CB",
+    "provisional": true
+  },
+  "230001": {
+    "name": "Mazraoui",
+    "team": "Man Utd",
+    "role": "FB",
+    "provisional": true
+  },
+  "106760": {
+    "name": "Shaw",
+    "team": "Man Utd",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "550864": {
+    "name": "Yoro",
+    "team": "Man Utd",
+    "role": "CB",
+    "provisional": true
+  },
+  "220237": {
+    "name": "Botman",
+    "team": "Newcastle",
+    "role": "CB",
+    "provisional": true
+  },
+  "78916": {
+    "name": "Burn",
+    "team": "Newcastle",
+    "role": "CB",
+    "provisional": true
+  },
+  "487838": {
+    "name": "Hall",
+    "team": "Newcastle",
+    "role": "FB",
+    "provisional": true
+  },
+  "441191": {
+    "name": "Livramento",
+    "team": "Newcastle",
+    "role": "FB",
+    "provisional": true
+  },
+  "119471": {
+    "name": "Sch\u00e4r",
+    "team": "Newcastle",
+    "role": "CB",
+    "provisional": true
+  },
+  "465642": {
+    "name": "Thiaw",
+    "team": "Newcastle",
+    "role": "CB",
+    "provisional": true
+  },
+  "159506": {
+    "name": "Aina",
+    "team": "Nott'm Forest",
+    "role": "FB",
+    "provisional": true
+  },
+  "227444": {
+    "name": "Milenkovi\u0107",
+    "team": "Nott'm Forest",
+    "role": "CB",
+    "provisional": true
+  },
+  "485047": {
+    "name": "Morato",
+    "team": "Nott'm Forest",
+    "role": "CB",
+    "provisional": true
+  },
+  "575476": {
+    "name": "Murillo",
+    "team": "Nott'm Forest",
+    "role": "CB",
+    "provisional": true
+  },
+  "215136": {
+    "name": "N.Williams",
+    "team": "Nott'm Forest",
+    "role": "FB",
+    "provisional": true
+  },
+  "500151": {
+    "name": "Savona",
+    "team": "Nott'm Forest",
+    "role": "FB",
+    "provisional": true
+  },
+  "135720": {
+    "name": "Danso",
+    "team": "Spurs",
+    "role": "CB",
+    "provisional": true
+  },
+  "441164": {
+    "name": "Pedro Porro",
+    "team": "Spurs",
+    "role": "FB",
+    "provisional": true
+  },
+  "221632": {
+    "name": "Romero",
+    "team": "Spurs",
+    "role": "CB",
+    "provisional": true
+  },
+  "232859": {
+    "name": "Spence",
+    "team": "Spurs",
+    "role": "FB",
+    "provisional": true
+  },
+  "487053": {
+    "name": "Udogie",
+    "team": "Spurs",
+    "role": "FB",
+    "provisional": true
+  },
+  "491279": {
+    "name": "Van de Ven",
+    "team": "Spurs",
+    "role": "CB",
+    "provisional": true
+  },
+  "201895": {
+    "name": "Alderete",
+    "team": "Sunderland",
+    "role": "CB",
+    "provisional": true
+  },
+  "223827": {
+    "name": "Ballard",
+    "team": "Sunderland",
+    "role": "CB",
+    "provisional": true
+  },
+  "487676": {
+    "name": "Hume",
+    "team": "Sunderland",
+    "role": "FB",
+    "provisional": true
+  },
+  "200834": {
+    "name": "Mukiele",
+    "team": "Sunderland",
+    "role": "CB",
+    "uncertain": true,
+    "provisional": true
+  },
+  "434399": {
+    "name": "Reinildo",
+    "team": "Sunderland",
+    "role": "FB",
+    "provisional": true
+  },
+  "220362": {
+    "name": "Disasi",
+    "team": "West Ham",
+    "role": "CB",
+    "provisional": true
+  }
+}
