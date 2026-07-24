@@ -101,12 +101,19 @@ def _warm() -> None:
     raised · the pages fall back to training on demand with their loader."""
     try:
         from data.fetchers.fpl_api import (fetch_bootstrap, fetch_fixtures,
-                                           get_current_gameweek, get_fixtures_df)
+                                           get_current_gameweek, get_fixtures_df,
+                                           get_season_phase)
         from data.fetchers.understat import fetch_understat_players
         from data.processors.player_stats import build_player_universe
 
         bs = fetch_bootstrap()
         current_gw = get_current_gameweek(bs)
+        # Preseason has no played gameweeks · the points model has nothing to
+        # train on. Skip cleanly · Predictions and Free Hit show an honest
+        # empty-state, and the model warms itself once GW1 is in the books.
+        if get_season_phase(bs).get("phase") == "preseason":
+            logger.info("Preseason · skipping points-model pre-warm (no played GWs).")
+            return
         if load_bundle(current_gw) is not None or _lock_active():
             return
         players_df = build_player_universe(

@@ -216,6 +216,9 @@ current_gw = get_current_gameweek(bs)
 players_df = _get_players()
 fixtures_df = _get_fixtures()
 
+from ui.preseason import stop_if_preseason
+stop_if_preseason("Chip timing")
+
 try:
     with fpl_loader("Fetching your squad", LINES_SQUAD):
         squad_df = _load_squad(team_id, current_gw)

@@ -158,6 +158,9 @@ captain_gw  = get_next_gw(bs, current_gw)
 
 st.caption(f"Predictions for **Gameweek {captain_gw}** · Model trained on GW1–{current_gw}")
 
+from ui.preseason import stop_if_preseason
+stop_if_preseason("GW predictions")
+
 with fpl_loader("Training the points model", LINES_MODEL):
     predictions, metrics, players_df = run_model(current_gw, captain_gw)
 

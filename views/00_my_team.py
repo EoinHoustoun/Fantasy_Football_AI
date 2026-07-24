@@ -172,8 +172,16 @@ try:
     with fpl_loader(f"Fetching team {team_id}", LINES_SQUAD):
         squad_df, entry_history, team_info = _load_team(team_id, current_gw)
 except Exception as e:
-    st.error(f"Could not load team {team_id}: {e}")
-    st.info("Check the team ID and try again.")
+    from ui.preseason import is_preseason
+    if is_preseason():
+        st.info(
+            "🌱 Your squad appears here once 2026-27 team selection opens · no "
+            "gameweek picks exist yet. Prices are set, so start shaping your "
+            "opener on the 26/27 Draft and Scouting pages in the sidebar."
+        )
+    else:
+        st.error(f"Could not load team {team_id}: {e}")
+        st.info("Check the team ID and try again.")
     st.stop()
 
 # Cache for other pages

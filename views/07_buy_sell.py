@@ -219,6 +219,9 @@ with st.sidebar:
     )
 
 # Load squad
+from ui.preseason import stop_if_preseason
+stop_if_preseason("Buy / Sell pairing")
+
 try:
     with fpl_loader(f"Fetching team {team_id}", LINES_SQUAD):
         squad_df, entry_history, team_info = load_squad(team_id, current_gw)

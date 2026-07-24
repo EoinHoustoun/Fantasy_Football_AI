@@ -202,6 +202,9 @@ target_gw  = get_next_gw(bs, current_gw)
 
 st.caption(f"Optimised for **Gameweek {target_gw}** · Budget: **£{budget:.1f}m**")
 
+from ui.preseason import stop_if_preseason
+stop_if_preseason("The Free Hit optimizer")
+
 with fpl_loader("Building the optimal squad", LINES_MODEL):
     predictions, metrics, players_df = run_model(current_gw, target_gw)
 
