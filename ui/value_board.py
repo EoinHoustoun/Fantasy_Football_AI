@@ -59,3 +59,37 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     bt = dict(trained["backtest"][trained["winner"]])
     bt["model"] = trained["winner"]
     return verdicts, scout, bt, validation
+
+
+# Shared draft strategies · used by the 26/27 Draft page and the Chip Planner.
+DRAFT_STRATEGIES = [
+    "⚖️ Optimal value",
+    "🛡️ Safe · Haaland + Fernandes",
+    "🎲 Punt · Fernandes, no Haaland",
+    "🔋 Bench Boost GW1",
+]
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
+def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0):
+    """Solve one named draft strategy on ACTUAL prices. Returns the optimize_squad
+    dict (squad/lineup/captain + totals) or None."""
+    from analytics.squad_milp import optimize_squad
+
+    def _code(name: str):
+        m = board[board["web_name"] == name]
+        return int(m.iloc[0]["code"]) if not m.empty else None
+
+    haaland, fernandes = _code("Haaland"), _code("B.Fernandes")
+    force, exclude, bench = (), (), 0.1
+    if "Haaland + Fernandes" in strategy:
+        force = tuple(c for c in (haaland, fernandes) if c)
+    elif "no Haaland" in strategy:
+        force = tuple(c for c in (fernandes,) if c)
+        exclude = tuple(c for c in (haaland,) if c)
+    elif "Bench Boost" in strategy:
+        bench = 1.0
+
+    d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
+    return optimize_squad(d, budget=budget, bench_weight=bench, time_limit=90,
+                          force_codes=list(force), exclude_codes=list(exclude))

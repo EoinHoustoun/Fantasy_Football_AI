@@ -172,18 +172,6 @@ def _lane(df: pd.DataFrame, accent: str) -> None:
     )
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
-def _solve_draft(board: pd.DataFrame, budget: float, bench_weight: float,
-                 force_codes=(), exclude_codes=()):
-    from analytics.squad_milp import optimize_squad
-    d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
-    return optimize_squad(d, budget=budget, bench_weight=bench_weight, time_limit=90,
-                          force_codes=list(force_codes), exclude_codes=list(exclude_codes))
-
-
-def _code_of(board: pd.DataFrame, web_name: str):
-    m = board[board["web_name"] == web_name]
-    return int(m.iloc[0]["code"]) if not m.empty else None
 
 
 from ui.value_board import build_board
@@ -235,35 +223,24 @@ st.markdown(
 )
 
 # ── Three drafts · pick the strategy ───────────────────────────────────────────
-_HAALAND = _code_of(board, "Haaland")
-_FERNANDES = _code_of(board, "B.Fernandes")
+from ui.value_board import DRAFT_STRATEGIES, solve_draft
 
-DRAFTS = {
-    "⚖️ Optimal value": dict(
-        force=(), exclude=(), bench=0.1,
-        blurb="The model's best 15 on projected points per pound · no premium forced."),
-    "🛡️ Safe · Haaland + Fernandes": dict(
-        force=tuple(c for c in (_HAALAND, _FERNANDES) if c), exclude=(), bench=0.1,
-        blurb="Both template premiums locked in · rank insurance, value built around them."),
-    "🎲 Punt · Fernandes, no Haaland": dict(
-        force=tuple(c for c in (_FERNANDES,) if c),
-        exclude=tuple(c for c in (_HAALAND,) if c), bench=0.1,
-        blurb="Skip the £15.5m Haaland tax, reinvest across the squad · higher upside, more variance."),
-    "🔋 Bench Boost GW1": dict(
-        force=(), exclude=(), bench=1.0,
-        blurb="All 15 count equally, so the bench actually plays · set up to Bench Boost GW1 with no transfer prep."),
+BLURBS = {
+    "⚖️ Optimal value": "The model's best 15 on projected points per pound · no premium forced.",
+    "🛡️ Safe · Haaland + Fernandes": "Both template premiums locked in · rank insurance, value built around them.",
+    "🎲 Punt · Fernandes, no Haaland": "Skip the £15.5m Haaland tax, reinvest across the squad · higher upside, more variance.",
+    "🔋 Bench Boost GW1": "All 15 count equally, so the bench actually plays · set up to Bench Boost GW1 with no transfer prep.",
 }
 
 c1, c2 = st.columns([2, 1])
 with c1:
-    mode = st.radio("Draft strategy", list(DRAFTS.keys()), horizontal=True, label_visibility="collapsed")
+    mode = st.radio("Draft strategy", DRAFT_STRATEGIES, horizontal=True, label_visibility="collapsed")
 with c2:
     budget = st.slider("Budget (£m)", 95.0, 105.0, 100.0, 0.5)
 
-cfg = DRAFTS[mode]
-st.caption(cfg["blurb"])
+st.caption(BLURBS[mode])
 
-res = _solve_draft(board, budget, cfg["bench"], cfg["force"], cfg["exclude"])
+res = solve_draft(board, mode, budget)
 if res is None:
     st.error("Solver found no feasible squad · widen the budget or change strategy.")
     st.stop()
@@ -277,7 +254,7 @@ _sec = lambda t: st.markdown(
     f'<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div></div>',
     unsafe_allow_html=True)
 
-_bb = " · bench counts (BB-ready)" if cfg["bench"] >= 1.0 else ""
+_bb = " · bench counts (BB-ready)" if "Bench Boost" in mode else ""
 _sec(f"{mode.split(' ', 1)[1] if ' ' in mode else mode} · £{res['squad_cost']:.1f}m real spend · "
      f"{res['xi_points']:.0f} projected XI pts (incl. captain){_bb}")
 

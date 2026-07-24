@@ -133,6 +133,17 @@ PROJECTION_CONFIDENCE = {
     "spread": {"High": 0.18, "Medium": 0.30, "Low": 0.45},
 }
 
+# Chip timing (analytics/chip_timing.py). 2026/27 gives two of every chip; the
+# FIRST batch (WC/FH/BB/TC) must be spent by GW19, so the first-half planner only
+# scans GW1-19. A player's per-GW points = season projection / 38, scaled by that
+# week's fixture ease (`fdr_slope` per FDR step from average); a blank scores 0,
+# a double stacks both fixtures.
+CHIP_TIMING = {
+    "first_batch_gw_hi": 19,
+    "fdr_slope": 0.15,        # each FDR step easier than 3 adds 15%
+    "factor_floor": 0.4,      # hardest fixtures still score something
+}
+
 # Perfect Season (hindsight MILP) configuration
 PERFECT_SEASON = {
     "season": LAST_COMPLETE_SEASON,
