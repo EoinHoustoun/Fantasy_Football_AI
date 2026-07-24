@@ -36,6 +36,7 @@ def optimize_squad(
     exclude_codes: Optional[List] = None,
     max_attackers_per_club: Optional[int] = None,
     defcon_codes: Optional[List] = None,
+    max_defenders_per_club: Optional[int] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -102,6 +103,15 @@ def optimize_squad(
                      and not (has_code and df.loc[i, "code"] in defcon)]
             if a_idx:
                 prob += pulp.lpSum(squad[i] for i in a_idx) <= max_attackers_per_club
+
+    # Defender diversification · at most N defenders per club (clean sheets are a
+    # team event, so two DEF from one club is a doubled bet on the same outcome).
+    if max_defenders_per_club is not None and "team_id" in df.columns:
+        for team in df["team_id"].dropna().unique():
+            d_idx = [i for i in idx
+                     if df.loc[i, "team_id"] == team and df.loc[i, "position"] == "DEF"]
+            if d_idx:
+                prob += pulp.lpSum(squad[i] for i in d_idx) <= max_defenders_per_club
 
     for i in idx:
         prob += lineup[i] <= squad[i]

@@ -27,6 +27,13 @@ from ui import charts
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
 
+def _num_safe(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#FF7B00"}
 POS_ORDER = ["GKP", "DEF", "MID", "FWD"]
 MUTED = "rgba(255,255,255,0.5)"
@@ -371,6 +378,101 @@ charts.render(
     charts.multi_scatter_option(_groups, x_name="Projected minutes 26/27", y_name="Projected points"),
     height="340px", key="board_min_pts",
 )
+
+# ── Full table ─────────────────────────────────────────────────────────────────
+# ── Inspect any player ─────────────────────────────────────────────────────────
+_sec("🔍 Inspect any player")
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _last_season_stats():
+    from data.processors.archive import load_season_summary
+    s = load_season_summary()
+    s = s[s["season"] == LAST_COMPLETE_SEASON]
+    keep = ["goals", "assists", "xg", "xa", "xgi", "defcon_points", "minutes",
+            "total_points", "ppg", "clean_sheets", "bonus"]
+    return s.set_index("code")[[c for c in keep if c in s.columns]]
+
+
+_pick = st.selectbox("Pick a player to see the numbers behind the projection",
+                     options=sorted(board["web_name"].tolist()), key="draft_inspect")
+_r = board[board["web_name"] == _pick].iloc[0]
+_ls = _last_season_stats()
+_code = int(_r["code"])
+_s = _ls.loc[_code] if _code in _ls.index else None
+
+
+def _tile(label, value, color="#fff"):
+    return (f'<div style="text-align:center;flex:1;min-width:66px;">'
+            f'<div style="font-size:18px;font-weight:900;color:{color};">{value}</div>'
+            f'<div style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;'
+            f'color:rgba(255,255,255,0.4);">{label}</div></div>')
+
+
+_v = str(_r.get("verdict", ""))
+_acc, _emoji, _ = VERDICT_META.get(_v, VERDICT_META[VERDICTS.FAIR])
+_cc = {"High": "#00FF87", "Medium": "#FFA500", "Low": "#FF6B6B"}.get(str(_r.get("confidence")), MUTED)
+_hdr = "".join(s.strip() for s in f"""
+<div style="{CARD}border-top:3px solid {_acc};margin-bottom:10px;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+    {team_dot(_r.get('team_short'), size=16)}
+    <div style="font-size:20px;font-weight:900;color:#fff;">{_pick}</div>
+    <div style="font-size:12px;color:{MUTED};">{_r.get('team_name','')} · {_r.get('position','')} · £{float(_r.get('actual_price') or 0):.1f}m</div>
+    <div style="flex:1;"></div>
+    <span style="font-size:16px;" title="{_v}">{_emoji}</span>
+    <span style="font-size:11px;font-weight:800;color:{_cc};text-transform:uppercase;">{_r.get('confidence','')}</span>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    {_tile('Proj 26/27', f"{float(_r.get('projected_points') or 0):.0f}", '#00FF87')}
+    {_tile('Range', f"{float(_r.get('proj_lo') or 0):.0f}–{float(_r.get('proj_hi') or 0):.0f}", _cc)}
+    {_tile('Pts/£m', f"{float(_r.get('value_score') or 0):.1f}", '#FFD700')}
+    {_tile('Owned', f"{float(_r.get('ownership') or 0):.0f}%", '#04f5ff')}
+    {_tile('vs model', f"{float(_r.get('pricing_surprise') or 0):+.1f}", '#fff')}
+  </div>
+</div>""".splitlines())
+st.markdown(_hdr, unsafe_allow_html=True)
+
+if _s is not None:
+    _ev = "".join(s.strip() for s in f"""
+<div style="{CARD}margin-bottom:6px;">
+  <div style="font-size:10px;font-weight:800;letter-spacing:0.14em;color:{MUTED};text-transform:uppercase;margin-bottom:8px;">25/26 evidence · the basis for the projection</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    {_tile('Points', f"{float(_s.get('total_points') or 0):.0f}")}
+    {_tile('Goals', f"{float(_s.get('goals') or 0):.0f}", '#FF7B00')}
+    {_tile('Assists', f"{float(_s.get('assists') or 0):.0f}", '#e90052')}
+    {_tile('xGI', f"{float(_s.get('xgi') or 0):.1f}", '#04f5ff')}
+    {_tile('DEFCON', f"{float(_s.get('defcon_points') or 0):.0f}", '#00FF87')}
+    {_tile('Clean sh.', f"{float(_s.get('clean_sheets') or 0):.0f}", '#04f5ff')}
+    {_tile('Minutes', f"{float(_s.get('minutes') or 0):,.0f}")}
+    {_tile('PPG', f"{float(_s.get('ppg') or 0):.1f}", '#FFD700')}
+  </div>
+</div>""".splitlines())
+    st.markdown(_ev, unsafe_allow_html=True)
+    _cn = str(_r.get("confidence_note", "") or "")
+    _pens = _r.get("pens_order")
+    _sp = " · ⚽ on penalties" if (_num_safe(_pens) == 1) else ""
+    _on = str(_r.get("override_note", "") or "")
+    _note = " · ".join(x for x in [_cn, _on] if x)
+    st.caption(f"Projected **{float(_r.get('projected_points') or 0):.0f}** pts (range "
+               f"{float(_r.get('proj_lo') or 0):.0f}–{float(_r.get('proj_hi') or 0):.0f}), "
+               f"confidence **{_r.get('confidence','')}**{_sp}."
+               + (f" {_note}." if _note else ""))
+else:
+    st.caption("No 2025/26 record · this is a promoted-club or new-signing player (Scout). "
+               "Judge on the eye test and the opening fixtures until data lands.")
+
+# where they rank in their position, by projection
+_pos_df = board[board["position"] == _r["position"]].nlargest(12, "projected_points")
+if _pick not in set(_pos_df["web_name"]):
+    _pos_df = pd.concat([_pos_df, board[board["web_name"] == _pick]])
+_pos_df = _pos_df.sort_values("projected_points")
+_bar_colors = ["#FFD700" if n == _pick else "#04f5ff" for n in _pos_df["web_name"]]
+_opt = charts.bar_option(x=list(_pos_df["web_name"]),
+                         y=[round(float(v), 0) for v in _pos_df["projected_points"]],
+                         colors=_bar_colors, horizontal=True)
+_opt["tooltip"]["formatter"] = "{b}: {c} proj pts"
+charts.render(_opt, height="300px", key="inspect_rank")
+st.caption(f"Where **{_pick}** is projected to finish among {_r['position']}s (gold), by projected 26/27 points.")
 
 # ── Full table ─────────────────────────────────────────────────────────────────
 _sec("Every price · every verdict")

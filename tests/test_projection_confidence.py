@@ -50,5 +50,14 @@ def test_fullback_is_downgraded_one_tier_with_note():
     fb = out[out["web_name"] == "FullSeason"].iloc[0]
     cb = out[out["web_name"] == "PartSeason"].iloc[0]
     assert fb["confidence"] == "Medium"          # High -> Medium
-    assert "Fullback" in fb["confidence_note"]
+    assert "fullback" in fb["confidence_note"]
     assert cb["confidence"] == "Medium" and cb["confidence_note"] == ""   # CB untouched
+
+
+def test_changed_club_downgrades_confidence():
+    df = _df().copy()
+    df["changed_club"] = [True, False, False, False]   # FullSeason moved clubs
+    out = add_confidence(df)
+    moved = out[out["web_name"] == "FullSeason"].iloc[0]
+    assert moved["confidence"] == "Medium"             # High -> Medium
+    assert "new club" in moved["confidence_note"]

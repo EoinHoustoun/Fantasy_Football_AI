@@ -53,13 +53,32 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     roles = _load_defender_roles(NEXT_SEASON)   # {code: 'CB'|'FB'}
     uni["role"] = uni["code"].map(roles)
 
+    # Club-change flag · a player whose 26/27 club differs from his 25/26 club has
+    # an unproven fit in a new system (Senesi to Spurs), so lower his confidence.
+    live_bs = fetch_bootstrap()
+
+    def _code_to_club(bs: dict) -> dict:
+        tc = {int(t["id"]): int(t.get("code", 0) or 0) for t in bs.get("teams", [])}
+        return {int(e["code"]): tc.get(int(e.get("team", 0) or 0), 0) for e in bs.get("elements", [])}
+
+    import json as _json
+    from config import CACHE_DIR as _CD
+    live_club = _code_to_club(live_bs)
+    changed: set = set()
+    arch_path = _CD / "archive" / "fpl_bootstrap_2025_26_final.json"
+    if arch_path.exists():
+        arch_club = _code_to_club(_json.load(open(arch_path)))
+        changed = {c for c, lc in live_club.items()
+                   if arch_club.get(c) and lc and lc != arch_club[c]}
+    uni["changed_club"] = uni["code"].isin(changed)
+
     # Manual overrides · fitness / role / regression the model can't know.
     from analytics.projection_overrides import apply_overrides
     from analytics.projection_confidence import add_confidence
     uni = apply_overrides(uni)
     uni = add_confidence(uni)
 
-    verdicts, scout = build_value_verdicts(uni, fetch_bootstrap())
+    verdicts, scout = build_value_verdicts(uni, live_bs)
 
     bt = dict(trained["backtest"][trained["winner"]])
     bt["model"] = trained["winner"]
@@ -125,4 +144,5 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
                           force_codes=list(force), exclude_codes=list(exclude),
                           max_attackers_per_club=max_attackers_per_club,
-                          defcon_codes=_defcon_codes())
+                          defcon_codes=_defcon_codes(),
+                          max_defenders_per_club=1)

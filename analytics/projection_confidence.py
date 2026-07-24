@@ -35,10 +35,11 @@ _DOWNGRADE = {"High": "Medium", "Medium": "Low", "Low": "Low"}
 def add_confidence(df: pd.DataFrame, cfg: Optional[Dict] = None) -> pd.DataFrame:
     """Add `confidence` (High/Medium/Low), `confidence_note`, `proj_lo`, `proj_hi`
     to a projection frame. Needs `projected_points`, `last_season_minutes`, and
-    (optional) `override_note` and `role` (CB/FB).
+    (optional) `override_note`, `role` (CB/FB), `changed_club` (bool).
 
-    Fullbacks are downgraded one tier · their returns swing on attacking output
-    that is far harder to forecast than a centre-back's DEFCON floor.
+    One tier is knocked off for a harder-to-forecast profile: a fullback (returns
+    swing on attack, unlike a CB's DEFCON floor) or a player at a new club (system
+    fit unproven). Reasons are combined in `confidence_note`.
     """
     cfg = cfg or PROJECTION_CONFIDENCE
     df = df.copy()
@@ -49,11 +50,22 @@ def add_confidence(df: pd.DataFrame, cfg: Optional[Dict] = None) -> pd.DataFrame
         _tier(float(m), bool(str(n or "")), cfg)
         for m, n in zip(mins, notes)
     ]
-    df["confidence_note"] = ""
-    if "role" in df.columns:
-        fb = df["role"].astype(str) == "FB"
-        df.loc[fb, "confidence"] = df.loc[fb, "confidence"].map(_DOWNGRADE)
-        df.loc[fb, "confidence_note"] = "Fullback · harder to call than a CB"
+
+    is_fb = (df["role"].astype(str) == "FB") if "role" in df.columns \
+        else pd.Series(False, index=df.index)
+    moved = df["changed_club"].fillna(False) if "changed_club" in df.columns \
+        else pd.Series(False, index=df.index)
+    reason = []
+    for fb, mv in zip(is_fb, moved):
+        bits = []
+        if fb:
+            bits.append("fullback, harder to call than a CB")
+        if mv:
+            bits.append("new club, unproven fit")
+        reason.append(" · ".join(bits))
+    df["confidence_note"] = reason
+    downgrade_mask = is_fb | moved
+    df.loc[downgrade_mask, "confidence"] = df.loc[downgrade_mask, "confidence"].map(_DOWNGRADE)
 
     spread = df["confidence"].map(cfg["spread"]).astype(float)
     pts = df["projected_points"].astype(float)
