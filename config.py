@@ -100,6 +100,24 @@ ARCHIVE_SEASONS = [
 LAST_COMPLETE_SEASON = "2025-26"
 NEXT_SEASON = "2026-27"
 
+# Value-verdict engine (analytics/value_verdicts.py). Buckets each player by
+# comparing projected points (from the 2025/26 archive) against their ACTUAL
+# 2026/27 launch price. `pricing_surprise` = predicted price − actual price:
+# positive means FPL priced them below the model (a bargain), negative a tax.
+# All thresholds are per-position percentiles unless noted (0-1 fractions).
+VALUE_VERDICTS = {
+    "necessity_pts_pctile": 0.88,     # genuinely top-tier projected points
+    "necessity_ownership": 22.0,      # nailed via template ownership (%), OR
+    "necessity_starts_ratio": 0.82,   # started >=82% of last season's games
+    "value_pts_floor_pctile": 0.40,   # a "value" pick must clear this pts floor
+    "value_score_pctile": 0.75,       # strong points-per-actual-£m at position
+    "value_surprise_m": 0.5,          # OR FPL priced >= this much below model
+    "premium_price": 7.5,             # a pricey anchor · value must justify it
+    "premium_value_pctile": 0.55,     # premium with value <= this pctile = tax
+    "pedigree_pts_pctile": 0.70,      # "was good last year" (top-30% 25/26 points)
+    "pedigree_min_price": 6.0,        # and still priced up, but value not there
+}
+
 # Perfect Season (hindsight MILP) configuration
 PERFECT_SEASON = {
     "season": LAST_COMPLETE_SEASON,
