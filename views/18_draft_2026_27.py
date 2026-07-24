@@ -84,8 +84,18 @@ def _verdict_card(row: pd.Series) -> str:
     own   = float(row.get("ownership") or 0)
     surp  = float(row.get("pricing_surprise") or 0)
     reason = str(row.get("verdict_reason", "") or "")
+    onote = str(row.get("override_note", "") or "")
+    status = str(row.get("status", "a") or "a")
     share = max(0.0, min(1.0, float(row.get("mins_share") or 0)))
     is_scout = verdict == VERDICTS.SCOUT
+
+    flag_map = {"i": "injured", "d": "doubt", "s": "susp.", "u": "out", "n": "out"}
+    flag = flag_map.get(status, "")
+    flag_html = (f'<span style="background:rgba(255,75,75,0.15);color:#FF4B4B;'
+                 f'border-radius:4px;padding:1px 6px;font-size:9px;font-weight:900;'
+                 f'flex-shrink:0;">⚕ {flag}</span>' if flag else "")
+    note_html = (f'<div style="font-size:10px;color:#04f5ff;margin-bottom:6px;">'
+                 f'✎ {onote}</div>' if onote else "")
 
     surp_col = "#00FF87" if surp > 0 else "#FF4B4B" if surp < 0 else MUTED
     surp_txt = (f"+£{surp:.1f}m under model" if surp > 0
@@ -121,12 +131,14 @@ def _verdict_card(row: pd.Series) -> str:
            text-overflow:ellipsis;">{name}</div>
       <div style="font-size:11px;color:rgba(255,255,255,0.45);">{team}</div>
     </div>
+    {flag_html}
     <span style="background:{pc};color:#000;border-radius:4px;padding:1px 7px;font-size:10px;
           font-weight:900;flex-shrink:0;">{pos}</span>
     <span style="font-size:14px;flex-shrink:0;" title="{verdict}">{emoji}</span>
   </div>
   <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:8px;">{mid}</div>
   {bar}
+  {note_html}
   <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-bottom:8px;line-height:1.35;">{reason}</div>
   <ul style="margin:0;padding-left:16px;font-size:11px;color:rgba(255,255,255,0.55);">{q_html}</ul>
 </div>
@@ -146,10 +158,17 @@ def _lane(df: pd.DataFrame, accent: str) -> None:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
-def _solve_draft(board: pd.DataFrame, budget: float, bench_weight: float):
+def _solve_draft(board: pd.DataFrame, budget: float, bench_weight: float,
+                 force_codes=(), exclude_codes=()):
     from analytics.squad_milp import optimize_squad
     d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
-    return optimize_squad(d, budget=budget, bench_weight=bench_weight, time_limit=90)
+    return optimize_squad(d, budget=budget, bench_weight=bench_weight, time_limit=90,
+                          force_codes=list(force_codes), exclude_codes=list(exclude_codes))
+
+
+def _code_of(board: pd.DataFrame, web_name: str):
+    m = board[board["web_name"] == web_name]
+    return int(m.iloc[0]["code"]) if not m.empty else None
 
 
 from ui.value_board import build_board
@@ -200,19 +219,38 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Controls + solve on ACTUAL prices ──────────────────────────────────────────
-c1, c2, _ = st.columns([1, 1, 2])
-with c1:
-    budget = st.slider("Budget (£m)", 95.0, 105.0, 100.0, 0.5)
-with c2:
-    bench_weight = st.slider("Bench weighting", 0.0, 0.5, 0.1, 0.05,
-                             help="How much bench points matter vs the XI. Planning a "
-                                  "Bench Boost in GW1? Push this up so the solver builds a "
-                                  "bench that actually plays.")
+# ── Three drafts · pick the strategy ───────────────────────────────────────────
+_HAALAND = _code_of(board, "Haaland")
+_FERNANDES = _code_of(board, "B.Fernandes")
 
-res = _solve_draft(board, budget, bench_weight)
+DRAFTS = {
+    "⚖️ Optimal value": dict(
+        force=(), exclude=(), bench=0.1,
+        blurb="The model's best 15 on projected points per pound · no premium forced."),
+    "🛡️ Safe · Haaland + Fernandes": dict(
+        force=tuple(c for c in (_HAALAND, _FERNANDES) if c), exclude=(), bench=0.1,
+        blurb="Both template premiums locked in · rank insurance, value built around them."),
+    "🎲 Punt · Fernandes, no Haaland": dict(
+        force=tuple(c for c in (_FERNANDES,) if c),
+        exclude=tuple(c for c in (_HAALAND,) if c), bench=0.1,
+        blurb="Skip the £15.5m Haaland tax, reinvest across the squad · higher upside, more variance."),
+    "🔋 Bench Boost GW1": dict(
+        force=(), exclude=(), bench=1.0,
+        blurb="All 15 count equally, so the bench actually plays · set up to Bench Boost GW1 with no transfer prep."),
+}
+
+c1, c2 = st.columns([2, 1])
+with c1:
+    mode = st.radio("Draft strategy", list(DRAFTS.keys()), horizontal=True, label_visibility="collapsed")
+with c2:
+    budget = st.slider("Budget (£m)", 95.0, 105.0, 100.0, 0.5)
+
+cfg = DRAFTS[mode]
+st.caption(cfg["blurb"])
+
+res = _solve_draft(board, budget, cfg["bench"], cfg["force"], cfg["exclude"])
 if res is None:
-    st.error("Solver found no feasible squad · widen the budget.")
+    st.error("Solver found no feasible squad · widen the budget or change strategy.")
     st.stop()
 
 squad = res["squad"]
@@ -224,7 +262,9 @@ _sec = lambda t: st.markdown(
     f'<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div></div>',
     unsafe_allow_html=True)
 
-_sec(f"Optimal squad · £{res['squad_cost']:.1f}m real spend · {res['xi_points']:.0f} projected XI pts (incl. captain)")
+_bb = " · bench counts (BB-ready)" if cfg["bench"] >= 1.0 else ""
+_sec(f"{mode.split(' ', 1)[1] if ' ' in mode else mode} · £{res['squad_cost']:.1f}m real spend · "
+     f"{res['xi_points']:.0f} projected XI pts (incl. captain){_bb}")
 
 from components.pitch_view import render_squad_pitch
 
