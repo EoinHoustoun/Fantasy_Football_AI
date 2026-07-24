@@ -47,10 +47,10 @@ def _fixtures() -> Tuple[pd.DataFrame, dict]:
          "projected_points": 240, "projected_minutes": 3200,
          "predicted_start_price": 12.0, "price_2025_26_end": 12.0,
          "last_season_points": 250, "mins_share": 0.94, "team_short": "ARS", "team_code": 3},
-        {"code": 2, "web_name": "Bargain", "position": "DEF", "team_name": "B",
+        {"code": 2, "web_name": "Bargain", "position": "DEF", "team_name": "OldClub",
          "projected_points": 150, "projected_minutes": 3000,
          "predicted_start_price": 6.5, "price_2025_26_end": 6.0,
-         "last_season_points": 160, "mins_share": 0.88, "team_short": "AVL", "team_code": 7},
+         "last_season_points": 160, "mins_share": 0.88, "team_short": "OLD", "team_code": 99},
         {"code": 3, "web_name": "Tax", "position": "FWD", "team_name": "C",
          "projected_points": 120, "projected_minutes": 2400,
          "predicted_start_price": 8.0, "price_2025_26_end": 8.5,
@@ -75,8 +75,8 @@ def _fixtures() -> Tuple[pd.DataFrame, dict]:
     proj = pd.DataFrame(proj_rows + chars_proj)
     boot = {
         "elements": boot_rows + chars_boot,
-        "teams": [{"id": i, "short_name": s} for i, s in
-                  enumerate(["ARS", "AVL", "CHE", "EVE", "COV"], start=1)],
+        "teams": [{"id": i, "short_name": s, "name": s + " FC", "code": 100 + i}
+                  for i, s in enumerate(["ARS", "AVL", "CHE", "EVE", "COV"], start=1)],
     }
     return proj, boot
 
@@ -120,3 +120,13 @@ def test_every_verdict_row_has_a_reason():
     proj, boot = _fixtures()
     df, _ = build_value_verdicts(proj, boot)
     assert df["verdict_reason"].str.len().gt(0).all()
+
+
+def test_live_club_overrides_stale_archive_team():
+    # Bargain's archive club is "OLD"/OLDClub, but live bootstrap has team_id 2 = AVL.
+    proj, boot = _fixtures()
+    df, _ = build_value_verdicts(proj, boot)
+    bargain = df[df["code"] == 2].iloc[0]
+    assert bargain["team_short"] == "AVL"
+    assert bargain["team_name"] == "AVL FC"
+    assert bargain["team_id"] == 2

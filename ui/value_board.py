@@ -22,7 +22,7 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     scout_df: live players with no 25/26 history (promoted / new signings).
     Both are None if the archive has not been built.
     """
-    from data.processors.archive import load_gw_archive, load_season_summary
+    from data.processors.archive import load_season_summary
     from analytics.price_predictor import train_price_model, predict_next_season_prices
     from analytics.season_projection import project_season, validate_projection
     from analytics.value_verdicts import build_value_verdicts
@@ -37,27 +37,9 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     proj = project_season(summary, LAST_COMPLETE_SEASON)
     validation = validate_projection(summary)
 
-    arch = load_gw_archive()
-    teams = (arch[arch["season"] == LAST_COMPLETE_SEASON]
-             .groupby("code")["team_id"].last().reset_index())
-    uni = (proj.merge(prices[["code", "predicted_start_price", "price_2025_26_end"]], on="code")
-           .merge(teams, on="code"))
-
-    # shirt / colour identity from the archived final bootstrap
-    import json as _json
-    from config import CACHE_DIR as _CD
-    bs_path = _CD / "archive" / "fpl_bootstrap_2025_26_final.json"
-    if bs_path.exists():
-        with open(bs_path) as f:
-            _bs = _json.load(f)
-        tc_map = {int(e["code"]): int(e["team_code"]) for e in _bs["elements"]}
-        uni["team_code"] = uni["code"].map(tc_map).fillna(1).astype(int)
-        ts_map = {int(e["code"]): e.get("team") for e in _bs["elements"]}
-        short_by_id = {int(t["id"]): t["short_name"] for t in _bs["teams"]}
-        uni["team_short"] = uni["code"].map(ts_map).map(short_by_id)
-    else:
-        uni["team_code"] = 1
-        uni["team_short"] = None
+    # Club / shirt identity now comes from the LIVE bootstrap inside the verdict
+    # engine (transfers corrected), so we no longer read the stale archive teams.
+    uni = proj.merge(prices[["code", "predicted_start_price", "price_2025_26_end"]], on="code")
 
     # nailed-ness signals used by the verdict engine + scout questions
     ss = (summary[summary["season"] == LAST_COMPLETE_SEASON]
@@ -65,6 +47,10 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     uni = uni.merge(ss, on="code", how="left")
     uni["mins_share"] = (uni["projected_minutes"] / 3420.0).clip(0, 1).round(2)
     uni["starts_ratio"] = (uni["starts_total"] / uni["games_played"]).round(2)
+
+    # Manual overrides · fitness / role / regression the model can't know.
+    from analytics.projection_overrides import apply_overrides
+    uni = apply_overrides(uni)
 
     verdicts, scout = build_value_verdicts(uni, fetch_bootstrap())
 

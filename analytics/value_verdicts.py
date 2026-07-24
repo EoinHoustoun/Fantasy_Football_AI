@@ -35,10 +35,16 @@ class VERDICTS:
 
 
 def _live_price_frame(bootstrap: dict) -> pd.DataFrame:
-    """code -> actual price, ownership, live position, status, from the live
-    bootstrap. Price is `now_cost` in tenths of a million."""
+    """code -> actual price, ownership, live position/status AND live club, from
+    the live bootstrap. This is where transfers get corrected: a player's club,
+    shirt and price all come from the CURRENT season, never the stale archive.
+    Price is `now_cost` in tenths of a million."""
+    t_short = {int(t["id"]): t.get("short_name") for t in bootstrap.get("teams", [])}
+    t_name = {int(t["id"]): t.get("name") for t in bootstrap.get("teams", [])}
+    t_code = {int(t["id"]): int(t.get("code", 0) or 0) for t in bootstrap.get("teams", [])}
     rows: List[Dict] = []
     for e in bootstrap.get("elements", []):
+        tid = int(e.get("team", 0) or 0)
         rows.append({
             "code": int(e["code"]),
             "actual_price": round(e.get("now_cost", 0) / 10.0, 1),
@@ -46,7 +52,10 @@ def _live_price_frame(bootstrap: dict) -> pd.DataFrame:
             "live_position": _POS_BY_TYPE.get(e.get("element_type"), "?"),
             "status": e.get("status", "a"),
             "live_web_name": e.get("web_name", ""),
-            "live_team_id": int(e.get("team", 0) or 0),
+            "team_id": tid,
+            "team_short": t_short.get(tid),
+            "team_name": t_name.get(tid),
+            "team_code": t_code.get(tid, 1),
         })
     return pd.DataFrame(rows)
 
@@ -68,8 +77,13 @@ def _assign_verdicts(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
     for pos, grp in df.groupby("position"):
         pts_hi = _pctile(grp["projected_points"], cfg["necessity_pts_pctile"])
         pts_floor = _pctile(grp["projected_points"], cfg["value_pts_floor_pctile"])
-        val_hi = _pctile(grp["value_score"], cfg["value_score_pctile"])
-        val_med = _pctile(grp["value_score"], cfg["premium_value_pctile"])
+        # Value baselines are measured among REAL contributors, not the hundreds
+        # of bench players projecting ~0 · otherwise no premium ever reads as
+        # below-median value and the Overpriced bucket stays empty.
+        real = grp[grp["projected_minutes"].fillna(0) >= 1000]
+        base = real if len(real) >= 5 else grp
+        val_hi = _pctile(base["value_score"], cfg["value_score_pctile"])
+        val_med = _pctile(base["value_score"], cfg["premium_value_pctile"])
         ped_pts = _pctile(grp["last_season_points"], cfg["pedigree_pts_pctile"])
 
         for idx in grp.index:
@@ -78,19 +92,17 @@ def _assign_verdicts(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
             vscore = float(r["value_score"])
             surprise = float(r["pricing_surprise"])
             own = float(r.get("ownership") or 0)
-            starts = float(r.get("starts_ratio") or 0)
             last_pts = float(r.get("last_season_points") or 0)
             price = float(r["actual_price"])
 
-            # 1. Necessity · top-tier projected points AND a template must-have
-            #    (widely owned, or nailed by last season's starts).
-            nailed = own >= cfg["necessity_ownership"] or starts >= cfg["necessity_starts_ratio"]
-            if pts >= pts_hi and nailed:
+            # 1. Necessity · top-tier projected points AND template ownership.
+            #    Both required · an under-owned gem is a Value pick, not yet a
+            #    must-have. This keeps Necessity to the genuine template core.
+            if pts >= pts_hi and own >= cfg["necessity_ownership"]:
                 df.at[idx, "verdict"] = VERDICTS.NECESSITY
-                tag = (f"{own:.0f}% owned" if own >= cfg["necessity_ownership"]
-                       else f"started {starts*100:.0f}% last year")
                 df.at[idx, "verdict_reason"] = (
-                    f"Top-tier {pos} projection ({pts:.0f} pts), {tag}. Template must-have.")
+                    f"Top-tier {pos} projection ({pts:.0f} pts), {own:.0f}% owned. "
+                    f"Template must-have.")
                 continue
 
             # 2. Overpriced · a premium tag the value does not back up, or last
@@ -150,22 +162,26 @@ def build_value_verdicts(
     """
     cfg = cfg or VALUE_VERDICTS
     live = _live_price_frame(bootstrap)
-    team_short = {int(t["id"]): t.get("short_name") for t in bootstrap.get("teams", [])}
-
     proj_codes = set(projection_uni["code"].astype(int))
 
-    # Players with both a projection and a live price.
-    df = projection_uni.merge(live, on="code", how="inner").copy()
+    # Club, shirt and position come from the LIVE bootstrap, so transfers are
+    # already corrected. Drop the archive's stale team columns before the merge.
+    proj = projection_uni.drop(
+        columns=[c for c in ("team_short", "team_name", "team_code", "team_id")
+                 if c in projection_uni.columns])
+
+    df = proj.merge(live, on="code", how="inner").copy()
+    # Live position wins too (rare, but a player can be re-classified).
+    df["position"] = df["live_position"].fillna(df.get("position"))
     df["value_score"] = (df["projected_points"] / df["actual_price"]).round(2)
     df["pricing_surprise"] = (df["predicted_start_price"] - df["actual_price"]).round(1)
     df = _assign_verdicts(df, cfg)
     df = df.sort_values("projected_points", ascending=False).reset_index(drop=True)
 
-    # Live players with no history · Scout frame.
+    # Live players with no history · Scout frame (already all-live columns).
     scout = live[~live["code"].isin(proj_codes)].copy()
     scout["position"] = scout["live_position"]
     scout["web_name"] = scout["live_web_name"]
-    scout["team_short"] = scout["live_team_id"].map(team_short)
     scout["verdict"] = VERDICTS.SCOUT
     scout["verdict_reason"] = "No 2025/26 FPL history · scout the depth chart before committing."
     scout = scout.sort_values("actual_price", ascending=False).reset_index(drop=True)

@@ -14,7 +14,7 @@ Input: DataFrame with columns  code (or any id col), position, price, pts
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 import pulp
@@ -32,14 +32,22 @@ def optimize_squad(
     captain: bool = True,
     time_limit: int = 60,
     bench_budget: Optional[float] = None,
+    force_codes: Optional[List] = None,
+    exclude_codes: Optional[List] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
     captain, maximizing XI points + captain points + bench_weight × bench
     points. Returns dict with squad/lineup/captain DataFrames + totals,
     or None if infeasible.
+
+    `force_codes` · player `code`s that MUST be in the 15 (e.g. Haaland).
+    `exclude_codes` · player `code`s that must NOT be picked. Both no-op if the
+    frame has no `code` column.
     """
     df = players.dropna(subset=[pts_col, "price", "position"]).reset_index(drop=True)
+    if exclude_codes and "code" in df.columns:
+        df = df[~df["code"].isin(exclude_codes)].reset_index(drop=True)
     idx = list(df.index)
     limits = PERFECT_SEASON["squad_limits"]
     lineup_min = PERFECT_SEASON["lineup_min"]
@@ -82,6 +90,12 @@ def optimize_squad(
     for i in idx:
         prob += lineup[i] <= squad[i]
         prob += cap[i] <= lineup[i]
+
+    if force_codes and "code" in df.columns:
+        for c in force_codes:
+            f_idx = [i for i in idx if df.loc[i, "code"] == c]
+            if f_idx:
+                prob += pulp.lpSum(squad[i] for i in f_idx) == 1
 
     status = prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=time_limit))
     if pulp.LpStatus[status] not in ("Optimal", "Not Solved"):

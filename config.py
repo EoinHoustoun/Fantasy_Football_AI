@@ -106,9 +106,8 @@ NEXT_SEASON = "2026-27"
 # positive means FPL priced them below the model (a bargain), negative a tax.
 # All thresholds are per-position percentiles unless noted (0-1 fractions).
 VALUE_VERDICTS = {
-    "necessity_pts_pctile": 0.88,     # genuinely top-tier projected points
-    "necessity_ownership": 22.0,      # nailed via template ownership (%), OR
-    "necessity_starts_ratio": 0.82,   # started >=82% of last season's games
+    "necessity_pts_pctile": 0.85,     # genuinely top-tier projected points, AND
+    "necessity_ownership": 25.0,      # template ownership (%) · everyone has them
     "value_pts_floor_pctile": 0.40,   # a "value" pick must clear this pts floor
     "value_score_pctile": 0.75,       # strong points-per-actual-£m at position
     "value_surprise_m": 0.5,          # OR FPL priced >= this much below model
@@ -117,6 +116,12 @@ VALUE_VERDICTS = {
     "pedigree_pts_pctile": 0.70,      # "was good last year" (top-30% 25/26 points)
     "pedigree_min_price": 6.0,        # and still priced up, but value not there
 }
+
+# Manual projection overrides (analytics/projection_overrides.py). Facts a model
+# can't derive · fitness, role, regression · live in
+# assets/player_overrides_2026_27.json. These are the minutes a bare
+# "nailed"/"benched" flag maps to when no explicit minutes are given.
+PROJECTION_OVERRIDE = {"nailed_minutes": 3100, "bench_minutes": 200}
 
 # Perfect Season (hindsight MILP) configuration
 PERFECT_SEASON = {
