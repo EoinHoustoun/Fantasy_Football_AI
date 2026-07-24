@@ -265,19 +265,24 @@ BLURBS = {
 mode = st.radio("Draft strategy", DRAFT_STRATEGIES, horizontal=True, label_visibility="collapsed")
 st.caption(BLURBS[mode])
 
-c1, c2 = st.columns([1, 1])
+c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
     budget = st.slider("Budget (£m)", 95.0, 105.0, 100.0, 0.5)
 with c2:
-    risk = st.slider("Risk appetite · Upside ↔ Safety", 0.0, 1.0, 0.3, 0.05,
+    risk = st.slider("Risk · Upside ↔ Safety", 0.0, 1.0, 0.3, 0.05,
                      help="0 maximises the mean projection (chase upside). 1 maximises the "
                           "confidence floor (safety-first) · low-confidence punts and fullbacks "
                           "get discounted as you slide right.")
+with c3:
+    opening = st.slider("Opening fixtures GW1-6", 0.0, 1.0, 0.0, 0.05,
+                        help="Slide right to favour players with soft opening fixtures, so the "
+                             "squad holds up longer before you spend transfers (first wildcard "
+                             "usually goes by ~GW10).")
 excluded = st.multiselect(
     "Don't trust · exclude these players", options=sorted(board["web_name"].tolist()),
     help="Veto anyone you're not convinced by · the optimiser rebuilds around them.")
 
-res = solve_draft(board, mode, budget, risk, tuple(excluded))
+res = solve_draft(board, mode, budget, risk, tuple(excluded), opening)
 if res is None:
     st.error("Solver found no feasible squad · widen the budget, lower risk, or un-exclude a player.")
     st.stop()
@@ -295,8 +300,16 @@ _bb = " · bench counts (BB-ready)" if "Bench Boost" in mode else ""
 _xi = squad[squad["in_xi"]]
 _xi_mean = float(_xi["pts"].sum())
 _xi_floor = float(_xi["proj_lo"].sum()) if "proj_lo" in _xi.columns else _xi_mean
+_open_txt = ""
+if opening > 0 and "opening_factor" in squad.columns:
+    _oe = float(squad["opening_factor"].mean())
+    _lbl = "kind" if _oe >= 1.03 else "tough" if _oe <= 0.97 else "average"
+    _open_txt = f" · opening 6 fixtures {_lbl}"
 _sec(f"{mode.split(' ', 1)[1] if ' ' in mode else mode} · £{res['squad_cost']:.1f}m real spend · "
-     f"XI {_xi_mean:.0f} pts mean / {_xi_floor:.0f} floor{_bb}")
+     f"XI {_xi_mean:.0f} pts mean / {_xi_floor:.0f} floor{_bb}{_open_txt}")
+if opening > 0:
+    st.caption("Opening-fixtures weight is a tie-breaker · it favours soft GW1-6 runs among "
+               "similar players so the squad lasts longer, without overriding your best picks.")
 
 from components.pitch_view import render_squad_pitch
 
@@ -412,6 +425,9 @@ def _tile(label, value, color="#fff"):
 _v = str(_r.get("verdict", ""))
 _acc, _emoji, _ = VERDICT_META.get(_v, VERDICT_META[VERDICTS.FAIR])
 _cc = {"High": "#00FF87", "Medium": "#FFA500", "Low": "#FF6B6B"}.get(str(_r.get("confidence")), MUTED)
+_of = float(_r.get("opening_factor") or 1.0)
+_of_lbl, _of_col = (("Kind", "#00FF87") if _of >= 1.03
+                    else ("Tough", "#FF6B6B") if _of <= 0.97 else ("Average", MUTED))
 _hdr = "".join(s.strip() for s in f"""
 <div style="{CARD}border-top:3px solid {_acc};margin-bottom:10px;">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -428,6 +444,7 @@ _hdr = "".join(s.strip() for s in f"""
     {_tile('Pts/£m', f"{float(_r.get('value_score') or 0):.1f}", '#FFD700')}
     {_tile('Owned', f"{float(_r.get('ownership') or 0):.0f}%", '#04f5ff')}
     {_tile('vs model', f"{float(_r.get('pricing_surprise') or 0):+.1f}", '#fff')}
+    {_tile('Open 1-6', _of_lbl, _of_col)}
   </div>
 </div>""".splitlines())
 st.markdown(_hdr, unsafe_allow_html=True)

@@ -80,9 +80,31 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
 
     verdicts, scout = build_value_verdicts(uni, live_bs)
 
+    # Opening-fixtures ease (GW1..gw_hi) per player · for the draft's opening weight.
+    from config import OPENING_FIXTURES as _OF
+    from data.fetchers.fpl_api import get_fixtures_df, fetch_fixtures
+    try:
+        fx = get_fixtures_df(fetch_fixtures(), live_bs)
+        of = _opening_factors(fx, _OF)
+        verdicts["opening_factor"] = verdicts["team_id"].map(of).fillna(1.0).round(3)
+    except Exception:
+        verdicts["opening_factor"] = 1.0
+
     bt = dict(trained["backtest"][trained["winner"]])
     bt["model"] = trained["winner"]
     return verdicts, scout, bt, validation
+
+
+def _opening_factors(fixtures, cfg: dict) -> dict:
+    """team_id -> mean fixture-ease over GW1..gw_hi (>1 easy, <1 hard)."""
+    floor, slope = cfg["factor_floor"], cfg["fdr_slope"]
+    acc: dict = {}
+    sub = fixtures[fixtures["gameweek"].notna() & (fixtures["gameweek"] <= cfg["gw_hi"])]
+    for _, r in sub.iterrows():
+        for tid, fdr in ((int(r["home_team_id"]), r["home_fdr"]),
+                         (int(r["away_team_id"]), r["away_fdr"])):
+            acc.setdefault(tid, []).append(max(floor, 1.0 + (3.0 - float(fdr)) * slope))
+    return {t: sum(v) / len(v) for t, v in acc.items() if v}
 
 
 # Shared draft strategies · used by the 26/27 Draft page and the Chip Planner.
@@ -107,15 +129,17 @@ def _defcon_codes() -> list:
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
 def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
-                risk: float = 0.3, exclude_names: tuple = (),
+                risk: float = 0.3, exclude_names: tuple = (), opening: float = 0.0,
                 max_attackers_per_club: int = 1):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
     1 maximises the confidence FLOOR (safety) · in between blends them, so
     wide-range punts (low-confidence, fullbacks) get discounted as risk rises.
-    `exclude_names` are players to veto. Also applies the standing rule of at
-    most one attack-correlated player per club (DEFCON mids exempt).
+    `opening` (0-1) leans the objective toward players with soft GW1-6 fixtures,
+    so the squad holds up longer before transfers. `exclude_names` are players to
+    veto. Also applies the standing rule of at most one attack-correlated player
+    per club (DEFCON mids exempt).
     """
     from analytics.squad_milp import optimize_squad
 
@@ -140,7 +164,11 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
 
     d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
     r = max(0.0, min(1.0, float(risk)))
+    ow = max(0.0, min(1.0, float(opening)))
     d["obj"] = d["pts"] * (1.0 - r) + d["proj_lo"].fillna(d["pts"]) * r
+    if ow > 0 and "opening_factor" in d.columns:
+        of = d["opening_factor"].fillna(1.0)
+        d["obj"] = d["obj"] * ((1.0 - ow) + ow * of)
     return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
                           force_codes=list(force), exclude_codes=list(exclude),
                           max_attackers_per_club=max_attackers_per_club,

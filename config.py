@@ -144,6 +144,12 @@ CHIP_TIMING = {
     "factor_floor": 0.4,      # hardest fixtures still score something
 }
 
+# Opening-fixtures weighting for the draft. With one free transfer a week and the
+# first wildcard usually gone by ~GW10, a squad that holds up over the opening
+# run needs fewer early moves. `opening_factor` per player = mean fixture ease
+# over GW1..gw_hi; the draft can lean on it via a slider.
+OPENING_FIXTURES = {"gw_hi": 6, "fdr_slope": 0.28, "factor_floor": 0.4}
+
 # Perfect Season (hindsight MILP) configuration
 PERFECT_SEASON = {
     "season": LAST_COMPLETE_SEASON,
