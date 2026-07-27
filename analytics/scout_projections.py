@@ -236,6 +236,20 @@ def override_no_evidence(board: pd.DataFrame, snapshot: pd.DataFrame,
     if "last_season_minutes" not in b.columns:
         return b
 
+    # A hand override is knowledge no model has · it beats the Scout fallback.
+    try:
+        from analytics.projection_overrides import load_overrides
+        _manual = set(load_overrides().keys())
+    except Exception:
+        _manual = set()
+
+    # A hand override is knowledge the Scout model does not have · it wins.
+    try:
+        from analytics.projection_overrides import load_overrides
+        _manual = set(load_overrides().keys())
+    except Exception:
+        _manual = set()
+
     b["join_key"] = b["web_name"].map(normalise_name)
     b["_pos"] = b["position"].replace(POS_ALIASES) if "position" in b.columns else ""
     snap = snapshot[["join_key", "team_short", "pos", "scout_pts", "scout_mins"]] \
@@ -244,7 +258,8 @@ def override_no_evidence(board: pd.DataFrame, snapshot: pd.DataFrame,
 
     k = float(scale) if scale and scale > 0 else 1.0
     empty = (b["last_season_minutes"].fillna(0) <= max_minutes) \
-        & (b["scout_mins"].fillna(0) >= min_scout_minutes)
+        & (b["scout_mins"].fillna(0) >= min_scout_minutes) \
+        & (~b["code"].isin(_manual))
 
     if empty.any():
         b.loc[empty, "projected_points"] = (b.loc[empty, "scout_pts"] * k).round(1)

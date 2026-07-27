@@ -1,11 +1,56 @@
 {
   "_readme": "Manual 2026/27 projection overrides · the things a last-season model cannot know: fitness, new role, regression. Keyed by FPL player code. `minutes` = expected 26/27 minutes (points are recomputed from the per-90 rate); `pts_mult` = a regression haircut on projected points; `benched`/`nailed` = shortcuts (config.PROJECTION_OVERRIDE minutes). `note` shows on the board. Edit freely · the Value Board reloads this file.",
-  "219168": {"name": "Isak", "minutes": 2600, "note": "Fit-again assumption · Liverpool starter, but only 694 min last year (low confidence)"},
-  "244851": {"name": "Palmer", "minutes": 3000, "note": "Chelsea talisman, fit again · penalties"},
-  "219847": {"name": "Havertz", "minutes": 2300, "pts_mult": 0.9, "note": "Fit, but the rate is a small sample and Arsenal rotate up top"},
-  "500040": {"name": "Mosquera", "minutes": 2900, "note": "Starts early with Saliba injured · £5.5m, Arsenal's defence"},
-  "67089": {"name": "Dubravka", "benched": true, "note": "Backup keeper at Spurs · near-zero minutes"},
-  "141746": {"name": "B.Fernandes", "pts_mult": 0.85, "note": "Regression from a career-high haul"},
-  "502500": {"name": "Thiago", "pts_mult": 0.82, "note": "Likely overperformed 25/26 · hard to replicate"},
-  "215379": {"name": "Anderson", "minutes": 1900, "pts_mult": 0.7, "note": "Moved Forest to Man City · rotation risk + fewer DEFCON points in a possession side"}
+  "219168": {
+    "name": "Isak",
+    "minutes": 2600,
+    "note": "Fit-again assumption · Liverpool starter, but only 694 min last year (low confidence)"
+  },
+  "244851": {
+    "name": "Palmer",
+    "minutes": 2600,
+    "note": "Chelsea talisman on penalties · minutes trimmed from 3000, he has not managed a full season"
+  },
+  "219847": {
+    "name": "Havertz",
+    "minutes": 2300,
+    "pts_mult": 0.9,
+    "note": "Fit, but the rate is a small sample and Arsenal rotate up top"
+  },
+  "500040": {
+    "name": "Mosquera",
+    "minutes": 2000,
+    "note": "Starts while Saliba is out, but loses the place when he returns · minutes trimmed from 2900"
+  },
+  "67089": {
+    "name": "Dubravka",
+    "benched": true,
+    "note": "Backup keeper at Spurs · near-zero minutes"
+  },
+  "141746": {
+    "name": "B.Fernandes",
+    "pts_mult": 0.85,
+    "note": "Regression from a career-high haul"
+  },
+  "502500": {
+    "name": "Thiago",
+    "pts_mult": 0.82,
+    "note": "Likely overperformed 25/26 · hard to replicate"
+  },
+  "215379": {
+    "name": "Anderson",
+    "minutes": 1900,
+    "pts_mult": 0.7,
+    "note": "Moved Forest to Man City · rotation risk + fewer DEFCON points in a possession side"
+  },
+  "651426": {
+    "name": "Canvot",
+    "minutes": 2700,
+    "note": "Nailed Palace CB · 5th of 136 defenders on DEFCON per start (10.6, 64% hit rate) once he broke in from GW27"
+  },
+  "610799": {
+    "name": "Vuskovic",
+    "minutes": 2700,
+    "pp90": 4.1,
+    "note": "Brighton CB · 0 PL minutes so no rate to fit. 11.5+ CBIT/90 and 6 goals for HSV in the Bundesliga · rate set from a Senesi-like CB profile (4.73 pts/start), discounted for the league step up"
+  }
 }

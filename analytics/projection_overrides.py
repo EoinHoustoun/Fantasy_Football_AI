@@ -73,12 +73,25 @@ def apply_overrides(uni: pd.DataFrame, season: str = NEXT_SEASON) -> pd.DataFram
         elif "minutes" in adj:
             new_min = int(adj["minutes"])
 
+        # `pp90` sets the per-90 rate outright. Needed when a player has NO
+        # Premier League history to fit a rate from · Vuskovic played zero
+        # minutes here, so his rate is 0 and a minutes override alone would
+        # still project nothing. The rate then comes from another league.
+        if "pp90" in adj:
+            pp90 = float(adj["pp90"])
+            uni.at[i, "projected_pp90"] = pp90
+
         if new_min is not None:
             uni.at[i, "projected_minutes"] = new_min
             uni.at[i, "projected_points"] = round(pp90 * new_min / 90.0, 1)
             share = round(min(max(new_min / _FULL_SEASON_MIN, 0.0), 1.0), 2)
             uni.at[i, "mins_share"] = share
             uni.at[i, "starts_ratio"] = share   # assert nailed-ness from the call
+
+        # `points` sets the season projection outright · the bluntest override,
+        # for when you simply know better than every model on the board.
+        if "points" in adj:
+            uni.at[i, "projected_points"] = round(float(adj["points"]), 1)
 
         # Regression haircut on the final points (independent of minutes).
         if "pts_mult" in adj:

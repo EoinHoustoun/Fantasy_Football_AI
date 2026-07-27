@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 from components.animations import inject_global_animations
+from components.pitch_view import render_squad_pitch
 from components.team_identity import face_html, player_photo_url, team_dot
 from config import LAST_COMPLETE_SEASON, NEXT_SEASON
 from analytics.value_verdicts import VERDICTS
@@ -298,6 +299,13 @@ with c3:
                              "treat it as a tie-breaker between similar players, not a "
                              "reason to pick one.")
 st.caption("Opening fixtures are a tie-breaker, not a strategy · see Playbook Q15.")
+_two_att = st.checkbox(
+    "Allow 2 attackers from the same club",
+    value=False,
+    help="The standing rule is one attack-correlated player per club, so a bad week "
+         "for that club does not sink two of your picks. Tick this to allow pairs "
+         "like Szoboszlai and Isak when the projections justify the correlation.")
+
 _lock_col, _veto_col = st.columns(2)
 with _lock_col:
     locked = st.multiselect(
@@ -334,13 +342,15 @@ if mode == SPRINT_STRATEGY:
                f"Bench Boost in GW2 counts all of them.")
 
 res = solve_draft(board, mode, budget, risk, tuple(excluded), _oweight,
-                  force_names=tuple(locked), opening_map=_omap)
+                  force_names=tuple(locked), opening_map=_omap,
+                  max_attackers_per_club=2 if _two_att else 1)
 
 if locked and res is not None:
     # What the conviction actually costs · the same solve without the locks. This
     # is the honest price of a hunch, and it is usually far smaller than it feels.
     _free = solve_draft(board, mode, budget, risk, tuple(excluded), _oweight,
-                        opening_map=_omap)
+                        opening_map=_omap,
+                        max_attackers_per_club=2 if _two_att else 1)
     _lk = board[board["web_name"].isin(locked)]
     _spend = float(_lk["actual_price"].sum())
     _cost = (res["xi_points"] - _free["xi_points"]) if _free else None
@@ -419,63 +429,229 @@ st.markdown(
         for lab, val, sub, acc in _summary)
     + "</div>", unsafe_allow_html=True)
 
-# The squad as clickable faces · click one to load his numbers in the inspector.
-_ord = {"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
-_squad_sorted = squad.assign(_o=squad["position"].map(_ord)) \
-    .sort_values(["in_xi", "_o", "pts"], ascending=[False, True, False])
+# ── Shared player evidence · used by both the shirt popup and the inspector ────
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _last_season_stats():
+    from data.processors.archive import load_season_summary
+    s = load_season_summary()
+    s = s[s["season"] == LAST_COMPLETE_SEASON]
+    keep = ["goals", "assists", "xg", "xa", "xgi", "defcon_points", "minutes",
+            "total_points", "ppg", "clean_sheets", "bonus", "cbit_total",
+            "starts_total", "games_played"]
+    return s.set_index("code")[[c for c in keep if c in s.columns]]
 
-st.caption("👆 Click any player to load his stats below · DEFCON per 90, penalties, "
-           "last season's goals and assists, projected minutes.")
-def _face_row(grp: pd.DataFrame) -> None:
-    """One row of clickable players.
 
-    Capped at six across · eleven columns squeezes each to about 50px and the
-    button label wraps one letter per line, which is unreadable.
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _defcon_per90():
+    """Defensive contributions per 90 last season, plus how often the threshold hit.
+
+    The mean alone flatters a player who spikes once · the DEFCON points are a
+    THRESHOLD (10 CBIT for a defender, 12 for a midfielder), so the hit rate is
+    what actually converts to points week to week.
     """
-    _cols = st.columns(max(len(grp), 1))
-    for _c, (_, r) in zip(_cols, grp.iterrows()):
-        with _c:
-            st.markdown(
-                " ".join(s.strip() for s in (
-                    f'<div style="text-align:center;">'
-                    f'{face_html(r["code"], int(r.get("team_code", 1) or 1), r["position"] == "GKP", 44)}'
-                    f'<div style="font-size:9px;color:{POS_COLORS.get(r["position"], MUTED)};'
-                    f'font-weight:800;margin-top:2px;">'
-                    f'{cap_badge(bool(r["is_captain"]))}£{r["price"]:.1f} · {r["pts"]:.0f}</div>'
-                    f'</div>').splitlines()),
-                unsafe_allow_html=True)
-            if st.button(str(r["web_name"])[:12], key=f"pick_{r['code']}",
-                         use_container_width=True):
-                st.session_state["draft_inspect"] = str(r["web_name"])
+    from data.processors.archive import load_gw_archive
+    a = load_gw_archive()
+    a = a[(a["season"] == LAST_COMPLETE_SEASON) & (a["starts"] == 1)]
+    if a.empty:
+        return pd.DataFrame()
+    a = a.assign(_thr=a["position"].map({"DEF": 10, "MID": 12}).fillna(999))
+    a = a.assign(_hit=(a["defensive_contribution"] >= a["_thr"]).astype(float))
+    g = a.groupby("code").agg(dc_per_start=("defensive_contribution", "mean"),
+                              dc_hit_rate=("_hit", "mean"),
+                              starts=("starts", "sum"),
+                              mins=("minutes", "sum"))
+    g["dc_per90"] = (g["dc_per_start"] * 90.0
+                     / (g["mins"] / g["starts"]).clip(lower=1)).round(2)
+    return g.round(2)
 
 
-_ROW_MAX = 6
-_xi_grp = _squad_sorted[_squad_sorted["in_xi"]]
-_bench_grp = _squad_sorted[~_squad_sorted["in_xi"]]
-for _start in range(0, len(_xi_grp), _ROW_MAX):
-    _face_row(_xi_grp.iloc[_start:_start + _ROW_MAX])
-if not _bench_grp.empty:
-    st.caption("Bench" + (" · all four count under a Bench Boost"
-                          if "Bench Boost" in mode else ""))
-    _face_row(_bench_grp)
+
+
+def _set_piece_line(row) -> str:
+    """Penalties and set pieces from the OFFICIAL FPL order · fact, not a guess."""
+    p_ord = _num_safe(row.get("pens_order"))
+    f_ord = _num_safe(row.get("fk_order"))
+    c_ord = _num_safe(row.get("corners_order"))
+    bits = []
+    if p_ord == 1:
+        bits.append('<span style="background:#FFD700;color:#000;border-radius:4px;'
+                    'padding:1px 7px;font-size:10px;font-weight:900;">⚽ ON PENALTIES</span>')
+    elif p_ord in (2, 3):
+        bits.append(f'<span style="color:#FFD700;font-size:11px;font-weight:800;">'
+                    f'Penalties #{p_ord} in the queue</span>')
+    if f_ord in (1, 2):
+        bits.append(f'<span style="color:#04f5ff;font-size:11px;font-weight:800;">'
+                    f'Free kicks #{f_ord}</span>')
+    if c_ord in (1, 2):
+        bits.append(f'<span style="color:#04f5ff;font-size:11px;font-weight:800;">'
+                    f'Corners #{c_ord}</span>')
+    if not bits:
+        return ('<div style="font-size:11px;color:rgba(255,255,255,0.35);margin:6px 0;">'
+                'Not on penalties or first-choice set pieces.</div>')
+    return ('<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;'
+            'margin:6px 0;">' + "".join(bits) + '</div>')
+
+
+# ── The squad · click a shirt for the player's numbers ────────────────────────
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _club_fixtures():
+    """(team_id, gw) -> list of (opponent short, is_home, fdr) for 26/27."""
+    from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, get_fixtures_df
+    bs = fetch_bootstrap()
+    short = {int(t["id"]): t["short_name"] for t in bs["teams"]}
+    fx = get_fixtures_df(fetch_fixtures(), bs)
+    out = {}
+    for _, r in fx.iterrows():
+        if pd.isna(r.get("gameweek")):
+            continue
+        gw = int(r["gameweek"])
+        h, a = int(r["home_team_id"]), int(r["away_team_id"])
+        out.setdefault((h, gw), []).append((short.get(a, "?"), True, float(r["home_fdr"])))
+        out.setdefault((a, gw), []).append((short.get(h, "?"), False, float(r["away_fdr"])))
+    return out
+
+
+_FIX = _club_fixtures()
+
+
+def _gw_points(season_pts: float, team_id: int, gw: int) -> float:
+    """This gameweek's projection · the season total spread over 38 and scaled by
+    fixture ease. Identical model to the Chip Planner, so the two cannot drift.
+    A blank scores nothing; a double stacks both fixtures."""
+    from config import CHIP_TIMING as _CT
+    base = float(season_pts) / 38.0
+    return sum(base * max(_CT["factor_floor"],
+                          1.0 + (3.0 - f) * _CT["fdr_slope"])
+               for _, _, f in _FIX.get((int(team_id), int(gw)), []))
+
+
+_vc, _gc = st.columns([2, 3])
+with _vc:
+    _view = st.radio("Show on each shirt", ["Projected points", "Fixture"],
+                     horizontal=True, key="pitch_view_mode")
+with _gc:
+    _gw = st.slider("Gameweek", 1, 19, 1, 1, key="pitch_gw",
+                    help="Step through the opening gameweeks to see each club's "
+                         "fixture and this week's projection.")
+
+_players = []
+for _, r in squad.iterrows():
+    _tid = int(r.get("team_id", 0) or 0)
+    _fx = _FIX.get((_tid, _gw), [])
+    if _fx:
+        _lbl = " + ".join(f"{o}({'H' if h else 'A'})" for o, h, _f in _fx)
+    else:
+        _lbl = "BLANK"
+    _players.append({
+        "web_name": r["web_name"],
+        "position": r["position"],
+        "team_code": int(r.get("team_code", 1) or 1),
+        "team_short": r.get("team_short"),
+        "on_bench": not r["in_xi"],
+        "is_captain": bool(r["is_captain"]),
+        "price": float(r["price"]),
+        "fixture_label": _lbl,
+        "fpl_id": int(r["code"]),          # click id · the stable player code
+        "stat": (round(_gw_points(r["pts"], _tid, _gw), 1)
+                 if _view == "Projected points" else None),
+    })
+
+_click = render_squad_pitch(
+    _players, stat_label=f"GW{_gw}", title_right=f"{NEXT_SEASON} · GW{_gw}",
+    interactive=True, key="draft_pitch")
+
+st.caption(f"👆 Tap any shirt for that player's numbers. Showing **GW{_gw}** fixtures"
+           + (" and this week's projection." if _view == "Projected points" else "."))
+
+
+@st.dialog("Player", width="large")
+def _player_dialog(code: int) -> None:
+    """Face, headline numbers, DEFCON, set pieces and the opening run · one popup.
+
+    Built from data already in memory, so it opens instantly rather than
+    refitting anything.
+    """
+    m = board[board["code"] == code]
+    if m.empty:
+        st.info("Player not on the board.")
+        return
+    r = m.iloc[0]
+    pos = str(r.get("position", ""))
+    dc = _defcon_per90()
+    d = dc.loc[code] if (not dc.empty and code in dc.index) else None
+    ls = _last_season_stats()
+    lsr = ls.loc[code] if code in ls.index else None
+
+    c1, c2 = st.columns([1, 3])
+    with c1:
+        st.markdown(face_html(code, int(r.get("team_code", 1) or 1),
+                              pos == "GKP", 96), unsafe_allow_html=True)
+    with c2:
+        st.markdown(
+            " ".join(x.strip() for x in (
+                f'<div style="font-size:26px;font-weight:900;color:#fff;'
+                f'letter-spacing:-0.5px;">{r["web_name"]}</div>'
+                f'<div style="font-size:13px;color:{MUTED};margin-top:2px;">'
+                f'{r.get("team_name","")} · {pos} · £{float(r.get("actual_price") or 0):.1f}m'
+                f'</div>').splitlines()),
+            unsafe_allow_html=True)
+        st.markdown(_set_piece_line(r), unsafe_allow_html=True)
+
+    _m1, _m2, _m3, _m4 = st.columns(4)
+    _m1.metric("Projected 26/27", f"{float(r.get('projected_points') or 0):.0f}",
+               help="Season projection. Range: "
+                    f"{float(r.get('proj_lo') or 0):.0f}-{float(r.get('proj_hi') or 0):.0f}")
+    _m2.metric("Projected minutes", f"{float(r.get('projected_minutes') or 0):,.0f}")
+    _m3.metric("DEFCON / 90", f"{float(d['dc_per90']):.1f}" if d is not None else "n/a",
+               help="Defensive actions per 90 last season.")
+    _m4.metric("DEFCON hit rate",
+               f"{float(d['dc_hit_rate'])*100:.0f}%" if d is not None else "n/a",
+               help="Share of starts clearing the threshold (10 for a defender, 12 "
+                    "for a midfielder). This is what converts to points.")
+
+    if lsr is not None:
+        _l1, _l2, _l3, _l4 = st.columns(4)
+        _l1.metric("Goals 25/26", f"{float(lsr.get('goals') or 0):.0f}")
+        _l2.metric("Assists 25/26", f"{float(lsr.get('assists') or 0):.0f}")
+        _l3.metric("Minutes 25/26", f"{float(lsr.get('minutes') or 0):,.0f}")
+        _l4.metric("Points 25/26", f"{float(lsr.get('total_points') or 0):.0f}")
+    else:
+        st.caption("No 2025/26 Premier League record · this projection comes from an "
+                   "external model or a manual override.")
+
+    _note = str(r.get("override_note", "") or "")
+    if _note:
+        st.info(f"✎ {_note}")
+
+    # The opening run · this is the graph that actually drives a draft decision.
+    _tid = int(r.get("team_id", 0) or 0)
+    _gws = list(range(1, 11))
+    _pts = [round(_gw_points(r.get("projected_points") or 0, _tid, g), 1) for g in _gws]
+    _labels = []
+    for g in _gws:
+        f = _FIX.get((_tid, g), [])
+        _labels.append(" + ".join(o for o, _h, _f in f) if f else "blank")
+    _opt = charts.bar_option(
+        x=[f"GW{g}" for g in _gws], y=_pts,
+        colors=["#00FF87" if v >= (sum(_pts) / max(len(_pts), 1)) else "rgba(4,245,255,0.5)"
+                for v in _pts])
+    _opt["title"] = {"text": "Projected points by gameweek · opening run",
+                     "textStyle": {"color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+    _opt["grid"]["top"] = 40
+    for _item, _lab in zip(_opt["series"][0]["data"], _labels):
+        _item["tooltip"] = {"formatter": f"vs {_lab}"}
+    charts.render(_opt, height="240px", key=f"dlg_run_{code}")
+    st.caption("Season projection spread over 38 gameweeks and scaled by fixture "
+               "difficulty · the same model the Chip Planner uses. It is a fixture "
+               "shape, not a match forecast.")
+
+
+if _click and isinstance(_click, dict) and _click.get("action") == "detail":
+    _player_dialog(int(_click["id"]))
 
 if opening > 0:
     st.caption("Opening-fixtures weight is a tie-breaker · it favours soft GW1-6 runs among "
                "similar players so the squad lasts longer, without overriding your best picks.")
-
-from components.pitch_view import render_squad_pitch
-
-render_squad_pitch(
-    [{
-        "web_name": r["web_name"],
-        "position": r["position"],
-        "team_code": int(r.get("team_code", 1) or 1),
-        "on_bench": not r["in_xi"],
-        "is_captain": bool(r["is_captain"]),
-        "stat": float(r["pts"]),
-        "price": float(r["price"]),
-    } for _, r in squad.iterrows()],
-    stat_label="proj", title_right=NEXT_SEASON)
 
 # ── Verdict lanes ──────────────────────────────────────────────────────────────
 _sec("🎯 The verdict · who to want, who to swerve")
@@ -558,41 +734,6 @@ st.caption("The top 10 by projection carry their face. Everything trends up and 
 # ── Full table ─────────────────────────────────────────────────────────────────
 # ── Inspect any player ─────────────────────────────────────────────────────────
 _sec("🔍 Inspect any player")
-
-
-@st.cache_data(ttl=24 * 3600, show_spinner=False)
-def _last_season_stats():
-    from data.processors.archive import load_season_summary
-    s = load_season_summary()
-    s = s[s["season"] == LAST_COMPLETE_SEASON]
-    keep = ["goals", "assists", "xg", "xa", "xgi", "defcon_points", "minutes",
-            "total_points", "ppg", "clean_sheets", "bonus", "cbit_total",
-            "starts_total", "games_played"]
-    return s.set_index("code")[[c for c in keep if c in s.columns]]
-
-
-@st.cache_data(ttl=24 * 3600, show_spinner=False)
-def _defcon_per90():
-    """Defensive contributions per 90 last season, plus how often the threshold hit.
-
-    The mean alone flatters a player who spikes once · the DEFCON points are a
-    THRESHOLD (10 CBIT for a defender, 12 for a midfielder), so the hit rate is
-    what actually converts to points week to week.
-    """
-    from data.processors.archive import load_gw_archive
-    a = load_gw_archive()
-    a = a[(a["season"] == LAST_COMPLETE_SEASON) & (a["starts"] == 1)]
-    if a.empty:
-        return pd.DataFrame()
-    a = a.assign(_thr=a["position"].map({"DEF": 10, "MID": 12}).fillna(999))
-    a = a.assign(_hit=(a["defensive_contribution"] >= a["_thr"]).astype(float))
-    g = a.groupby("code").agg(dc_per_start=("defensive_contribution", "mean"),
-                              dc_hit_rate=("_hit", "mean"),
-                              starts=("starts", "sum"),
-                              mins=("minutes", "sum"))
-    g["dc_per90"] = (g["dc_per_start"] * 90.0
-                     / (g["mins"] / g["starts"]).clip(lower=1)).round(2)
-    return g.round(2)
 
 
 _pick = st.selectbox("Pick a player to see the numbers behind the projection",
