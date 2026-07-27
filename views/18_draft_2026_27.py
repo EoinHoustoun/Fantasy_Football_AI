@@ -281,13 +281,56 @@ with c3:
                              "treat it as a tie-breaker between similar players, not a "
                              "reason to pick one.")
 st.caption("Opening fixtures are a tie-breaker, not a strategy · see Playbook Q15.")
-excluded = st.multiselect(
-    "Don't trust · exclude these players", options=sorted(board["web_name"].tolist()),
-    help="Veto anyone you're not convinced by · the optimiser rebuilds around them.")
+_lock_col, _veto_col = st.columns(2)
+with _lock_col:
+    locked = st.multiselect(
+        "🔒 Lock in · players I definitely want",
+        options=sorted(board["web_name"].tolist()),
+        help="These go into the fifteen no matter what · the optimiser builds the "
+             "best squad it can around them. A lock beats a veto.")
+with _veto_col:
+    excluded = st.multiselect(
+        "🚫 Don't trust · exclude these players",
+        options=sorted(board["web_name"].tolist()),
+        help="Veto anyone you're not convinced by · the optimiser rebuilds around them.")
 
-res = solve_draft(board, mode, budget, risk, tuple(excluded), opening)
+res = solve_draft(board, mode, budget, risk, tuple(excluded), opening,
+                  force_names=tuple(locked))
+
+if locked and res is not None:
+    # What the conviction actually costs · the same solve without the locks. This
+    # is the honest price of a hunch, and it is usually far smaller than it feels.
+    _free = solve_draft(board, mode, budget, risk, tuple(excluded), opening)
+    _lk = board[board["web_name"].isin(locked)]
+    _spend = float(_lk["actual_price"].sum())
+    _cost = (res["xi_points"] - _free["xi_points"]) if _free else None
+    _msg = (f"🔒 {len(locked)} locked · £{_spend:.1f}m committed, "
+            f"£{budget - _spend:.1f}m left for the other {15 - len(locked)}.")
+    if _cost is not None:
+        _msg += (f" Costs **{_cost:+.0f}** projected XI pts against the free optimum"
+                 + (" · essentially free, back the hunch." if _cost > -12 else
+                    " · a real price, make sure you mean it."))
+    st.caption(_msg)
 if res is None:
-    st.error("Solver found no feasible squad · widen the budget, lower risk, or un-exclude a player.")
+    # Name the likely culprit rather than making the user bisect their own locks.
+    _why = ""
+    if locked:
+        _lk = board[board["web_name"].isin(locked)]
+        _spend = float(_lk["actual_price"].sum())
+        _by_pos = _lk["position"].value_counts().to_dict()
+        _over = {p: n for p, n in _by_pos.items()
+                 if n > {"GKP": 2, "DEF": 5, "MID": 5, "FWD": 3}.get(p, 15)}
+        if _over:
+            _why = (" You locked more players in a position than a squad allows: "
+                    + ", ".join(f"{n}× {p}" for p, n in _over.items()) + ".")
+        elif _spend > budget - (15 - len(locked)) * 4.0:
+            _why = (f" Your locks cost £{_spend:.1f}m, leaving under £4.0m a head for "
+                    f"the remaining {15 - len(locked)} · that cannot be filled.")
+        else:
+            _why = (" It is likely a club limit: at most 3 per club, and this draft "
+                    "allows only 1 attacker and 1 defender per club.")
+    st.error("Solver found no feasible squad." + _why
+             + " Widen the budget, lower risk, or drop a lock.")
     st.stop()
 
 squad = res["squad"]
@@ -481,6 +524,61 @@ else:
     st.caption("No 2025/26 record · this is a promoted-club or new-signing player (Scout). "
                "Judge on the eye test and the opening fixtures until data lands.")
 
+
+# ── Second opinion · Scout's projected breakdown for this player ──────────────
+# This is the ONLY signal for a player with no Premier League record (Vuskovic
+# played 0 PL minutes in 25/26), so it carries the most weight exactly where our
+# own projection carries the least.
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _scout_rows():
+    from analytics.scout_projections import load_snapshot, match_to_board, model_scale
+    snap = load_snapshot()
+    if snap is None:
+        return None, 1.0
+    res = match_to_board(snap, board)
+    return res["matched"], model_scale(res["matched"])
+
+
+_scout_df, _scale = _scout_rows()
+if _scout_df is not None:
+    _sc = _scout_df[_scout_df["web_name"] == _pick]
+    if not _sc.empty:
+        _sr = _sc.iloc[0]
+        _mins = float(_sr.get("scout_mins") or 0)
+        _stiles = [
+            ("Proj pts", f"{float(_sr.get('scout_pts') or 0):.0f}", "#FFD700"),
+            ("Minutes", f"{_mins:,.0f}", "#00FF87" if _mins >= 2400 else "#FFA500"),
+            ("Goals", f"{float(_sr.get('g') or 0):.1f}", "#FF7B00"),
+            ("Assists", f"{float(_sr.get('a') or 0):.1f}", "#e90052"),
+            ("Clean sh.", f"{float(_sr.get('cs') or 0):.1f}", "#04f5ff"),
+            ("DEFCON", f"{float(_sr.get('dc') or 0):.1f}", "#00FF87"),
+            ("Bonus", f"{float(_sr.get('bonus') or 0):.1f}", "#FFD700"),
+            ("Yellows", f"{float(_sr.get('yc') or 0):.1f}", "#FF4B4B"),
+        ]
+        st.markdown(
+            " ".join(s.strip() for s in f"""
+<div style="{CARD}border-left:3px solid #FFD700;margin-top:10px;">
+  <div style="font-size:10px;font-weight:800;letter-spacing:0.18em;color:#FFD700;
+  text-transform:uppercase;margin-bottom:8px;">Second opinion · Fantasy Football Scout 26/27</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    {"".join(_tile(l, v, c) for l, v, c in _stiles)}
+  </div>
+</div>""".splitlines()),
+            unsafe_allow_html=True)
+        _ours = float(_r.get("projected_points") or 0)
+        _exp = float(_sr.get("scout_pts") or 0) * _scale
+        _resid = _ours - _exp
+        _verdict = ("both models agree" if abs(_resid) < 25 else
+                    "we are far more bullish" if _resid > 0 else
+                    "we are far more bearish")
+        st.caption(
+            f"Scout {float(_sr.get('scout_pts') or 0):.0f} pts against our {_ours:.0f}. "
+            f"Our model runs at {_scale:.2f}× Scout's scale, so the like-for-like "
+            f"figure is **{_exp:.0f}** · {_verdict} (residual {_resid:+.0f}). "
+            + ("Ours has little or no 25/26 minutes to learn from here, so lean on "
+               "Scout's minutes forecast." if _mins > 0 and float(_r.get('last_season_minutes') or 0) < 900
+               else ""))
+
 # where they rank in their position, by projection
 _pos_df = board[board["position"] == _r["position"]].nlargest(12, "projected_points")
 if _pick not in set(_pos_df["web_name"]):
@@ -496,7 +594,8 @@ st.caption(f"Where **{_pick}** is projected to finish among {_r['position']}s (g
 
 # ── Full table ─────────────────────────────────────────────────────────────────
 _sec("Every price · every verdict")
-tab_all, tab_surprise = st.tabs(["All players", "Biggest bargains & taxes"])
+tab_all, tab_surprise, tab_scout = st.tabs(
+    ["All players", "Biggest bargains & taxes", "Second opinion · Scout"])
 
 table = board[["web_name", "position", "team_name", "verdict", "confidence",
                "actual_price", "pricing_surprise", "projected_points", "proj_lo", "proj_hi",
@@ -512,6 +611,30 @@ with tab_surprise:
     st.caption("Positive vs model = FPL priced them below the model (bargain). Negative = tax.")
     st.dataframe(table.reindex(table["vs model (£m)"].abs().sort_values(ascending=False).index).head(40),
                  use_container_width=True, height=420, hide_index=True)
+
+with tab_scout:
+    if _scout_df is None:
+        st.caption("No Scout snapshot loaded · save one to "
+                   "`data/cache/scout_projections_2026_27.csv` to switch this on.")
+    else:
+        st.caption(
+            f"Scout's projected component breakdown, ours alongside. Our model runs at "
+            f"**{_scale:.2f}×** Scout's scale, so **Like-for-like** rescales Scout onto "
+            f"our numbers · **Residual** is the genuine disagreement after that. "
+            f"Sort by Residual to find where the two models actually differ, and by "
+            f"Scout mins to find players ours cannot see.")
+        _st = _scout_df.copy()
+        _st["expected"] = (_st["scout_pts"] * _scale).round(0)
+        _st["residual"] = (_st["projected_points"] - _st["expected"]).round(0)
+        _cols = ["web_name", "team_short", "pos", "actual_price", "scout_mins",
+                 "scout_pts", "expected", "projected_points", "residual",
+                 "g", "a", "cs", "dc", "bonus", "confidence"]
+        _st = _st[[c for c in _cols if c in _st.columns]].copy()
+        _st.columns = ["Player", "Team", "Pos", "Price", "Scout mins", "Scout pts",
+                       "Like-for-like", "Our pts", "Residual", "Goals", "Assists",
+                       "Clean sh.", "DEFCON", "Bonus", "Conf."][:len(_st.columns)]
+        st.dataframe(_st.round(2).sort_values("Scout pts", ascending=False),
+                     use_container_width=True, height=420, hide_index=True)
 
 st.markdown(
     f'<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:18px;">'

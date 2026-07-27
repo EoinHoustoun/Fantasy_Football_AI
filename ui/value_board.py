@@ -129,7 +129,8 @@ def _defcon_codes() -> list:
 def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 risk: float = 0.3, exclude_names: tuple = (), opening: float = 0.0,
                 max_attackers_per_club: int = 1,
-                opening_map: tuple = (), bench_budget=None):
+                opening_map: tuple = (), bench_budget=None,
+                force_names: tuple = ()):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
@@ -146,6 +147,9 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     tuple, not a dict, so the Streamlit cache key stays stable.
     `bench_budget` caps total bench spend, which is what makes a cheap-bench arm
     genuinely cheap rather than just unweighted.
+    `force_names` are players locked into the fifteen · the optimiser builds the
+    best squad it can AROUND them. They win over `exclude_names` if a player
+    somehow appears in both, because an explicit lock is the stronger intent.
     """
     from analytics.squad_milp import optimize_squad
 
@@ -167,6 +171,13 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
         bench = 1.0
     else:
         bench = 0.1
+
+    # Explicit locks are added on top of whatever the strategy already forces, and
+    # they beat a veto · picking a player and vetoing him is a mistake, not a rule.
+    locks = tuple(c for c in (_code(n) for n in force_names) if c)
+    if locks:
+        force = tuple(dict.fromkeys(force + locks))
+        exclude = tuple(c for c in exclude if c not in set(locks))
 
     d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
     r = max(0.0, min(1.0, float(risk)))
