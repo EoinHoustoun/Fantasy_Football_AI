@@ -111,6 +111,11 @@ Call `inject_global_animations()` at the top of every page. Provides:
 2. **Short names.** Players truncated with ellipsis, no wrapping. 10–12 chars cap on cards.
 3. **Less text.** No paragraph descriptions on nav tiles. Section purpose explained by the section title + section content, not a sub-caption.
 4. **No duplicate sections.** If a dedicated page exists (e.g., Transfers, Captain), link to it · don't re-render a smaller copy inside another page.
+4b. **Any `pitch_click` caller MUST dedupe on the returned `nonce`.** The
+   component replays its LAST value on EVERY rerun, so without deduping a popup
+   reopens whenever an unrelated control moves (a slider, a radio). Store the
+   nonce in `session_state` and act only when it changes. Bit us on the 26/27
+   Draft: "the player popup comes up randomly".
 5. **Never call `st.rerun()` in a button handler.** Streamlit already reruns on click. Double-rerun caused a race with the animation overlay SVG mount (TypeError).
 6. **Streamlit strips `style` attributes that contain only CSS custom properties.** `<span style="--x:5">` arrives with no style attribute at all. Carry custom-property values in a per-instance `<style>` rule instead (see `animations.count_up`).
 6b. **`st.markdown` escapes HTML when a line is whitespace-only.** A multi-line HTML card with an interpolated placeholder (`{flag_html}`) that is empty leaves a blank/whitespace line, which makes the markdown parser stop passing raw HTML through and render the rest as literal `<span>` text. **Always collapse card HTML to one line:** `return "".join(seg.strip() for seg in html.splitlines())`. (Bit us on the Value Board cards; see `views/18_draft_2026_27.py`.)
