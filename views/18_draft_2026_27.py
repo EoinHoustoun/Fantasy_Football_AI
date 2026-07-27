@@ -783,6 +783,89 @@ if opening > 0:
     st.caption("Opening-fixtures weight is a tie-breaker · it favours soft GW1-6 runs among "
                "similar players so the squad lasts longer, without overriding your best picks.")
 
+# ── Wildcard planner · what a reset at GW N actually buys ────────────────────
+_sec("🃏 Wildcard planner · what a reset would look like")
+st.caption("A Wildcard is unlimited free transfers, so the squad is rebuilt from "
+           "scratch on the fixtures that FOLLOW it. This shows who leaves, who "
+           "arrives, and what the reset is worth over the next six gameweeks.")
+
+_w1, _w2 = st.columns([2, 3])
+with _w1:
+    _wc_gw = st.slider("Play the Wildcard at GW", 2, 19, 4, 1, key="wc_gw")
+with _w2:
+    _wc_on = st.checkbox("Show me the Wildcard squad", value=False, key="wc_on")
+
+if _wc_on:
+    _wc_hi = min(38, _wc_gw + 5)
+    _wc_squad = solve_draft(
+        board, "⚖️ Optimal value", budget, risk, tuple(excluded), 1.0,
+        force_names=tuple(locked), opening_map=_window_map(_wc_gw, _wc_hi),
+        max_attackers_per_club=2 if _two_att else 1)
+
+    if _wc_squad is None:
+        st.error("No feasible Wildcard squad · widen the budget or drop a lock.")
+    else:
+        _new = _wc_squad["squad"]
+        _now_codes = set(squad["code"].astype(int))
+        _new_codes = set(_new["code"].astype(int))
+        _out = squad[~squad["code"].astype(int).isin(_new_codes)]
+        _in = _new[~_new["code"].astype(int).isin(_now_codes)]
+
+        # Value the reset over the SAME window for both squads · that is the only
+        # fair comparison, and it is what the wildcard is actually worth.
+        def _window_pts(sq):
+            return sum(_gw_points(r["pts"], int(r.get("team_id", 0) or 0), g)
+                       for _, r in sq.iterrows() if r["in_xi"]
+                       for g in range(_wc_gw, _wc_hi + 1))
+
+        _gain = _window_pts(_new) - _window_pts(squad)
+        _c1, _c2, _c3 = st.columns(3)
+        _c1.metric("Changes", f"{len(_in)}", help="Players in. A Wildcard makes them free.")
+        _c2.metric(f"GW{_wc_gw}-{_wc_hi} gain", f"{_gain:+.0f}",
+                   help="Extra projected XI points over the six weeks after the reset.")
+        _c3.metric("Spend", f"£{_wc_squad['squad_cost']:.1f}m")
+
+        if _gain < 6:
+            st.info(f"A reset here gains only **{_gain:+.0f}** points over six weeks. "
+                    f"That is inside the noise of the projection · the Wildcard is "
+                    f"probably better saved, unless you need it to repair injuries "
+                    f"the model cannot see.")
+
+        _oc, _ic = st.columns(2)
+        with _oc:
+            st.markdown(f'<div style="font-size:11px;font-weight:800;letter-spacing:0.18em;'
+                        f'color:#FF4B4B;text-transform:uppercase;margin-bottom:6px;">'
+                        f'Out ({len(_out)})</div>', unsafe_allow_html=True)
+            if _out.empty:
+                st.caption("Nobody · the squad already suits these fixtures.")
+            else:
+                st.dataframe(pd.DataFrame({
+                    "Face": [player_photo_url(c) for c in _out["code"]],
+                    "Player": _out["web_name"].values,
+                    "Pos": _out["position"].values,
+                    "£m": _out["price"].astype(float).round(1).values,
+                    "Proj": _out["pts"].astype(float).round(0).values,
+                }), hide_index=True, use_container_width=True,
+                    column_config={"Face": st.column_config.ImageColumn("", width="small")})
+        with _ic:
+            st.markdown(f'<div style="font-size:11px;font-weight:800;letter-spacing:0.18em;'
+                        f'color:#00FF87;text-transform:uppercase;margin-bottom:6px;">'
+                        f'In ({len(_in)})</div>', unsafe_allow_html=True)
+            if _in.empty:
+                st.caption("Nobody.")
+            else:
+                st.dataframe(pd.DataFrame({
+                    "Face": [player_photo_url(c) for c in _in["code"]],
+                    "Player": _in["web_name"].values,
+                    "Pos": _in["position"].values,
+                    "£m": _in["price"].astype(float).round(1).values,
+                    "Proj": _in["pts"].astype(float).round(0).values,
+                }), hide_index=True, use_container_width=True,
+                    column_config={"Face": st.column_config.ImageColumn("", width="small")})
+
+        st.caption(f"Built on GW{_wc_gw}-{_wc_hi} fixtures at full weight. Locks and "
+                   f"vetoes still apply, so you can force a player through the reset.")
+
 # ── Verdict lanes ──────────────────────────────────────────────────────────────
 _sec("🎯 The verdict · who to want, who to swerve")
 st.markdown(
