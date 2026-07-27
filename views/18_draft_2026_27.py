@@ -512,6 +512,7 @@ def _club_fixtures():
 
 
 _FIX = _club_fixtures()
+_TICKER_GWS = 12          # how far the popup's fixture strip runs
 
 
 def _gw_points(season_pts: float, team_id: int, gw: int) -> float:
@@ -623,8 +624,30 @@ def _player_dialog(code: int) -> None:
     if _note:
         st.info(f"✎ {_note}")
 
-    # The opening run · this is the graph that actually drives a draft decision.
+    # Every upcoming fixture, colour-coded · the run is usually the reason you
+    # are looking at a player at all, so it sits above the projection chart.
+    from components.fixture_ticker import player_fixture_strip, run_summary
     _tid = int(r.get("team_id", 0) or 0)
+    _sum6 = run_summary(_FIX, _tid, 1, 6)
+    _sum12 = run_summary(_FIX, _tid, 1, 12)
+    st.markdown(
+        " ".join(x.strip() for x in (
+            f'<div style="font-size:10px;font-weight:800;letter-spacing:0.18em;'
+            f'color:{MUTED};text-transform:uppercase;margin:14px 0 6px;">'
+            f'Fixtures · GW1 to GW{_TICKER_GWS}</div>').splitlines()),
+        unsafe_allow_html=True)
+    st.markdown(player_fixture_strip(_FIX, _tid, 1, _TICKER_GWS),
+                unsafe_allow_html=True)
+    _fdr6 = _sum6.get("mean_fdr")
+    _read = ("kind" if (_fdr6 or 3) <= 2.85 else
+             "tough" if (_fdr6 or 3) >= 3.2 else "average")
+    st.caption(
+        f"Opening six average **{_fdr6 if _fdr6 is not None else 'n/a'}** difficulty "
+        f"({_read}), {_sum6['home']} at home. First twelve average "
+        f"**{_sum12.get('mean_fdr')}**. Green is easy, red is hard · official FPL "
+        f"difficulty, which is set per club and does not vary by home or away.")
+
+    # The opening run · this is the graph that actually drives a draft decision.
     _gws = list(range(1, 11))
     _pts = [round(_gw_points(r.get("projected_points") or 0, _tid, g), 1) for g in _gws]
     _labels = []

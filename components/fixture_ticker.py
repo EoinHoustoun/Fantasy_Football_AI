@@ -119,3 +119,80 @@ def render_fixture_ticker(players_df: pd.DataFrame, top_n: int = 15) -> None:
     }
     charts.render(opt, height=f"{max(250, 40 * len(player_labels))}px",
                   key="fixture_ticker")
+
+
+# ── Single-player strip (2026-07-27) ──────────────────────────────────────────
+# The grid above predates the design system and keeps its own palette so the
+# pages using it do not shift. Anything NEW uses the binding FDR tokens from
+# CLAUDE.md: 1/2 green, 3 yellow, 4 orange, 5 red.
+DS_FDR_COLORS = {1: "#00FF87", 2: "#00FF87", 3: "#FFD60A",
+                 4: "#FF8C42", 5: "#FF4B4B"}
+DS_FDR_TEXT = {1: "#04231a", 2: "#04231a", 3: "#3a2f00",
+               4: "#2b1400", 5: "#ffffff"}
+
+
+def fdr_color(fdr) -> tuple:
+    """(background, text) for a fixture difficulty · design-system tokens."""
+    try:
+        k = int(round(float(fdr)))
+    except (TypeError, ValueError):
+        return "rgba(255,255,255,0.08)", "rgba(255,255,255,0.5)"
+    k = max(1, min(5, k))
+    return DS_FDR_COLORS[k], DS_FDR_TEXT[k]
+
+
+def player_fixture_strip(fixtures_by_gw, team_id: int, gw_lo: int = 1,
+                         gw_hi: int = 12, cell: int = 54) -> str:
+    """One club's run as a colour-coded strip · opponent, venue, difficulty.
+
+    `fixtures_by_gw` maps (team_id, gw) -> [(opponent_short, is_home, fdr)].
+    A gameweek with no fixture renders as a BLANK cell and a gameweek with two
+    stacks them, so doubles and blanks are visible rather than silently averaged.
+
+    Returns collapsed HTML · st.markdown escapes raw HTML when an interpolated
+    value leaves a whitespace-only line.
+    """
+    cells = []
+    for gw in range(int(gw_lo), int(gw_hi) + 1):
+        fx = fixtures_by_gw.get((int(team_id), gw), [])
+        head = (f'<div style="font-size:9px;font-weight:800;letter-spacing:0.06em;'
+                f'color:rgba(255,255,255,0.4);text-align:center;margin-bottom:3px;">'
+                f'{gw}</div>')
+        if not fx:
+            body = (f'<div style="background:rgba(255,255,255,0.06);'
+                    f'border:1px dashed rgba(255,255,255,0.18);border-radius:6px;'
+                    f'padding:6px 2px;text-align:center;color:rgba(255,255,255,0.35);'
+                    f'font-size:10px;font-weight:800;">BLANK</div>')
+        else:
+            rows = []
+            for opp, is_home, fdr in fx:
+                bg, fg = fdr_color(fdr)
+                rows.append(
+                    f'<div style="background:{bg};color:{fg};border-radius:6px;'
+                    f'padding:5px 2px;text-align:center;font-weight:900;'
+                    f'font-size:11px;line-height:1.15;">{str(opp).upper()}'
+                    f'<div style="font-size:9px;font-weight:800;opacity:0.75;">'
+                    f'{"H" if is_home else "A"}</div></div>')
+            body = ('<div style="display:flex;flex-direction:column;gap:3px;">'
+                    + "".join(rows) + '</div>')
+        cells.append(f'<div style="flex:0 0 {cell}px;">{head}{body}</div>')
+
+    html = ('<div style="display:flex;gap:5px;overflow-x:auto;padding:2px 0 6px;">'
+            + "".join(cells) + '</div>')
+    return " ".join(seg.strip() for seg in html.splitlines())
+
+
+def run_summary(fixtures_by_gw, team_id: int, gw_lo: int = 1, gw_hi: int = 6) -> dict:
+    """Mean difficulty, home count and blanks over a window · the one-line read."""
+    fdrs, homes, blanks, n = [], 0, 0, 0
+    for gw in range(int(gw_lo), int(gw_hi) + 1):
+        fx = fixtures_by_gw.get((int(team_id), gw), [])
+        if not fx:
+            blanks += 1
+            continue
+        for _opp, is_home, fdr in fx:
+            fdrs.append(float(fdr))
+            homes += 1 if is_home else 0
+            n += 1
+    mean = round(sum(fdrs) / len(fdrs), 2) if fdrs else None
+    return {"mean_fdr": mean, "home": homes, "games": n, "blanks": blanks}
