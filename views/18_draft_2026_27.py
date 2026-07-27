@@ -19,7 +19,7 @@ import pandas as pd
 import streamlit as st
 
 from components.animations import inject_global_animations
-from components.team_identity import team_dot
+from components.team_identity import face_html, player_photo_url, team_dot
 from config import LAST_COMPLETE_SEASON, NEXT_SEASON
 from analytics.value_verdicts import VERDICTS
 from ui import charts
@@ -32,6 +32,15 @@ def _num_safe(v):
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+def cap_badge(is_captain: bool) -> str:
+    """Gold C armband · matches the captain treatment on the pitch."""
+    if not is_captain:
+        return ""
+    return ('<span style="display:inline-block;background:#FFD700;color:#000;'
+            'border-radius:3px;padding:0 3px;font-size:8px;font-weight:900;'
+            'margin-right:3px;vertical-align:middle;">C</span>')
 
 
 POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#FF7B00"}
@@ -141,6 +150,11 @@ def _verdict_card(row: pd.Series) -> str:
     surp_txt = (f"+£{surp:.1f}m under model" if surp > 0
                 else f"£{-surp:.1f}m over model" if surp < 0 else "at model price")
 
+    # The face is the fastest way to recognise a player · a name in 11px is not.
+    # Falls back to the club kit automatically for new signings with no photo.
+    face = face_html(row.get("code"), int(row.get("team_code", 1) or 1),
+                     is_gkp=(pos == "GKP"), width=46)
+
     q_html = "".join(
         f'<li style="margin-bottom:3px;line-height:1.3;">{q}</li>' for q in _scout_questions(row)
     )
@@ -164,15 +178,17 @@ def _verdict_card(row: pd.Series) -> str:
 <div class="fplh-card-hover" style="background:rgba(22,26,34,0.85);
      border:1px solid rgba(255,255,255,0.08);border-top:3px solid {accent};
      border-radius:12px;padding:14px 16px;font-family:'Inter',sans-serif;">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-    {team_dot(row.get("team_short"), size=14)}
+  <div style="display:flex;align-items:center;gap:11px;margin-bottom:10px;">
+    {face}
     <div style="min-width:0;flex:1;">
       <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.45);">{team}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+        {team_dot(row.get("team_short"), size=9)}
+        <span style="font-size:11px;color:rgba(255,255,255,0.45);">{team}</span>
+      </div>
     </div>
     {flag_html}
     <span style="background:{pc};color:#000;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:900;flex-shrink:0;">{pos}</span>
-    <span style="font-size:14px;flex-shrink:0;" title="{verdict}">{emoji}</span>
   </div>
   <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-bottom:6px;">{sp_html}{conf_html}</div>
   <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:8px;">{mid}</div>
@@ -243,7 +259,7 @@ tiles = [
 st.markdown(
     '<div class="fplh-stagger" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;">'
     + "".join(
-        (f'<div style="{CARD}flex:1;min-width:150px;">'
+        (f'<div style="{CARD}flex:1;min-width:128px;">'
          f'<div style="font-size:10px;font-weight:800;letter-spacing:0.14em;color:{MUTED};text-transform:uppercase;">{lab}</div>'
          f'<div style="font-size:24px;font-weight:900;color:{acc};margin:2px 0;">{val}</div>'
          f'<div style="font-size:11px;color:rgba(255,255,255,0.45);">{sub}</div></div>')
@@ -353,6 +369,50 @@ if opening > 0 and "opening_factor" in squad.columns:
     _open_txt = f" · opening 6 fixtures {_lbl}"
 _sec(f"{mode.split(' ', 1)[1] if ' ' in mode else mode} · £{res['squad_cost']:.1f}m real spend · "
      f"XI {_xi_mean:.0f} pts mean / {_xi_floor:.0f} floor{_bb}{_open_txt}")
+
+# ── Live readout · what this squad is, and what your tinkering did to it ───────
+# The point of a control panel is seeing the effect. Every number here moves the
+# moment a slider does, so a change is legible instead of guessed at.
+_bank = float(budget) - float(res["squad_cost"])
+_prem = int((squad["price"] >= 9.0).sum())
+_lowc = int((squad["confidence"] == "Low").sum()) if "confidence" in squad.columns else 0
+_summary = [
+    ("Spend", f"£{res['squad_cost']:.1f}m", f"£{_bank:.1f}m in the bank", "#00FF87"),
+    ("XI mean", f"{_xi_mean:.0f}", "projected points", "#FFD700"),
+    ("XI floor", f"{_xi_floor:.0f}", "if the range breaks against you", "#04f5ff"),
+    ("Premiums", str(_prem), "at £9.0m or more", "#e90052"),
+    ("Low conf.", str(_lowc), "of 15 · small sample or override",
+     "#FF4B4B" if _lowc >= 6 else MUTED),
+]
+st.markdown(
+    '<div class="fplh-stagger" style="display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 12px;">'
+    + "".join(
+        f'<div style="{CARD}flex:1;min-width:118px;">'
+        f'<div style="font-size:10px;font-weight:800;letter-spacing:0.14em;color:{MUTED};'
+        f'text-transform:uppercase;">{lab}</div>'
+        f'<div style="font-size:22px;font-weight:900;color:{acc};margin:2px 0;">{val}</div>'
+        f'<div style="font-size:11px;color:rgba(255,255,255,0.45);">{sub}</div></div>'
+        for lab, val, sub, acc in _summary)
+    + "</div>", unsafe_allow_html=True)
+
+# The eleven, as faces · recognise the squad before reading a single number.
+_xi_sorted = _xi.assign(_o=_xi["position"].map({"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3})) \
+    .sort_values(["_o", "pts"], ascending=[True, False])
+st.markdown(
+    " ".join(s.strip() for s in (
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">'
+        + "".join(
+            f'<div style="text-align:center;width:62px;">'
+            f'{face_html(r["code"], int(r.get("team_code", 1) or 1), r["position"] == "GKP", 46)}'
+            f'<div style="font-size:10px;font-weight:800;color:#fff;margin-top:3px;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+            f'{cap_badge(bool(r["is_captain"]))}{r["web_name"][:11]}</div>'
+            f'<div style="font-size:9px;color:{POS_COLORS.get(r["position"], MUTED)};'
+            f'font-weight:800;">£{r["price"]:.1f} · {r["pts"]:.0f}</div></div>'
+            for _, r in _xi_sorted.iterrows())
+        + "</div>").splitlines()),
+    unsafe_allow_html=True)
+
 if opening > 0:
     st.caption("Opening-fixtures weight is a tie-breaker · it favours soft GW1-6 runs among "
                "similar players so the squad lasts longer, without overriding your best picks.")
@@ -421,22 +481,33 @@ with t_scout:
 
 # ── Minutes → points thesis, coloured by verdict ───────────────────────────────
 _sec("Minutes drive points · the whole thesis in one view")
+# Faces only for the very top · the high-minutes, high-points corner is crowded by
+# definition, so 28 faces there became a pile-up that hid the trend it was meant to
+# show. Ten anchors the premium cluster without burying it.
+_faceable = set(board.nlargest(10, "projected_points")["code"])
 _groups = []
 for verdict, acc, _e, _m in [(k,) + v for k, v in VERDICT_META.items() if k != VERDICTS.SCOUT]:
     d = board[board["verdict"] == verdict]
     if d.empty:
         continue
-    _groups.append((verdict, acc, [
-        {"x": int(r["projected_minutes"]), "y": round(float(r["projected_points"]), 1),
-         "name": str(r["web_name"]), "size": 7,
-         "tip": (f"{r['web_name']} · {r['team_name']}<br/>£{r['actual_price']:.1f}m · "
-                 f"{int(r['projected_minutes']):,} mins → {r['projected_points']:.0f} pts")}
-        for _, r in d.iterrows()
-    ]))
+    pts = []
+    for _, r in d.iterrows():
+        p = {"x": int(r["projected_minutes"]), "y": round(float(r["projected_points"]), 1),
+             "name": str(r["web_name"]), "size": 7,
+             "tip": (f"{r['web_name']} · {r['team_name']}<br/>£{r['actual_price']:.1f}m · "
+                     f"{int(r['projected_minutes']):,} mins → {r['projected_points']:.0f} pts")}
+        if r["code"] in _faceable:
+            p["image"] = player_photo_url(r["code"])
+            p["size"] = 26
+        pts.append(p)
+    _groups.append((verdict, acc, pts))
 charts.render(
     charts.multi_scatter_option(_groups, x_name="Projected minutes 26/27", y_name="Projected points"),
-    height="340px", key="board_min_pts",
+    height="380px", key="board_min_pts",
 )
+st.caption("The top 10 by projection carry their face. Everything trends up and to the "
+           "right because **minutes are the master variable** · a player who does not "
+           "start cannot score, whatever his per-90 says.")
 
 # ── Full table ─────────────────────────────────────────────────────────────────
 # ── Inspect any player ─────────────────────────────────────────────────────────
@@ -584,12 +655,17 @@ _pos_df = board[board["position"] == _r["position"]].nlargest(12, "projected_poi
 if _pick not in set(_pos_df["web_name"]):
     _pos_df = pd.concat([_pos_df, board[board["web_name"] == _pick]])
 _pos_df = _pos_df.sort_values("projected_points")
-_bar_colors = ["#FFD700" if n == _pick else "#04f5ff" for n in _pos_df["web_name"]]
+_bar_colors = ["#FFD700" if n == _pick else "rgba(4,245,255,0.55)"
+               for n in _pos_df["web_name"]]
 _opt = charts.bar_option(x=list(_pos_df["web_name"]),
                          y=[round(float(v), 0) for v in _pos_df["projected_points"]],
                          colors=_bar_colors, horizontal=True)
 _opt["tooltip"]["formatter"] = "{b}: {c} proj pts"
-charts.render(_opt, height="300px", key="inspect_rank")
+_opt["grid"]["left"] = 150
+# Faces on the axis · you recognise a rival for the slot before you read his name.
+_opt = charts.with_image_labels(
+    _opt, [player_photo_url(c) for c in _pos_df["code"]], size=22)
+charts.render(_opt, height="340px", key="inspect_rank")
 st.caption(f"Where **{_pick}** is projected to finish among {_r['position']}s (gold), by projected 26/27 points.")
 
 # ── Full table ─────────────────────────────────────────────────────────────────
@@ -597,20 +673,67 @@ _sec("Every price · every verdict")
 tab_all, tab_surprise, tab_scout = st.tabs(
     ["All players", "Biggest bargains & taxes", "Second opinion · Scout"])
 
-table = board[["web_name", "position", "team_name", "verdict", "confidence",
-               "actual_price", "pricing_surprise", "projected_points", "proj_lo", "proj_hi",
-               "value_score", "ownership", "last_season_points"]].copy()
-table.columns = ["Player", "Pos", "Team", "Verdict", "Conf.", "Price 26/27 (£m)",
-                 "vs model (£m)", "Proj pts", "Low", "High", "Pts/£m", "Owned %", "25/26 pts"]
-table = table.round(2)
+_CONF_DOT = {"High": "🟢", "Medium": "🟠", "Low": "🔴"}
+_VERDICT_DOT = {VERDICTS.NECESSITY: "🥇", VERDICTS.VALUE: "🟢",
+                VERDICTS.OVERPRICED: "🔴", VERDICTS.FAIR: "⚪", VERDICTS.SCOUT: "🔍"}
+
+
+def _readable(df: pd.DataFrame) -> pd.DataFrame:
+    """Board rows as a scannable table · face, then identity, then numbers.
+
+    Bars beat bare decimals for ranking at a glance, and a dot beats a word for
+    verdict and confidence, so the eye lands on the number that matters.
+    """
+    t = pd.DataFrame({
+        "Face": [player_photo_url(c) for c in df["code"]],
+        "Player": df["web_name"].values,
+        "Pos": df["position"].values,
+        "Team": df["team_name"].values,
+        "Verdict": [f"{_VERDICT_DOT.get(v, '⚪')} {v}" for v in df["verdict"]],
+        "Conf.": [f"{_CONF_DOT.get(c, '·')} {c}" for c in df["confidence"].fillna("")],
+        "£m": df["actual_price"].astype(float).round(1).values,
+        "vs model": df["pricing_surprise"].astype(float).round(1).values,
+        "Proj pts": df["projected_points"].astype(float).round(0).values,
+        "Range": [f"{lo:.0f}–{hi:.0f}" for lo, hi in
+                  zip(df["proj_lo"].fillna(0), df["proj_hi"].fillna(0))],
+        "Pts/£m": df["value_score"].astype(float).round(1).values,
+        "Owned %": df["ownership"].astype(float).round(1).values,
+        "25/26": df["last_season_points"].astype(float).round(0).values,
+    })
+    return t
+
+
+_COLCFG = {
+    "Face": st.column_config.ImageColumn("", width="small", pinned=True),
+    "Player": st.column_config.TextColumn("Player", width="medium", pinned=True),
+    "£m": st.column_config.NumberColumn("£m", format="%.1f", width="small"),
+    "vs model": st.column_config.NumberColumn(
+        "vs model", format="%+.1f", width="small",
+        help="Positive = FPL priced them BELOW our model (a bargain). Negative = a tax."),
+    "Proj pts": st.column_config.ProgressColumn(
+        "Proj pts", format="%.0f", min_value=0.0, max_value=260.0, width="medium"),
+    "Pts/£m": st.column_config.ProgressColumn(
+        "Pts/£m", format="%.1f", min_value=0.0, max_value=32.0, width="small"),
+    "Owned %": st.column_config.NumberColumn("Owned %", format="%.1f%%", width="small"),
+    "25/26": st.column_config.NumberColumn("25/26 pts", format="%.0f", width="small"),
+}
+
+table = _readable(board)
 
 with tab_all:
-    st.dataframe(table.sort_values("Proj pts", ascending=False),
-                 use_container_width=True, height=420, hide_index=True)
+    _pos_f = st.multiselect("Filter by position", ["GKP", "DEF", "MID", "FWD"],
+                            default=[], key="tbl_pos", label_visibility="collapsed",
+                            placeholder="Filter by position · all shown")
+    _t = table[table["Pos"].isin(_pos_f)] if _pos_f else table
+    st.dataframe(_t.sort_values("Proj pts", ascending=False),
+                 use_container_width=True, height=460, hide_index=True,
+                 column_config=_COLCFG)
 with tab_surprise:
-    st.caption("Positive vs model = FPL priced them below the model (bargain). Negative = tax.")
-    st.dataframe(table.reindex(table["vs model (£m)"].abs().sort_values(ascending=False).index).head(40),
-                 use_container_width=True, height=420, hide_index=True)
+    st.caption("Positive **vs model** = FPL priced them below our projection, a bargain. "
+               "Negative = a reputation tax. Sorted by the size of the gap either way.")
+    st.dataframe(
+        table.reindex(table["vs model"].abs().sort_values(ascending=False).index).head(40),
+        use_container_width=True, height=460, hide_index=True, column_config=_COLCFG)
 
 with tab_scout:
     if _scout_df is None:
@@ -623,18 +746,51 @@ with tab_scout:
             f"our numbers · **Residual** is the genuine disagreement after that. "
             f"Sort by Residual to find where the two models actually differ, and by "
             f"Scout mins to find players ours cannot see.")
-        _st = _scout_df.copy()
-        _st["expected"] = (_st["scout_pts"] * _scale).round(0)
-        _st["residual"] = (_st["projected_points"] - _st["expected"]).round(0)
-        _cols = ["web_name", "team_short", "pos", "actual_price", "scout_mins",
-                 "scout_pts", "expected", "projected_points", "residual",
-                 "g", "a", "cs", "dc", "bonus", "confidence"]
-        _st = _st[[c for c in _cols if c in _st.columns]].copy()
-        _st.columns = ["Player", "Team", "Pos", "Price", "Scout mins", "Scout pts",
-                       "Like-for-like", "Our pts", "Residual", "Goals", "Assists",
-                       "Clean sh.", "DEFCON", "Bonus", "Conf."][:len(_st.columns)]
-        st.dataframe(_st.round(2).sort_values("Scout pts", ascending=False),
-                     use_container_width=True, height=420, hide_index=True)
+        _sd = _scout_df.copy()
+        _sd["expected"] = (_sd["scout_pts"] * _scale).round(0)
+        _sd["residual"] = (_sd["projected_points"] - _sd["expected"]).round(0)
+        _st = pd.DataFrame({
+            "Face": [player_photo_url(c) for c in _sd["code"]],
+            "Player": _sd["web_name"].values,
+            "Pos": _sd["pos"].values,
+            "Team": _sd["team_short"].values,
+            "£m": _sd["actual_price"].astype(float).round(1).values,
+            "Scout mins": _sd["scout_mins"].astype(float).round(0).values,
+            "Scout pts": _sd["scout_pts"].astype(float).round(0).values,
+            "Like-for-like": _sd["expected"].astype(float).values,
+            "Our pts": _sd["projected_points"].astype(float).round(0).values,
+            "Residual": _sd["residual"].astype(float).values,
+            "Goals": _sd["g"].astype(float).round(1).values,
+            "Assists": _sd["a"].astype(float).round(1).values,
+            "Clean sh.": _sd["cs"].astype(float).round(1).values,
+            "DEFCON": _sd["dc"].astype(float).round(1).values,
+            "Conf.": [f"{_CONF_DOT.get(c, '·')} {c}"
+                      for c in _sd["confidence"].fillna("")],
+        })
+        st.dataframe(
+            _st.sort_values("Scout pts", ascending=False),
+            use_container_width=True, height=460, hide_index=True,
+            column_config={
+                "Face": st.column_config.ImageColumn("", width="small", pinned=True),
+                "Player": st.column_config.TextColumn("Player", width="medium", pinned=True),
+                "£m": st.column_config.NumberColumn("£m", format="%.1f", width="small"),
+                "Scout mins": st.column_config.ProgressColumn(
+                    "Scout mins", format="%.0f", min_value=0.0, max_value=3420.0,
+                    width="medium",
+                    help="Scout's projected minutes · the signal our model lacks for "
+                         "anyone who missed 25/26."),
+                "Scout pts": st.column_config.NumberColumn("Scout pts", format="%.0f"),
+                "Like-for-like": st.column_config.NumberColumn(
+                    "Like-for-like", format="%.0f",
+                    help=f"Scout rescaled onto our {_scale:.2f}x scale · compare THIS to Our pts."),
+                "Our pts": st.column_config.NumberColumn("Our pts", format="%.0f"),
+                "Residual": st.column_config.NumberColumn(
+                    "Residual", format="%+.0f",
+                    help="Our pts minus Like-for-like. Negative = we are more bearish "
+                         "than even our own scale explains. This is the real disagreement."),
+                "DEFCON": st.column_config.ProgressColumn(
+                    "DEFCON", format="%.1f", min_value=0.0, max_value=42.0, width="small"),
+            })
 
 st.markdown(
     f'<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:18px;">'
