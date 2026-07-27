@@ -646,8 +646,13 @@ def _player_dialog(code: int) -> None:
                "shape, not a match forecast.")
 
 
+# The component replays its LAST value on every rerun, so without deduping on the
+# nonce the popup reopens whenever any other control moves (the gameweek slider,
+# a radio, the budget). Dedupe, exactly as the My Team pitch does.
 if _click and isinstance(_click, dict) and _click.get("action") == "detail":
-    _player_dialog(int(_click["id"]))
+    if _click.get("nonce") != st.session_state.get("_draft_pitch_nonce"):
+        st.session_state["_draft_pitch_nonce"] = _click.get("nonce")
+        _player_dialog(int(_click["id"]))
 
 if opening > 0:
     st.caption("Opening-fixtures weight is a tie-breaker · it favours soft GW1-6 runs among "
@@ -731,129 +736,23 @@ st.caption("The top 10 by projection carry their face. Everything trends up and 
            "right because **minutes are the master variable** · a player who does not "
            "start cannot score, whatever his per-90 says.")
 
-# ── Full table ─────────────────────────────────────────────────────────────────
-# ── Inspect any player ─────────────────────────────────────────────────────────
+# ── Inspect any player ────────────────────────────────────────────────────────
+# One player view, not two. The shirt popup already shows everything, so this is
+# just a way to reach it for someone who is NOT in the current squad.
 _sec("🔍 Inspect any player")
+_pick = st.selectbox(
+    "Search any player in the game", options=sorted(board["web_name"].tolist()),
+    key="draft_inspect",
+    help="Squad players open the same card by tapping their shirt on the pitch.")
+if st.button(f"📊 Open {_pick}'s card", use_container_width=False):
+    _row = board[board["web_name"] == _pick]
+    if not _row.empty:
+        _player_dialog(int(_row.iloc[0]["code"]))
 
-
-_pick = st.selectbox("Pick a player to see the numbers behind the projection",
-                     options=sorted(board["web_name"].tolist()), key="draft_inspect")
-_r = board[board["web_name"] == _pick].iloc[0]
-_ls = _last_season_stats()
-_code = int(_r["code"])
-_s = _ls.loc[_code] if _code in _ls.index else None
-
-
-def _tile(label, value, color="#fff"):
-    return (f'<div style="text-align:center;flex:1;min-width:66px;">'
-            f'<div style="font-size:18px;font-weight:900;color:{color};">{value}</div>'
-            f'<div style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;'
-            f'color:rgba(255,255,255,0.4);">{label}</div></div>')
-
-
-_v = str(_r.get("verdict", ""))
-_acc, _emoji, _ = VERDICT_META.get(_v, VERDICT_META[VERDICTS.FAIR])
-_cc = {"High": "#00FF87", "Medium": "#FFA500", "Low": "#FF6B6B"}.get(str(_r.get("confidence")), MUTED)
-_of = float(_r.get("opening_factor") or 1.0)
-_of_lbl, _of_col = (("Kind", "#00FF87") if _of >= 1.03
-                    else ("Tough", "#FF6B6B") if _of <= 0.97 else ("Average", MUTED))
-_dc = _defcon_per90()
-_dcr = _dc.loc[_code] if (not _dc.empty and _code in _dc.index) else None
-
-# Set pieces · the official FPL order, so this is fact rather than a guess.
-_p_ord, _f_ord, _c_ord = (_num_safe(_r.get("pens_order")), _num_safe(_r.get("fk_order")),
-                          _num_safe(_r.get("corners_order")))
-_sp_bits = []
-if _p_ord == 1:
-    _sp_bits.append('<span style="background:#FFD700;color:#000;border-radius:4px;'
-                    'padding:1px 7px;font-size:10px;font-weight:900;">⚽ ON PENALTIES</span>')
-elif _p_ord in (2, 3):
-    _sp_bits.append(f'<span style="color:#FFD700;font-size:11px;font-weight:800;">'
-                    f'Penalties: #{_p_ord} in the queue</span>')
-if _f_ord in (1, 2):
-    _sp_bits.append(f'<span style="color:#04f5ff;font-size:11px;font-weight:800;">'
-                    f'Free kicks #{_f_ord}</span>')
-if _c_ord in (1, 2):
-    _sp_bits.append(f'<span style="color:#04f5ff;font-size:11px;font-weight:800;">'
-                    f'Corners #{_c_ord}</span>')
-_sp_line = ('<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;'
-            'margin-bottom:8px;">' + "".join(_sp_bits) + '</div>') if _sp_bits else \
-           ('<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:8px;">'
-            'Not on penalties or first-choice set pieces.</div>')
-
-_hdr = "".join(s.strip() for s in f"""
-<div style="{CARD}border-top:3px solid {_acc};margin-bottom:10px;">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-    {face_html(_code, int(_r.get('team_code', 1) or 1), _r.get('position') == 'GKP', 54)}
-    {team_dot(_r.get('team_short'), size=16)}
-    <div style="font-size:20px;font-weight:900;color:#fff;">{_pick}</div>
-    <div style="font-size:12px;color:{MUTED};">{_r.get('team_name','')} · {_r.get('position','')} · £{float(_r.get('actual_price') or 0):.1f}m</div>
-    <div style="flex:1;"></div>
-    <span style="font-size:16px;" title="{_v}">{_emoji}</span>
-    <span style="font-size:11px;font-weight:800;color:{_cc};text-transform:uppercase;">{_r.get('confidence','')}</span>
-  </div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;">
-    {_tile('Proj 26/27', f"{float(_r.get('projected_points') or 0):.0f}", '#00FF87')}
-    {_tile('Range', f"{float(_r.get('proj_lo') or 0):.0f}–{float(_r.get('proj_hi') or 0):.0f}", _cc)}
-    {_tile('Pts/£m', f"{float(_r.get('value_score') or 0):.1f}", '#FFD700')}
-    {_tile('Owned', f"{float(_r.get('ownership') or 0):.0f}%", '#04f5ff')}
-    {_tile('vs model', f"{float(_r.get('pricing_surprise') or 0):+.1f}", '#fff')}
-    {_tile('Open 1-6', _of_lbl, _of_col)}
-    {_tile('Proj mins', f"{float(_r.get('projected_minutes') or 0):,.0f}",
-           '#00FF87' if float(_r.get('projected_minutes') or 0) >= 2400 else '#FFA500')}
-    {_tile('DEFCON /90', f"{float(_dcr['dc_per90']):.1f}" if _dcr is not None else '·',
-           '#00FF87' if (_dcr is not None and float(_dcr['dc_per90']) >= 10) else MUTED)}
-    {_tile('DEFCON hit', f"{float(_dcr['dc_hit_rate'])*100:.0f}%" if _dcr is not None else '·',
-           '#00FF87' if (_dcr is not None and float(_dcr['dc_hit_rate']) >= 0.5) else MUTED)}
-  </div>
-</div>""".splitlines())
-st.markdown(_hdr, unsafe_allow_html=True)
-st.markdown(_sp_line, unsafe_allow_html=True)
-if _dcr is not None and str(_r.get("position")) in ("DEF", "MID"):
-    _thr = 10 if _r.get("position") == "DEF" else 12
-    st.caption(
-        f"DEFCON needs **{_thr}** defensive actions in a match to pay 2 points. "
-        f"{_pick} averaged **{float(_dcr['dc_per_start']):.1f}** per start last season "
-        f"and cleared the bar in **{float(_dcr['dc_hit_rate'])*100:.0f}%** of them "
-        f"({int(_dcr['starts'])} starts). The hit rate is what converts to points · "
-        f"a high average built on a few spikes does not.")
-
-if _s is not None:
-    _ev = "".join(s.strip() for s in f"""
-<div style="{CARD}margin-bottom:6px;">
-  <div style="font-size:10px;font-weight:800;letter-spacing:0.14em;color:{MUTED};text-transform:uppercase;margin-bottom:8px;">25/26 evidence · the basis for the projection</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;">
-    {_tile('Points', f"{float(_s.get('total_points') or 0):.0f}")}
-    {_tile('Goals', f"{float(_s.get('goals') or 0):.0f}", '#FF7B00')}
-    {_tile('Assists', f"{float(_s.get('assists') or 0):.0f}", '#e90052')}
-    {_tile('xGI', f"{float(_s.get('xgi') or 0):.1f}", '#04f5ff')}
-    {_tile('DEFCON', f"{float(_s.get('defcon_points') or 0):.0f}", '#00FF87')}
-    {_tile('Clean sh.', f"{float(_s.get('clean_sheets') or 0):.0f}", '#04f5ff')}
-    {_tile('Minutes', f"{float(_s.get('minutes') or 0):,.0f}")}
-    {_tile('PPG', f"{float(_s.get('ppg') or 0):.1f}", '#FFD700')}
-  </div>
-</div>""".splitlines())
-    st.markdown(_ev, unsafe_allow_html=True)
-    _cn = str(_r.get("confidence_note", "") or "")
-    _pens = _r.get("pens_order")
-    _sp = " · ⚽ on penalties" if (_num_safe(_pens) == 1) else ""
-    _on = str(_r.get("override_note", "") or "")
-    _note = " · ".join(x for x in [_cn, _on] if x)
-    st.caption(f"Projected **{float(_r.get('projected_points') or 0):.0f}** pts (range "
-               f"{float(_r.get('proj_lo') or 0):.0f}–{float(_r.get('proj_hi') or 0):.0f}), "
-               f"confidence **{_r.get('confidence','')}**{_sp}."
-               + (f" {_note}." if _note else ""))
-else:
-    st.caption("No 2025/26 record · this is a promoted-club or new-signing player (Scout). "
-               "Judge on the eye test and the opening fixtures until data lands.")
-
-
-# ── Second opinion · Scout's projected breakdown for this player ──────────────
-# This is the ONLY signal for a player with no Premier League record (Vuskovic
-# played 0 PL minutes in 25/26), so it carries the most weight exactly where our
-# own projection carries the least.
+# ── Second opinion · Scout's snapshot joined to the board ─────────────────────
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
 def _scout_rows():
+    """(matched Scout rows, our scale vs theirs). None when no snapshot is saved."""
     from analytics.scout_projections import load_snapshot, match_to_board, model_scale
     snap = load_snapshot()
     if snap is None:
@@ -863,62 +762,6 @@ def _scout_rows():
 
 
 _scout_df, _scale = _scout_rows()
-if _scout_df is not None:
-    _sc = _scout_df[_scout_df["web_name"] == _pick]
-    if not _sc.empty:
-        _sr = _sc.iloc[0]
-        _mins = float(_sr.get("scout_mins") or 0)
-        _stiles = [
-            ("Proj pts", f"{float(_sr.get('scout_pts') or 0):.0f}", "#FFD700"),
-            ("Minutes", f"{_mins:,.0f}", "#00FF87" if _mins >= 2400 else "#FFA500"),
-            ("Goals", f"{float(_sr.get('g') or 0):.1f}", "#FF7B00"),
-            ("Assists", f"{float(_sr.get('a') or 0):.1f}", "#e90052"),
-            ("Clean sh.", f"{float(_sr.get('cs') or 0):.1f}", "#04f5ff"),
-            ("DEFCON", f"{float(_sr.get('dc') or 0):.1f}", "#00FF87"),
-            ("Bonus", f"{float(_sr.get('bonus') or 0):.1f}", "#FFD700"),
-            ("Yellows", f"{float(_sr.get('yc') or 0):.1f}", "#FF4B4B"),
-        ]
-        st.markdown(
-            " ".join(s.strip() for s in f"""
-<div style="{CARD}border-left:3px solid #FFD700;margin-top:10px;">
-  <div style="font-size:10px;font-weight:800;letter-spacing:0.18em;color:#FFD700;
-  text-transform:uppercase;margin-bottom:8px;">Second opinion · Fantasy Football Scout 26/27</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;">
-    {"".join(_tile(l, v, c) for l, v, c in _stiles)}
-  </div>
-</div>""".splitlines()),
-            unsafe_allow_html=True)
-        _ours = float(_r.get("projected_points") or 0)
-        _exp = float(_sr.get("scout_pts") or 0) * _scale
-        _resid = _ours - _exp
-        _verdict = ("both models agree" if abs(_resid) < 25 else
-                    "we are far more bullish" if _resid > 0 else
-                    "we are far more bearish")
-        st.caption(
-            f"Scout {float(_sr.get('scout_pts') or 0):.0f} pts against our {_ours:.0f}. "
-            f"Our model runs at {_scale:.2f}× Scout's scale, so the like-for-like "
-            f"figure is **{_exp:.0f}** · {_verdict} (residual {_resid:+.0f}). "
-            + ("Ours has little or no 25/26 minutes to learn from here, so lean on "
-               "Scout's minutes forecast." if _mins > 0 and float(_r.get('last_season_minutes') or 0) < 900
-               else ""))
-
-# where they rank in their position, by projection
-_pos_df = board[board["position"] == _r["position"]].nlargest(12, "projected_points")
-if _pick not in set(_pos_df["web_name"]):
-    _pos_df = pd.concat([_pos_df, board[board["web_name"] == _pick]])
-_pos_df = _pos_df.sort_values("projected_points")
-_bar_colors = ["#FFD700" if n == _pick else "rgba(4,245,255,0.55)"
-               for n in _pos_df["web_name"]]
-_opt = charts.bar_option(x=list(_pos_df["web_name"]),
-                         y=[round(float(v), 0) for v in _pos_df["projected_points"]],
-                         colors=_bar_colors, horizontal=True)
-_opt["tooltip"]["formatter"] = "{b}: {c} proj pts"
-_opt["grid"]["left"] = 150
-# Faces on the axis · you recognise a rival for the slot before you read his name.
-_opt = charts.with_image_labels(
-    _opt, [player_photo_url(c) for c in _pos_df["code"]], size=22)
-charts.render(_opt, height="340px", key="inspect_rank")
-st.caption(f"Where **{_pick}** is projected to finish among {_r['position']}s (gold), by projected 26/27 points.")
 
 # ── Full table ─────────────────────────────────────────────────────────────────
 _sec("Every price · every verdict")
