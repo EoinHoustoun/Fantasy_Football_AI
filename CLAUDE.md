@@ -92,6 +92,20 @@ Call `inject_global_animations()` at the top of every page. Provides:
 - `scribble_swap_overlay(out, in)` · full-screen SVG scribble shown on squad swaps
 - `confetti_burst()` · celebration overlay (not wired yet; use for captain-confirm moments)
 
+### Faces and readable tables (2026-07-27)
+- **Player headshots go through `components/team_identity.face_html(code, team_code,
+  is_gkp, width)`** · automatic club-kit fallback for new signings with no photo.
+  `player_photo_url(code)` gives the bare URL for charts and `st.column_config`.
+  The CDN path is **`premierleague25`** and stays that way · `premierleague26` and
+  `premierleague24` both return 502. Plain code, no `p` prefix (a `p` prefix 403s).
+- **Tables:** prefer `st.column_config` over raw dataframes · `ImageColumn` for the
+  face (pin it AND the name so both survive horizontal scroll), `ProgressColumn`
+  where rank-at-a-glance beats a decimal, coloured dots for categorical verdicts.
+- **Faces in charts:** `charts.with_image_labels` for bar-axis faces, and a
+  per-point `image` key for scatter symbols. **Cap the count.** 28 faces on the
+  minutes-vs-points scatter piled up in the high-minutes corner and hid the trend;
+  10 anchors it. Bars never overlap, so a face per bar is safe.
+
 ### Rules that prevent UI drift
 1. **Rounded everything to 2dp.** Every numeric column on every page.
 2. **Short names.** Players truncated with ellipsis, no wrapping. 10–12 chars cap on cards.
