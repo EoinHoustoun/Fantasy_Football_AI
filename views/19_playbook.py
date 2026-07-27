@@ -29,7 +29,7 @@ CHART_TITLE = {"color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Crunching 10 seasons of data…")
-def _answers(_v: int = 3):   # bump _v to bust the cache when analyses change
+def _answers(_v: int = 4):   # bump _v to bust the cache when analyses change
     from data.processors.archive import (build_optimizer_input, load_gw_archive,
                                          load_season_summary)
     from analytics import playbook as pb
@@ -54,6 +54,10 @@ def _answers(_v: int = 3):   # bump _v to bust the cache when analyses change
         "icon_field": pb.icon_vs_field(summary),
         "bench": pb.bench_doctrine(summary),
         "defcon_mix": pb.defcon_mix(summary),
+        # Q13-Q15 · the early-season chip route (2026-07-27)
+        "early_bb": pb.early_bench_boost(arch, summary),
+        "decay": pb.wildcard_decay(arch, summary),
+        "opening": pb.opening_fixture_signal(arch),
     }
 
 
@@ -612,6 +616,157 @@ opt["title"] = {"text": "Five-defender mixes · usable points under one budget",
 opt["grid"]["top"] = 36
 opt["grid"]["left"] = 200
 charts.render(opt, height="300px", key="pb_defcon_mix")
+
+# ── Q13 Does an early Bench Boost pay? ───────────────────────────────────────
+_bb = A["early_bb"]
+if not _bb.empty:
+    _be = _bb["break_even_gws"].dropna()
+    _med = float(_be.median()) if not _be.empty else 0.0
+    _last = _bb[_bb["season"] == LAST_COMPLETE_SEASON]
+    _last_be = float(_last["break_even_gws"].iloc[0]) if not _last.empty \
+        and pd.notna(_last["break_even_gws"].iloc[0]) else None
+    _question(
+        13, "Does an early Bench Boost pay?",
+        f"A Boost squad needs all fifteen to start, and that costs XI strength "
+        f"<b>every week you carry it</b>. Across 10 seasons the opening-window "
+        f"dilution was <b>{_bb['dilution_per_gw'].median():.1f} pts per gameweek</b> "
+        f"against a chip worth <b>{_bb['bb_gain'].median():.0f} pts</b> in the single "
+        f"week you play it · a break-even of <b>{_med:.1f} gameweeks</b> "
+        f"(range {_be.min():.1f} to {_be.max():.1f}). "
+        + (f"But {LAST_COMPLETE_SEASON}, the only DEFCON season and the one that "
+           f"resembles 2026-27, breaks even at <b>{_last_be:.1f} gameweeks</b>: cheap "
+           f"defenders now carry a real floor, so an all-playing fifteen barely costs "
+           f"anything. " if _last_be else "")
+        + f"Rule: <b>an early Bench Boost is affordable, but it starts a clock</b> · "
+        f"play it GW1-2 and plan the reset within roughly "
+        f"{_med:.0f}-{_last_be:.0f} gameweeks. "
+        f"<i>Both arms are hindsight-built and differ by one constraint, so the gap "
+        f"is honest even though the levels are optimistic.</i>",
+        "#FFD700")
+    opt = charts.grouped_bars_option(
+        x=_bb["season"].tolist(),
+        series=[("XI dilution per GW", _bb["dilution_per_gw"].tolist(), "#FF4B4B"),
+                ("Bench Boost gain (one week)", _bb["bb_gain"].tolist(), "#00FF87")])
+    opt["title"] = {"text": "Bench Boost · weekly cost against one-off gain",
+                    "textStyle": CHART_TITLE}
+    opt["grid"]["top"] = 46
+    opt["legend"]["top"] = 22
+    charts.render(opt, height="290px", key="pb_early_bb")
+
+# ── Q14 When does a first-half Wildcard pay? ─────────────────────────────────
+_dc = A["decay"]
+if not _dc.empty:
+    _by_age = _dc.groupby("age_gws")["eval_pts"].mean().round(1)
+    _fresh = float(_by_age.iloc[0])
+    _drop3 = _fresh - float(_by_age.loc[3]) if 3 in _by_age.index else 0.0
+    _drop_all = _fresh - float(_by_age.iloc[-1])
+    _question(
+        14, "When does a first-half Wildcard actually pay?",
+        f"Squads go stale <b>fast, then stop</b>. Scoring squads of different ages on "
+        f"the same later gameweeks ({len(_dc)} observations over "
+        f"{_dc['season'].nunique()} seasons), a fresh squad returns "
+        f"<b>{_fresh:.0f} pts</b> over six gameweeks, one three weeks old returns "
+        f"<b>{_drop3:.0f} fewer</b> · but ageing it another nine weeks costs only "
+        f"<b>{_drop_all - _drop3:.0f} more</b>. Nearly all the decay lands in the "
+        f"first three gameweeks and then flattens. Rule: <b>'my squad is rotting' is "
+        f"not a reason to wildcard early</b> · staleness saturates almost immediately, "
+        f"so time the chip on your Bench Boost clock (Q13) and the fixture swing "
+        f"instead. <i>Only squads whose build window closed before the scored window "
+        f"count · an overlapping build has hindsight and wins meaninglessly.</i>",
+        "#04f5ff")
+    opt = charts.line_option(
+        x=[int(a) for a in _by_age.index],
+        y=[float(v) for v in _by_age.values],
+        name="Points over a 6-GW window")
+    opt["title"] = {"text": "Squad staleness · points against squad age (gameweeks)",
+                    "textStyle": CHART_TITLE}
+    opt["grid"]["top"] = 46
+    charts.render(opt, height="280px", key="pb_decay")
+
+# ── Q15 Do opening fixtures predict, and do fast starts last? ────────────────
+_op = A["opening"]
+if _op.get("predict_r") is not None:
+    _pr, _pe = _op["predict_r"], _op["persist_r"]
+    _question(
+        15, "Do opening fixtures predict opening points?",
+        f"Two different answers. Opponent quality over GW1-6 correlates with a club's "
+        f"opening returns at only <b>r = {_pr:+.2f}</b> across {_op['n_seasons']} "
+        f"seasons, and the link has <b>weakened</b> (about −0.60 in 2016-19, "
+        f"−0.22 to −0.43 recently). But a fast start <b>does</b> carry: opening points "
+        f"against the rest of the first half correlates at <b>r = {_pe:+.2f}</b>, "
+        f"clearly stronger. Rule: <b>back good teams, not good fixtures</b> · what "
+        f"persists is team quality, and fixtures explain far less of the opening than "
+        f"the ticker implies. Treat the draft's opening-fixtures slider as a "
+        f"tie-breaker between similar players, never as a reason to pick one.",
+        "#e90052")
+    _df = _op["per_season"]
+    opt = charts.scatter_option(
+        points=[{"x": round(float(r["opp_strength"])), "y": round(float(r["opening_pts"])),
+                 "name": str(r["season"])} for _, r in _df.iterrows()],
+        x_name="Opponent strength faced (GW1-6)", y_name="Opening points")
+    opt["title"] = {"text": "Every club-season · harder opponents, only slightly fewer points",
+                    "textStyle": CHART_TITLE}
+    opt["grid"]["top"] = 46
+    charts.render(opt, height="300px", key="pb_opening")
+
+# ── Q16 Where do the two models disagree? ────────────────────────────────────
+_question(
+    16, "Where does an independent model disagree with ours?",
+    "Our 26/27 projection is a carryover model plus three hand layers. It had no "
+    "external check until now. Set against a Fantasy Football Scout season "
+    "projection, two things fall out. First, the models are <b>not on the same "
+    "scale</b> · ours runs about 0.7× Scout's across the board, so a raw points "
+    "gap mostly measures that offset and ranking by it is meaningless. Second, "
+    "once the scale is removed, <b>almost every real disagreement is a player we "
+    "already flagged Low confidence</b>: Maddison, Muniz, Colwill, Branthwaite, "
+    "Solanke, Ødegaard · all men who missed chunks of 25/26. Our carryover model "
+    "has barely any minutes to work from and deflates them; Scout forecasts "
+    "minutes directly and does not. Rule: <b>trust our model on players who "
+    "played, and an external minutes forecast on players who did not</b> · a Low "
+    "confidence tag is not a warning to avoid someone, it is a signal to go and "
+    "get a better minutes estimate. That the two disagree almost nowhere else is "
+    "the reassuring half of this result.",
+    "#FFD700")
+
+_scout_note = ("Save a snapshot to `data/cache/scout_projections_2026_27.csv` "
+               "to switch this on. The file stays local and gitignored.")
+try:
+    from analytics.scout_projections import (coverage, disagreements, load_snapshot,
+                                             match_to_board, model_scale)
+    from ui.value_board import build_board
+    _snap = load_snapshot()
+    if _snap is None:
+        st.caption("📄 No Scout snapshot loaded. " + _scout_note)
+    else:
+        _board, _, _, _ = build_board()
+        if _board is None:
+            st.caption("📄 Value board unavailable · build the archive first.")
+        else:
+            _res = match_to_board(_snap, _board)
+            _cov = coverage(_res)
+            _k = model_scale(_res["matched"])
+            _dis = disagreements(_res["matched"], min_delta=25.0, scale=_k)
+            st.caption(
+                f"📄 Scout snapshot · {_cov['matched']}/{_cov['total']} players matched "
+                f"({_cov['pct']:.0f}%). Our projection runs at **{_k:.2f}×** Scout's "
+                f"scale, so the raw gap is mostly that offset · players are ranked on "
+                f"the scale-adjusted residual instead. Negative means we are more "
+                f"bearish than even our own scale explains.")
+            if not _dis.empty:
+                _show = _dis.head(15)[
+                    [c for c in ("web_name", "team_short", "pos", "actual_price",
+                                 "projected_points", "expected_ours", "residual",
+                                 "scout_pts", "within_our_range", "confidence")
+                     if c in _dis.columns]].copy()
+                _show.columns = [str(c).replace("_", " ").title() for c in _show.columns]
+                st.dataframe(_show, use_container_width=True, hide_index=True)
+            else:
+                st.caption("The two models agree within 25 points everywhere.")
+            if _cov["unmatched"]:
+                with st.expander(f"⚠️ {_cov['unmatched']} Scout players did not match"):
+                    st.write(", ".join(_cov["unmatched_names"]))
+except Exception as _e:      # never let a second opinion break the Playbook
+    st.caption(f"📄 Scout comparison unavailable ({_e}). " + _scout_note)
 
 st.markdown(
     f'<div style="font-size:12px;color:{MUTED};margin-top:6px;">📌 Coming when the '

@@ -96,15 +96,13 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
 
 
 def _opening_factors(fixtures, cfg: dict) -> dict:
-    """team_id -> mean fixture-ease over GW1..gw_hi (>1 easy, <1 hard)."""
-    floor, slope = cfg["factor_floor"], cfg["fdr_slope"]
-    acc: dict = {}
-    sub = fixtures[fixtures["gameweek"].notna() & (fixtures["gameweek"] <= cfg["gw_hi"])]
-    for _, r in sub.iterrows():
-        for tid, fdr in ((int(r["home_team_id"]), r["home_fdr"]),
-                         (int(r["away_team_id"]), r["away_fdr"])):
-            acc.setdefault(tid, []).append(max(floor, 1.0 + (3.0 - float(fdr)) * slope))
-    return {t: sum(v) / len(v) for t, v in acc.items() if v}
+    """team_id -> mean fixture-ease over GW1..gw_hi (>1 easy, <1 hard).
+
+    Thin shim · the implementation lives in `analytics.season_opener` so the
+    draft weight and the route comparator cannot drift apart.
+    """
+    from analytics.season_opener import opening_factors
+    return opening_factors(fixtures, cfg)
 
 
 # Shared draft strategies · used by the 26/27 Draft page and the Chip Planner.
@@ -130,7 +128,8 @@ def _defcon_codes() -> list:
 @st.cache_data(ttl=6 * 3600, show_spinner="Solving optimal squad on actual prices (exact MILP)…")
 def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 risk: float = 0.3, exclude_names: tuple = (), opening: float = 0.0,
-                max_attackers_per_club: int = 1):
+                max_attackers_per_club: int = 1,
+                opening_map: tuple = (), bench_budget=None):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
@@ -140,6 +139,13 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     so the squad holds up longer before transfers. `exclude_names` are players to
     veto. Also applies the standing rule of at most one attack-correlated player
     per club (DEFCON mids exempt).
+
+    `opening_map` is an optional ((team_id, factor), ...) tuple that REPLACES the
+    board's stock GW1-6 factors · the route comparator uses it to build a squad
+    for the fixtures that follow a wildcard rather than the ones before it. A
+    tuple, not a dict, so the Streamlit cache key stays stable.
+    `bench_budget` caps total bench spend, which is what makes a cheap-bench arm
+    genuinely cheap rather than just unweighted.
     """
     from analytics.squad_milp import optimize_squad
 
@@ -166,11 +172,21 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     r = max(0.0, min(1.0, float(risk)))
     ow = max(0.0, min(1.0, float(opening)))
     d["obj"] = d["pts"] * (1.0 - r) + d["proj_lo"].fillna(d["pts"]) * r
-    if ow > 0 and "opening_factor" in d.columns:
+
+    # A window-specific map wins over the board's stock GW1-6 factors, and it
+    # implies the caller wants the tilt applied even when the slider is at zero.
+    if opening_map:
+        om = {int(t): float(f) for t, f in opening_map}
+        of = d["team_id"].map(om).fillna(1.0)
+        w = ow if ow > 0 else 1.0
+        d["obj"] = d["obj"] * ((1.0 - w) + w * of)
+    elif ow > 0 and "opening_factor" in d.columns:
         of = d["opening_factor"].fillna(1.0)
         d["obj"] = d["obj"] * ((1.0 - ow) + ow * of)
+
     return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
                           force_codes=list(force), exclude_codes=list(exclude),
                           max_attackers_per_club=max_attackers_per_club,
                           defcon_codes=_defcon_codes(),
-                          max_defenders_per_club=1)
+                          max_defenders_per_club=1,
+                          bench_budget=bench_budget)

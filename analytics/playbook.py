@@ -484,3 +484,255 @@ def icon_vs_field(summary: pd.DataFrame) -> pd.DataFrame:
             "saved": round(float(icon["start_price"] - ch["start_price"]), 1),
         })
     return pd.DataFrame(rows)
+
+
+# ── Q13-Q15 · the early-season chip route (added 2026-07-27) ──────────────────
+#
+# All three answer questions the Season Opener engine asks about 2026-27, using
+# the ten-season archive as the base rate. The method throughout is the same:
+# build two hindsight squads that differ in exactly ONE constraint and read the
+# difference. Hindsight makes both arms optimistic, but SYMMETRICALLY, so the gap
+# between them is honest even though the levels are not. Every caller must say so.
+
+_OPENER_POOL_PER_POS = {"GKP": 8, "DEF": 20, "MID": 20, "FWD": 12}
+
+
+def _season_window_points(gw_archive: pd.DataFrame, season: str,
+                          gw_lo: int, gw_hi: int) -> pd.DataFrame:
+    """Actual points each player scored in a GW window, plus his identity."""
+    a = gw_archive[(gw_archive["season"] == season)
+                   & (gw_archive["gw"] >= gw_lo) & (gw_archive["gw"] <= gw_hi)]
+    if a.empty:
+        return pd.DataFrame()
+    g = (a.groupby(["code", "position", "team_id"], as_index=False)
+         .agg(pts=("total_points", "sum"), minutes=("minutes", "sum")))
+    return g
+
+
+def _opener_pool(window: pd.DataFrame, summary: pd.DataFrame,
+                 season: str) -> pd.DataFrame:
+    """Prune to a solvable pool and attach that season's START price.
+
+    Pruning uses actual window points, which is hindsight · but BOTH arms of
+    every comparison below draw from the same pruned pool, so the difference
+    stays fair. Start price (not end price) is what a GW1 manager actually paid.
+    """
+    s = summary[summary["season"] == season][["code", "start_price", "web_name"]]
+    d = window.merge(s, on="code", how="inner")
+    d = d[d["start_price"].notna() & (d["start_price"] > 0)]
+    d = d.rename(columns={"start_price": "price"})
+    keep = []
+    for pos, n in _OPENER_POOL_PER_POS.items():
+        p = d[d["position"] == pos]
+        # Two tranches. Top scorers are who you want in the XI; the cheapest are
+        # the fodder a real bench is built from. Without the budget tranche the
+        # pool holds no player cheap enough to satisfy a bench cap and the solve
+        # goes infeasible (it did, in 2022-23 and 2024-25).
+        keep.append(p.nlargest(n, "pts"))
+        keep.append(p.nsmallest(max(6, n // 2), "price"))
+    if not keep:
+        return pd.DataFrame()
+    return (pd.concat(keep, ignore_index=True)
+            .drop_duplicates(subset="code")
+            .reset_index(drop=True))
+
+
+def early_bench_boost(gw_archive: pd.DataFrame, summary: pd.DataFrame,
+                      gw_lo: int = 1, gw_hi: int = 6,
+                      bench_price_cap: float = 4.5,
+                      min_bench_minutes: int = 400,
+                      seasons: Optional[List[str]] = None) -> pd.DataFrame:
+    """Q13 · Does an early Bench Boost pay?
+
+    Per season, two squads over the opening window: one whose bench is fodder
+    (a cheap-bench manager) and one where all fifteen genuinely played. The XI
+    gap is a cost paid every week the Boost squad is carried; the bench gap is a
+    gain banked once, in the week the chip is played. Break-even is the ratio.
+
+    Returns one row per season plus dilution/gain/break-even in gameweeks.
+    """
+    from analytics.squad_milp import optimize_squad
+
+    seasons = seasons or sorted(gw_archive["season"].unique())
+    n_gws = float(gw_hi - gw_lo + 1)
+    rows: List[Dict] = []
+
+    for season in seasons:
+        window = _season_window_points(gw_archive, season, gw_lo, gw_hi)
+        if window.empty:
+            continue
+        pool = _opener_pool(window, summary, season)
+        if pool.empty or len(pool) < 30:
+            continue
+
+        # Arm A · cheap bench. Only the XI is valued, and bench slots must be fodder.
+        cheap_pool = pool.copy()
+        normal = optimize_squad(cheap_pool, budget=100.0, pts_col="pts",
+                                bench_weight=0.0, captain=False, time_limit=30,
+                                bench_budget=bench_price_cap * 4)
+        # Arm B · every one of the fifteen actually played the window.
+        boost_pool = pool[pool["minutes"] >= min_bench_minutes]
+        boost = optimize_squad(boost_pool, budget=100.0, pts_col="pts",
+                               bench_weight=1.0, captain=False, time_limit=30)
+        if not normal or not boost:
+            logger.info("early_bench_boost: infeasible arm in %s", season)
+            continue
+
+        nd, bd = normal["squad"], boost["squad"]
+        n_xi = float(nd[nd["in_xi"]]["pts"].sum())
+        n_bench = float(nd[~nd["in_xi"]]["pts"].sum())
+        b_xi = float(bd[bd["in_xi"]]["pts"].sum())
+        b_bench = float(bd[~bd["in_xi"]]["pts"].sum())
+
+        dilution = (n_xi - b_xi) / n_gws          # per gameweek carried
+        gain = (b_bench - n_bench) / n_gws        # in the single chip week
+        rows.append({
+            "season": season,
+            "xi_cheap": round(n_xi), "xi_boost": round(b_xi),
+            "bench_cheap": round(n_bench), "bench_boost": round(b_bench),
+            "dilution_per_gw": round(dilution, 2),
+            "bb_gain": round(gain, 1),
+            "break_even_gws": round(gain / dilution, 1) if dilution > 0 else None,
+        })
+    return pd.DataFrame(rows)
+
+
+def wildcard_decay(gw_archive: pd.DataFrame, summary: pd.DataFrame,
+                   eval_starts: Optional[List[int]] = None,
+                   ages: Optional[List[int]] = None,
+                   horizon: int = 5,
+                   seasons: Optional[List[str]] = None) -> pd.DataFrame:
+    """Q14 · How fast does a squad go stale, and is a Wildcard the cure?
+
+    METHOD NOTE, because two obvious approaches are both wrong.
+
+    (1) Comparing a GW1 squad against a squad rebuilt at GW k over GW k..k+5
+        does not measure decay. The rebuild has hindsight over its own window,
+        and while the windows overlap that advantage is masked, so the gap
+        plateaus the moment they separate. That measures overlap, not staleness.
+    (2) Scoring squads of different ages on one fixed window only works if every
+        build window ENDS BEFORE the evaluation window starts. A build that
+        overlaps has hindsight on the very gameweeks being scored and will win
+        by a landslide that means nothing.
+
+    So: several evaluation windows, and for each one only squads whose build
+    window closed strictly before it. `age` is the gap in gameweeks between the
+    end of the build window and the start of the evaluation window. Pooling
+    across evaluation windows and seasons gives enough (age, loss) pairs to see
+    through the noise in any single one.
+
+    `loss_vs_fresh` is measured against the freshest LEGAL squad for that window,
+    never against an overlapping one.
+    """
+    from analytics.squad_milp import optimize_squad
+
+    seasons = seasons or sorted(gw_archive["season"].unique())
+    eval_starts = eval_starts or [13, 19, 25, 31]
+    ages = ages or [0, 3, 6, 9, 12]
+    rows: List[Dict] = []
+
+    for season in seasons:
+        for ev_lo in eval_starts:
+            ev = _season_window_points(gw_archive, season, ev_lo, ev_lo + horizon)
+            if ev.empty:
+                continue
+            ev_pool = _opener_pool(ev, summary, season)
+            if ev_pool.empty:
+                continue
+            ev_pts = dict(zip(ev_pool["code"], ev_pool["pts"]))
+
+            # Freshest legal build closes on the gameweek before evaluation opens.
+            freshest = ev_lo - horizon - 1
+            for age in ages:
+                b = freshest - age
+                if b < 1:
+                    continue
+                win = _season_window_points(gw_archive, season, b, b + horizon)
+                if win.empty:
+                    continue
+                pool = _opener_pool(win, summary, season)
+                if pool.empty or len(pool) < 30:
+                    continue
+                built = optimize_squad(pool, budget=100.0, pts_col="pts",
+                                       bench_weight=0.0, captain=False, time_limit=30)
+                if not built:
+                    continue
+                held = built["squad"]["code"].tolist()
+                scored = sorted((float(ev_pts.get(c, 0.0)) for c in held), reverse=True)
+                rows.append({"season": season, "eval_start": ev_lo, "build_gw": b,
+                             "age_gws": age, "eval_pts": round(float(sum(scored[:11])), 1)})
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    # Fresh baseline is per (season, eval window) · comparing across windows would
+    # confound staleness with how high-scoring that stretch of the season was.
+    fresh = df.groupby(["season", "eval_start"])["eval_pts"].transform("max")
+    df["loss_vs_fresh"] = (fresh - df["eval_pts"]).round(1)
+    return df
+
+
+def opening_fixture_signal(gw_archive: pd.DataFrame, gw_hi: int = 6,
+                           seasons: Optional[List[str]] = None) -> Dict:
+    """Q15 · Do opening fixtures predict opening points, and do fast starts last?
+
+    Two questions, both per club per season:
+
+    (a) PREDICTION · does facing weak opponents in GW1..gw_hi actually produce
+        more FPL points? Opponent strength is proxied by the total FPL points
+        that opponent's players scored across the whole season, which is a clean
+        end-of-season measure of how good the side was.
+    (b) PERSISTENCE · does a fast start survive? Correlate a club's opening
+        points against the rest of its first half (GW7-19).
+
+    A weak correlation in (a) is the finding that matters: it means an
+    opening-fixtures draft weight is moving noise around.
+    """
+    seasons = seasons or sorted(gw_archive["season"].unique())
+    rows: List[Dict] = []
+
+    for season in seasons:
+        s = gw_archive[gw_archive["season"] == season]
+        if s.empty:
+            continue
+        # club strength · total FPL points its players scored all season
+        strength = s.groupby("team_id")["total_points"].sum()
+        if strength.empty:
+            continue
+
+        opening = s[s["gw"] <= gw_hi]
+        rest = s[(s["gw"] > gw_hi) & (s["gw"] <= 19)]
+        for team_id in strength.index:
+            o = opening[opening["team_id"] == team_id]
+            if o.empty:
+                continue
+            opp_strength = o["opponent_team"].map(strength).mean()
+            if pd.isna(opp_strength):
+                continue
+            rows.append({
+                "season": season, "team_id": int(team_id),
+                "opp_strength": float(opp_strength),
+                "opening_pts": float(o["total_points"].sum()),
+                "rest_pts": float(rest[rest["team_id"] == team_id]["total_points"].sum()),
+                "own_strength": float(strength.loc[team_id]),
+            })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return {"per_season": pd.DataFrame(), "predict_r": None, "persist_r": None}
+
+    # Correlations computed WITHIN season then averaged · pooling across seasons
+    # would let league-wide scoring inflation masquerade as signal.
+    pred, pers = [], []
+    for season, g in df.groupby("season"):
+        if len(g) < 5:
+            continue
+        pred.append(float(g["opp_strength"].corr(g["opening_pts"])))
+        pers.append(float(g["opening_pts"].corr(g["rest_pts"])))
+
+    return {
+        "per_season": df,
+        "predict_r": round(float(np.nanmean(pred)), 3) if pred else None,
+        "persist_r": round(float(np.nanmean(pers)), 3) if pers else None,
+        "n_seasons": len(pred),
+    }

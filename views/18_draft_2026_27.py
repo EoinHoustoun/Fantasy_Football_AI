@@ -275,9 +275,12 @@ with c2:
                           "get discounted as you slide right.")
 with c3:
     opening = st.slider("Opening fixtures GW1-6", 0.0, 1.0, 0.0, 0.05,
-                        help="Slide right to favour players with soft opening fixtures, so the "
-                             "squad holds up longer before you spend transfers (first wildcard "
-                             "usually goes by ~GW10).")
+                        help="Slide right to favour players with soft opening fixtures. "
+                             "Playbook Q15 measured this signal as WEAK (r = -0.38 and "
+                             "weakening), while team quality persists at r = +0.53 · "
+                             "treat it as a tie-breaker between similar players, not a "
+                             "reason to pick one.")
+st.caption("Opening fixtures are a tie-breaker, not a strategy · see Playbook Q15.")
 excluded = st.multiselect(
     "Don't trust · exclude these players", options=sorted(board["web_name"].tolist()),
     help="Veto anyone you're not convinced by · the optimiser rebuilds around them.")
@@ -516,3 +519,79 @@ st.markdown(
     f'Promoted-club and new-signing players have no FPL history · they are in the Scout tab, '
     f'not force-ranked. Re-check minutes and set-piece roles once {NEXT_SEASON} line-ups firm up.</div>',
     unsafe_allow_html=True)
+
+# ── Chip route · the early Bench Boost and the Wildcard, priced as one decision ─
+_sec("🗺️ Chip route · Bench Boost and Wildcard together")
+st.caption("A Bench Boost needs 15 playing assets, which costs XI strength every week "
+           "you carry it. The Wildcard is what repairs that. Scored end to end over "
+           "GW1-19 against holding both chips.")
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner="Scoring chip routes over GW1-19…")
+def _routes(_board: pd.DataFrame, _budget: float, _risk: float, _excl: tuple):
+    """Score every configured route. Cached · each route runs several MILPs."""
+    from analytics.season_opener import bb_dilution, compare_routes
+    from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, get_fixtures_df
+
+    from analytics.season_opener import opening_ease
+
+    fx = get_fixtures_df(fetch_fixtures(), fetch_bootstrap())
+
+    def _solve(b, all_must_play=False, bench_price_cap=None, opening_window=None):
+        strategy = "🔋 Bench Boost GW1" if all_must_play else "⚖️ Optimal value"
+        # A window builds the squad for the fixtures that actually follow it ·
+        # this is what gives a wildcard rebuild its point.
+        omap = ()
+        if opening_window:
+            oe = opening_ease(fx, opening_window[0], opening_window[1])
+            omap = tuple(zip(oe["team_id"].astype(int), oe["ease"].astype(float)))
+        return solve_draft(b, strategy, _budget, _risk, _excl, 0.0,
+                           opening_map=omap,
+                           bench_budget=(bench_price_cap * 4) if bench_price_cap else None)
+
+    return compare_routes(_board, fx, _solve), bb_dilution(_board, _solve)
+
+
+try:
+    _routes_df, _dil = _routes(board, budget, risk, tuple(excluded))
+except Exception as _e:
+    _routes_df, _dil = pd.DataFrame(), None
+    st.caption(f"Route comparison unavailable ({_e}).")
+
+if _dil and _dil.get("break_even_lo") is not None:
+    st.markdown(
+        " ".join(s.strip() for s in f"""
+        <div style="{CARD}border-left:3px solid #FFD700;margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;letter-spacing:0.18em;color:#FFD700;
+        text-transform:uppercase;margin-bottom:4px;">Bench Boost clock</div>
+        <div style="font-size:14px;color:#eef1f5;line-height:1.6;">
+        An all-playing fifteen costs
+        <b>{_dil['arms'][0]['dilution_per_gw']:.1f} pts a gameweek</b> to carry and the
+        chip returns <b>{_dil['arms'][0]['bb_gain']:.0f} pts</b> once. That is a
+        break-even of <b>{_dil['break_even_lo']:.1f} to {_dil['break_even_hi']:.1f}
+        gameweeks</b> · play the Boost early and the reset has to follow inside that
+        window.</div></div>""".splitlines()),
+        unsafe_allow_html=True)
+
+if not _routes_df.empty:
+    _best = _routes_df.iloc[0]
+    st.markdown(
+        " ".join(s.strip() for s in f"""
+        <div style="{CARD}border-left:3px solid #00FF87;margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;letter-spacing:0.18em;color:#00FF87;
+        text-transform:uppercase;margin-bottom:4px;">Best route on this squad</div>
+        <div style="font-size:14px;color:#eef1f5;line-height:1.6;">
+        <b>{_best['label']}</b> · {_best['points']:.0f} pts over GW1-19,
+        <b>{_best['vs_baseline']:+.0f}</b> against holding both chips.</div></div>
+        """.splitlines()),
+        unsafe_allow_html=True)
+
+    _rt = _routes_df.copy()
+    _rt.columns = ["Route", "BB GW", "WC GW", "GW1-19 pts", "vs holding chips"]
+    st.dataframe(_rt, use_container_width=True, hide_index=True)
+    st.caption("Fixture-ease model only · doubles and blanks past GW19 are not known "
+               "yet, and the first chip set expires at GW19 regardless. It prices the "
+               "Bench Boost honestly but UNDERSTATES a lone Wildcard: most of a "
+               "wildcard's real value is repairing injuries and form the model cannot "
+               "see, which is why the two no-Boost routes score alike. Read the Boost "
+               "routes against each other, not the gap to holding both chips.")

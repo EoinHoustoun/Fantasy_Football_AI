@@ -150,6 +150,31 @@ CHIP_TIMING = {
 # over GW1..gw_hi; the draft can lean on it via a slider.
 OPENING_FIXTURES = {"gw_hi": 6, "fdr_slope": 0.28, "factor_floor": 0.4}
 
+# Season Opener · the early chip route. An early Bench Boost and an early
+# Wildcard are ONE decision, not two: a Bench Boost needs fifteen playing assets,
+# which dilutes the XI every week you carry it, and the Wildcard is what repairs
+# the dilution. `bench_price_cap` is what a cheap-bench manager actually fields,
+# `min_bench_mins` is the minutes floor that makes a bench player Boost-worthy.
+SEASON_OPENER = {
+    "opening_window": (1, 6),      # the run the draft is built for
+    "swing_early": (1, 6),         # ease before the swing
+    "swing_late": (7, 12),         # ease after it
+    "min_bench_mins": 2000,        # a BB bench player must genuinely start
+    "bench_price_cap": 4.5,        # what real cheap-bench fodder costs
+    "season_gws": 38.0,            # season totals are spread over this
+}
+
+# Chip routes compared side by side. BB1+WC5 is kept deliberately even though the
+# break-even maths says it loses · seeing it rank last is more convincing than
+# asserting it. `bb_gw` None means no early Bench Boost.
+CHIP_ROUTES = [
+    {"label": "BB GW1 · WC GW3", "bb_gw": 1, "wc_gw": 3},
+    {"label": "BB GW2 · WC GW4", "bb_gw": 2, "wc_gw": 4},
+    {"label": "BB GW1 · WC GW5", "bb_gw": 1, "wc_gw": 5},
+    {"label": "No early BB · WC GW7", "bb_gw": None, "wc_gw": 7},
+    {"label": "No early BB · WC GW10", "bb_gw": None, "wc_gw": 10},
+]
+
 # Perfect Season (hindsight MILP) configuration
 PERFECT_SEASON = {
     "season": LAST_COMPLETE_SEASON,
