@@ -535,6 +535,36 @@ with _gc:
                     help="Step through the opening gameweeks to see each club's "
                          "fixture and this week's projection.")
 
+# ── Bench the four worst for THIS gameweek ────────────────────────────────────
+# The MILP picks an XI to maximise the SEASON, but in any single week the worst
+# four differ: a blank or a hard away trip should drop a player who is otherwise
+# a starter. Re-pick the XI on this gameweek's projection, respecting formation
+# (exactly 1 GKP, at least 3 DEF, 2 MID, 1 FWD).
+def _xi_for_gw(sq: pd.DataFrame, gw: int) -> set:
+    scored = {}
+    for _, r in sq.iterrows():
+        scored[int(r["code"])] = _gw_points(r["pts"], int(r.get("team_id", 0) or 0), gw)
+    by_pos = {}
+    for _, r in sq.iterrows():
+        by_pos.setdefault(r["position"], []).append(int(r["code"]))
+    for pos in by_pos:
+        by_pos[pos].sort(key=lambda c: -scored.get(c, 0.0))
+
+    xi = set()
+    xi.update(by_pos.get("GKP", [])[:1])                 # exactly one keeper
+    for pos, lo in (("DEF", 3), ("MID", 2), ("FWD", 1)):  # positional minimums
+        xi.update(by_pos.get(pos, [])[:lo])
+    # fill the remaining outfield slots with the best of who is left
+    rest = [c for c in scored
+            if c not in xi and sq.set_index("code").loc[c, "position"] != "GKP"]
+    rest.sort(key=lambda c: -scored.get(c, 0.0))
+    for c in rest[:11 - len(xi)]:
+        xi.add(c)
+    return xi
+
+
+_gw_xi = _xi_for_gw(squad, _gw)
+
 _players = []
 for _, r in squad.iterrows():
     _tid = int(r.get("team_id", 0) or 0)
@@ -548,7 +578,7 @@ for _, r in squad.iterrows():
         "position": r["position"],
         "team_code": int(r.get("team_code", 1) or 1),
         "team_short": r.get("team_short"),
-        "on_bench": not r["in_xi"],
+        "on_bench": int(r["code"]) not in _gw_xi,
         "is_captain": bool(r["is_captain"]),
         "price": float(r["price"]),
         "fixture_label": _lbl,
@@ -560,6 +590,18 @@ for _, r in squad.iterrows():
 _click = render_squad_pitch(
     _players, stat_label=f"GW{_gw}", title_right=f"{NEXT_SEASON} · GW{_gw}",
     interactive=True, key="draft_pitch")
+
+# ── Free transfers at this gameweek ───────────────────────────────────────────
+# GW1 is the draft itself, so it costs nothing. From GW2 you get one a week,
+# banking what you do not spend, capped at 5 (the 2025-26 rule, still current).
+from analytics.squad_planner import FT_CAP
+_ft = 0 if _gw <= 1 else min(FT_CAP, _gw - 1)
+_ft_txt = ("This is the draft itself · no transfers needed."
+           if _gw <= 1 else
+           f"**{_ft}** free transfer{'s' if _ft != 1 else ''} banked by GW{_gw} "
+           f"(1 a week from GW2, capped at {FT_CAP}). A Wildcard makes them "
+           f"unlimited and free.")
+st.caption(_ft_txt)
 
 st.caption(f"👆 Tap any shirt for that player's numbers. Showing **GW{_gw}** fixtures"
            + (" and this week's projection." if _view == "Projected points" else "."))
@@ -623,6 +665,54 @@ def _player_dialog(code: int) -> None:
     _note = str(r.get("override_note", "") or "")
     if _note:
         st.info(f"✎ {_note}")
+
+    # ✕ Replace him · who you could actually afford instead, best first.
+    _in_squad = int(code) in set(squad["code"].astype(int))
+    if _in_squad:
+        _bank = float(budget) - float(res["squad_cost"])
+        _ceiling = float(r.get("actual_price") or 0) + _bank
+        _clubs = squad[squad["code"] != code]["team_id"].value_counts().to_dict()
+        _alt = board[(board["position"] == pos)
+                     & (board["actual_price"] <= _ceiling)
+                     & (~board["code"].isin(squad["code"]))].copy()
+        # a swap that breaks the 3-per-club limit is not actually available
+        _alt = _alt[_alt["team_id"].map(lambda t: _clubs.get(t, 0)) < 3]
+        _alt = _alt.nlargest(5, "projected_points")
+        st.markdown(
+            " ".join(x.strip() for x in (
+                f'<div style="font-size:10px;font-weight:800;letter-spacing:0.18em;'
+                f'color:{MUTED};text-transform:uppercase;margin:16px 0 6px;">'
+                f'Replace him · top 5 you can afford</div>').splitlines()),
+            unsafe_allow_html=True)
+        if _alt.empty:
+            st.caption("Nothing affordable in this position without freeing money first.")
+        else:
+            _rows = []
+            for _, a in _alt.iterrows():
+                _atid = int(a.get("team_id", 0) or 0)
+                _nf = _FIX.get((_atid, _gw), [])
+                _nfl = " + ".join(f"{o}({'H' if h else 'A'})" for o, h, _f in _nf) or "BLANK"
+                _rows.append({
+                    "Face": player_photo_url(a["code"]),
+                    "Player": a["web_name"],
+                    "Team": a.get("team_short", ""),
+                    "£m": round(float(a["actual_price"]), 1),
+                    "Δ£m": round(float(a["actual_price"]) - float(r.get("actual_price") or 0), 1),
+                    f"GW{_gw}": _nfl,
+                    "Proj": round(float(a["projected_points"]), 0),
+                    "Δ Proj": round(float(a["projected_points"])
+                                    - float(r.get("projected_points") or 0), 0),
+                    "Conf.": str(a.get("confidence", "")),
+                })
+            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True,
+                         column_config={
+                             "Face": st.column_config.ImageColumn("", width="small"),
+                             "Δ£m": st.column_config.NumberColumn("Δ£m", format="%+.1f"),
+                             "Δ Proj": st.column_config.NumberColumn("Δ Proj", format="%+.0f"),
+                         })
+            st.caption(f"Affordable means his price plus your £{_bank:.1f}m bank, and "
+                       f"the swap must keep you inside 3 players per club. "
+                       f"Fixture shown is GW{_gw}.")
 
     # Every upcoming fixture, colour-coded · the run is usually the reason you
     # are looking at a player at all, so it sits above the projection chart.
