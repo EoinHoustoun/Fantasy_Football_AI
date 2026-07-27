@@ -1,4 +1,8 @@
-"""Scout snapshot join · name folding, club aliases, and honest unmatched rows."""
+"""Scout snapshot join · name folding, club aliases, and honest unmatched rows.
+
+All figures here are INVENTED. The real snapshot is paid third-party data
+and is gitignored · never reproduce it in a public repo.
+"""
 import pandas as pd
 import pytest
 
@@ -38,7 +42,7 @@ def test_load_snapshot_missing_columns_returns_none(tmp_path):
 
 def test_load_snapshot_maps_brighton_alias(tmp_path):
     p = _snapshot(tmp_path, [{"name": "Wieffer", "team": "BRI", "pos": "DEF",
-                              "price": 5.0, "mins": 2546, "pts": 144.5, "value": 28.9}])
+                              "price": 5.0, "mins": 2500, "pts": 200.0, "value": 40.0}])
     df = load_snapshot(p)
     assert df is not None
     assert df.iloc[0]["team_short"] == "BHA"
@@ -58,9 +62,9 @@ def _board():
 def _scout(tmp_path):
     return load_snapshot(_snapshot(tmp_path, [
         {"name": "Odegaard", "team": "ARS", "pos": "MID", "price": 6.5,
-         "mins": 2931, "pts": 160.2, "value": 24.7},
+         "mins": 3000, "pts": 250.0, "value": 41.7},
         {"name": "Wieffer", "team": "BRI", "pos": "DEF", "price": 5.0,
-         "mins": 2546, "pts": 144.5, "value": 28.9},
+         "mins": 2500, "pts": 200.0, "value": 40.0},
         {"name": "Nobody", "team": "ARS", "pos": "FWD", "price": 4.5,
          "mins": 2000, "pts": 50.0, "value": 11.1},
     ]))
@@ -83,8 +87,9 @@ def test_model_scale_is_the_median_ratio(tmp_path):
     """Ours runs below Scout's · the scale must be measured, not assumed to be 1."""
     res = match_to_board(_scout(tmp_path), _board())
     k = model_scale(res["matched"])
-    # Odegaard 130/160.2 = 0.811, Wieffer 90/144.5 = 0.623 · median of two
-    assert k == pytest.approx((130 / 160.2 + 90 / 144.5) / 2, abs=0.01)
+    # 130/250 = 0.52, 90/200 = 0.45 · median of two. Figures are invented:
+    # the repo is public and the real snapshot is paid third-party data.
+    assert k == pytest.approx((130 / 250.0 + 90 / 200.0) / 2, abs=0.01)
 
 
 def test_disagreements_rank_on_scale_adjusted_residual_not_raw_gap(tmp_path):
@@ -126,5 +131,6 @@ def test_scale_offset_alone_produces_no_disagreement(tmp_path):
 
 def test_disagreements_ignore_bench_players_by_minutes(tmp_path):
     res = match_to_board(_scout(tmp_path), _board())
-    assert disagreements(res["matched"], min_delta=0.0, min_mins=3000).empty
+    # above every fixture's minutes, so nobody survives the filter
+    assert disagreements(res["matched"], min_delta=0.0, min_mins=3200).empty
 
