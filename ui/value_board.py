@@ -4,12 +4,15 @@ Joins archive projections + the price model with FPL's actual 2026-27 prices and
 runs the verdict engine. Cached once so both the 26/27 Draft (full board) and the
 Playbook (a compact read) share the same computation.
 """
+import logging
 from typing import Optional, Tuple
 
 import pandas as pd
 import streamlit as st
 
 from config import LAST_COMPLETE_SEASON, NEXT_SEASON
+
+logger = logging.getLogger(__name__)
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Pricing the board · projections vs actual 26/27 prices…")
@@ -90,6 +93,39 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     except Exception:
         verdicts["opening_factor"] = 1.0
 
+    # No-history players (promoted clubs, new signings) carry no carryover
+    # projection, so they were silently absent from the optimiser · every
+    # Coventry, Hull and Ipswich player, including the £4.0m defenders that make
+    # a squad affordable. Backfill them from the Scout snapshot when one exists.
+    verdicts["projection_source"] = "model"
+    try:
+        from analytics.scout_projections import (backfill_projections, load_snapshot,
+                                                 match_to_board, model_scale,
+                                                 override_no_evidence)
+        snap = load_snapshot()
+        if snap is not None:
+            k = model_scale(match_to_board(snap, verdicts)["matched"])
+            # A zero-minutes 25/26 row is an EMPTY sample, not a low forecast, and
+            # it is worse than no row at all because the backfill below skips it.
+            verdicts = override_no_evidence(verdicts, snap, scale=k)
+        if snap is not None and scout is not None and not scout.empty:
+            extra = backfill_projections(scout, snap, scale=k)
+            if not extra.empty:
+                extra = extra[~extra["code"].isin(set(verdicts["code"]))]
+            if not extra.empty:
+                of = verdicts.set_index("team_id")["opening_factor"].to_dict() \
+                    if "opening_factor" in verdicts.columns else {}
+                extra["opening_factor"] = extra["team_id"].map(of).fillna(1.0)
+                verdicts = pd.concat([verdicts, extra], ignore_index=True, sort=False)
+                verdicts = verdicts.sort_values("projected_points", ascending=False) \
+                    .reset_index(drop=True)
+                # Anyone backfilled is no longer "no data" · drop from the Scout lane.
+                scout = scout[~scout["code"].isin(set(extra["code"]))]
+                logger.info("backfilled %d no-history players from the Scout snapshot",
+                            len(extra))
+    except Exception as exc:                      # never let it break the board
+        logger.warning("Scout backfill skipped: %s", exc)
+
     bt = dict(trained["backtest"][trained["winner"]])
     bt["model"] = trained["winner"]
     return verdicts, scout, bt, validation
@@ -111,7 +147,14 @@ DRAFT_STRATEGIES = [
     "🛡️ Safe · Haaland + Fernandes",
     "🎲 Punt · Fernandes, no Haaland",
     "🔋 Bench Boost GW1",
+    "🚀 Bench Boost GW2 → Wildcard GW4",
 ]
+
+# The aggressive route: Boost in GW2, reset on a Wildcard in GW4. Nothing after
+# GW3 matters to this squad because the Wildcard replaces it, so the draft is
+# built on GW1-3 fixtures alone and every one of the fifteen has to play.
+SPRINT_STRATEGY = "🚀 Bench Boost GW2 → Wildcard GW4"
+SPRINT_WINDOW = (1, 3)
 
 
 def _defcon_codes() -> list:
@@ -168,7 +211,7 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
         exclude = exclude + tuple(c for c in (haaland,) if c)
         bench = 0.1
     elif "Bench Boost" in strategy:
-        bench = 1.0
+        bench = 1.0          # covers both BB GW1 and the GW2 sprint route
     else:
         bench = 0.1
 

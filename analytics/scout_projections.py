@@ -166,6 +166,106 @@ def disagreements(matched: pd.DataFrame, min_delta: float = 20.0,
     return d.sort_values("abs_residual", ascending=False)[cols].reset_index(drop=True)
 
 
+def backfill_projections(scout_frame: pd.DataFrame, snapshot: pd.DataFrame,
+                         scale: float = 1.0) -> pd.DataFrame:
+    """Give no-history players a projection so the draft can actually pick them.
+
+    Promoted-club players and new signings have no 2025-26 Premier League record,
+    so our carryover model produces nothing for them and they were dropped from
+    the optimiser pool entirely. That is not a small gap: it removed EVERY
+    Coventry, Hull and Ipswich player, and their £4.0m defenders are exactly the
+    enablers a squad is built around.
+
+    Scout projects them because its model is forward-looking rather than
+    carryover. We rescale onto our own scale (see `model_scale`) so the numbers
+    are comparable with the rest of the board, mark them Low confidence, and tag
+    `projection_source` so the UI can be honest about where the figure came from.
+    """
+    if scout_frame is None or scout_frame.empty or snapshot is None or snapshot.empty:
+        return pd.DataFrame()
+
+    s = scout_frame.copy()
+    s["join_key"] = s["web_name"].map(normalise_name)
+    s["pos"] = s["position"].replace(POS_ALIASES)
+
+    snap = snapshot[["join_key", "team_short", "pos", "scout_pts", "scout_mins",
+                     "g", "a", "cs", "dc", "bonus"]]
+    m = s.merge(snap, on=["join_key", "team_short", "pos"], how="inner")
+    if m.empty:
+        return m
+
+    k = float(scale) if scale and scale > 0 else 1.0
+    m["projected_points"] = (m["scout_pts"] * k).round(1)
+    m["projected_minutes"] = m["scout_mins"].round(0)
+    # A rescaled external projection is a wide guess, not a forecast. The band is
+    # deliberately generous · these are the least-known players on the board.
+    m["proj_lo"] = (m["projected_points"] * 0.65).round(1)
+    m["proj_hi"] = (m["projected_points"] * 1.35).round(1)
+    m["confidence"] = "Low"
+    m["confidence_note"] = "External projection · no Premier League record yet"
+    m["projection_source"] = "scout"
+    m["value_score"] = (m["projected_points"] / m["actual_price"].clip(lower=0.1)).round(2)
+    m["mins_share"] = (m["projected_minutes"] / 3420.0).clip(0, 1).round(2)
+    m["last_season_points"] = 0.0
+    m["last_season_minutes"] = 0.0
+    m["pricing_surprise"] = 0.0
+    m["override_note"] = ""
+    m["starts_ratio"] = float("nan")
+    return m.drop(columns=["join_key", "pos"])
+
+
+def override_no_evidence(board: pd.DataFrame, snapshot: pd.DataFrame,
+                         scale: float = 1.0, max_minutes: int = 500,
+                         min_scout_minutes: int = 1500) -> pd.DataFrame:
+    """Use Scout's projection where ours is built on no evidence at all.
+
+    A player can hold a 2025-26 row and still be invisible to our model: Luka
+    Vuskovic was registered to Spurs, played ZERO Premier League minutes, and
+    came out at 8 projected points. That is not a low forecast, it is an empty
+    one, and it is worse than having no row at all because the backfill for
+    no-history players skips him.
+
+    So where our sample is essentially empty (`max_minutes`) and Scout expects a
+    real season (`min_scout_minutes`), take the rescaled Scout figure and say so.
+    Everyone else keeps our projection · this is a narrow repair, not a merge.
+    """
+    if board is None or board.empty or snapshot is None or snapshot.empty:
+        return board
+
+    b = board.copy()
+    if "last_season_minutes" not in b.columns:
+        return b
+
+    b["join_key"] = b["web_name"].map(normalise_name)
+    b["_pos"] = b["position"].replace(POS_ALIASES) if "position" in b.columns else ""
+    snap = snapshot[["join_key", "team_short", "pos", "scout_pts", "scout_mins"]] \
+        .rename(columns={"pos": "_pos"})
+    b = b.merge(snap, on=["join_key", "team_short", "_pos"], how="left")
+
+    k = float(scale) if scale and scale > 0 else 1.0
+    empty = (b["last_season_minutes"].fillna(0) <= max_minutes) \
+        & (b["scout_mins"].fillna(0) >= min_scout_minutes)
+
+    if empty.any():
+        b.loc[empty, "projected_points"] = (b.loc[empty, "scout_pts"] * k).round(1)
+        b.loc[empty, "projected_minutes"] = b.loc[empty, "scout_mins"].round(0)
+        b.loc[empty, "proj_lo"] = (b.loc[empty, "projected_points"] * 0.65).round(1)
+        b.loc[empty, "proj_hi"] = (b.loc[empty, "projected_points"] * 1.35).round(1)
+        b.loc[empty, "confidence"] = "Low"
+        b.loc[empty, "confidence_note"] = "No Premier League minutes · external projection"
+        b.loc[empty, "projection_source"] = "scout"
+        if "actual_price" in b.columns:
+            b.loc[empty, "value_score"] = (
+                b.loc[empty, "projected_points"]
+                / b.loc[empty, "actual_price"].clip(lower=0.1)).round(2)
+        if "mins_share" in b.columns:
+            b.loc[empty, "mins_share"] = (
+                b.loc[empty, "projected_minutes"] / 3420.0).clip(0, 1).round(2)
+        logger.info("overrode %d empty-sample projections from Scout", int(empty.sum()))
+
+    return b.drop(columns=["join_key", "_pos", "scout_pts", "scout_mins"])
+
+
 def coverage(result: Dict[str, pd.DataFrame]) -> Dict:
     """Join health · for the UI caption. Never let a silent 50% match look fine."""
     n_m, n_u = len(result["matched"]), len(result["unmatched"])

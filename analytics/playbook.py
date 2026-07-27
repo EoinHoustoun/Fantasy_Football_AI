@@ -25,6 +25,8 @@ from config import CACHE_DIR, LAST_COMPLETE_SEASON
 
 logger = logging.getLogger(__name__)
 
+DEFCON_THRESHOLD = {"DEF": 10, "MID": 12}
+
 XG_SEASONS = ["2022-23", "2023-24", "2024-25", "2025-26"]
 
 # legal FPL formations (DEF, MID, FWD)
@@ -736,3 +738,76 @@ def opening_fixture_signal(gw_archive: pd.DataFrame, gw_hi: int = 6,
         "persist_r": round(float(np.nanmean(pers)), 3) if pers else None,
         "n_seasons": len(pred),
     }
+
+
+# ── Q17 · DEFCON beast spotter (added 2026-07-27) ─────────────────────────────
+
+def defcon_beasts(gw_archive: pd.DataFrame, season: str = LAST_COMPLETE_SEASON,
+                  min_starts: int = 8) -> pd.DataFrame:
+    """Rank every player by how reliably they hit the DEFCON threshold.
+
+    DEFCON pays 2 points for reaching a THRESHOLD in a match (10 defensive
+    actions for a defender, 12 for a midfielder), not for the raw count. So the
+    mean flatters a player who spikes twice and does nothing in between: the
+    signal that converts to points is the HIT RATE, the share of starts that
+    cleared the bar.
+
+    Per-start rates, not per-season totals, so a player who broke into the side
+    late (Canvot started only 14) is judged on the same scale as an ever-present.
+    """
+    a = gw_archive[(gw_archive["season"] == season) & (gw_archive["starts"] == 1)]
+    a = a[a["position"].isin(("DEF", "MID"))]
+    if a.empty:
+        return pd.DataFrame()
+
+    thr = a["position"].map(DEFCON_THRESHOLD)
+    a = a.assign(_hit=(a["defensive_contribution"] >= thr).astype(float))
+    g = (a.groupby(["code", "web_name", "team_name", "position"], as_index=False)
+         .agg(starts=("starts", "sum"),
+              dc_per_start=("defensive_contribution", "mean"),
+              hit_rate=("_hit", "mean"),
+              pts_per_start=("total_points", "mean"),
+              total_pts=("total_points", "sum"),
+              goals=("goals_scored", "sum"),
+              assists=("assists", "sum"),
+              clean_sheets=("clean_sheets", "sum")))
+    g = g[g["starts"] >= min_starts].copy()
+    if g.empty:
+        return g
+
+    # DEFCON points banked per start, which is the number that actually matters.
+    g["defcon_pts_per_start"] = (g["hit_rate"] * 2.0).round(2)
+    for c in ("dc_per_start", "hit_rate", "pts_per_start"):
+        g[c] = g[c].round(2)
+    return g.sort_values(["hit_rate", "dc_per_start"], ascending=False).reset_index(drop=True)
+
+
+def defcon_by_role(gw_archive: pd.DataFrame, season: str = LAST_COMPLETE_SEASON,
+                   min_starts: int = 10) -> pd.DataFrame:
+    """Centre-backs against full-backs on DEFCON · are full-backs worth it?
+
+    Full-backs are bought for assists, but they are still DEFENDERS competing for
+    the same slots as centre-backs who bank a DEFCON floor almost every week.
+    This puts the two archetypes side by side on the metric that pays.
+    """
+    beasts = defcon_beasts(gw_archive, season, min_starts)
+    if beasts.empty:
+        return beasts
+    roles = _load_defender_roles(LAST_COMPLETE_SEASON) or _load_defender_roles(NEXT_SEASON)
+
+    def _role(row) -> str:
+        if row["position"] == "MID":
+            return "MID"
+        r = roles.get(int(row["code"]))
+        if isinstance(r, dict):
+            r = r.get("role")
+        return str(r) if r in ("CB", "FB") else "DEF (unlabelled)"
+
+    beasts = beasts.assign(role=beasts.apply(_role, axis=1))
+    return (beasts.groupby("role", as_index=False)
+            .agg(players=("code", "size"),
+                 dc_per_start=("dc_per_start", "mean"),
+                 hit_rate=("hit_rate", "mean"),
+                 defcon_pts_per_start=("defcon_pts_per_start", "mean"),
+                 pts_per_start=("pts_per_start", "mean"))
+            .round(2).sort_values("hit_rate", ascending=False).reset_index(drop=True))

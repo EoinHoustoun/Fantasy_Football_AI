@@ -276,6 +276,7 @@ BLURBS = {
     "🛡️ Safe · Haaland + Fernandes": "Both template premiums locked in · rank insurance, value built around them.",
     "🎲 Punt · Fernandes, no Haaland": "Skip the £15.5m Haaland tax, reinvest across the squad · higher upside, more variance.",
     "🔋 Bench Boost GW1": "All 15 count equally, so the bench actually plays · set up to Bench Boost GW1 with no transfer prep.",
+    "🚀 Bench Boost GW2 → Wildcard GW4": "The aggressive route. All 15 play, and the squad is built on **GW1-3 fixtures only** · the Wildcard at GW4 replaces it, so nothing after GW3 counts.",
 }
 
 mode = st.radio("Draft strategy", DRAFT_STRATEGIES, horizontal=True, label_visibility="collapsed")
@@ -290,7 +291,7 @@ with c2:
                           "confidence floor (safety-first) · low-confidence punts and fullbacks "
                           "get discounted as you slide right.")
 with c3:
-    opening = st.slider("Opening fixtures GW1-6", 0.0, 1.0, 0.0, 0.05,
+    opening = st.slider("Opening fixtures GW1-6", 0.0, 1.0, 0.35, 0.05,
                         help="Slide right to favour players with soft opening fixtures. "
                              "Playbook Q15 measured this signal as WEAK (r = -0.38 and "
                              "weakening), while team quality persists at r = +0.53 · "
@@ -310,13 +311,36 @@ with _veto_col:
         options=sorted(board["web_name"].tolist()),
         help="Veto anyone you're not convinced by · the optimiser rebuilds around them.")
 
-res = solve_draft(board, mode, budget, risk, tuple(excluded), opening,
-                  force_names=tuple(locked))
+from ui.value_board import SPRINT_STRATEGY, SPRINT_WINDOW
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _window_map(lo: int, hi: int) -> tuple:
+    """Fixture-ease per club over a GW window, as a cache-safe tuple."""
+    from analytics.season_opener import opening_ease
+    from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, get_fixtures_df
+    fx = get_fixtures_df(fetch_fixtures(), fetch_bootstrap())
+    oe = opening_ease(fx, lo, hi)
+    return tuple(zip(oe["team_id"].astype(int), oe["ease"].astype(float)))
+
+
+# The sprint route is scored on GW1-3 alone, at full weight · a Wildcard in GW4
+# throws this squad away, so fixtures after GW3 are irrelevant to it.
+_omap, _oweight = (), opening
+if mode == SPRINT_STRATEGY:
+    _omap, _oweight = _window_map(*SPRINT_WINDOW), 1.0
+    st.caption(f"Built on **GW{SPRINT_WINDOW[0]}-{SPRINT_WINDOW[1]} fixtures only**, "
+               f"at full weight. Every one of the fifteen has to start, because the "
+               f"Bench Boost in GW2 counts all of them.")
+
+res = solve_draft(board, mode, budget, risk, tuple(excluded), _oweight,
+                  force_names=tuple(locked), opening_map=_omap)
 
 if locked and res is not None:
     # What the conviction actually costs · the same solve without the locks. This
     # is the honest price of a hunch, and it is usually far smaller than it feels.
-    _free = solve_draft(board, mode, budget, risk, tuple(excluded), opening)
+    _free = solve_draft(board, mode, budget, risk, tuple(excluded), _oweight,
+                        opening_map=_omap)
     _lk = board[board["web_name"].isin(locked)]
     _spend = float(_lk["actual_price"].sum())
     _cost = (res["xi_points"] - _free["xi_points"]) if _free else None
@@ -395,23 +419,45 @@ st.markdown(
         for lab, val, sub, acc in _summary)
     + "</div>", unsafe_allow_html=True)
 
-# The eleven, as faces · recognise the squad before reading a single number.
-_xi_sorted = _xi.assign(_o=_xi["position"].map({"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3})) \
-    .sort_values(["_o", "pts"], ascending=[True, False])
-st.markdown(
-    " ".join(s.strip() for s in (
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">'
-        + "".join(
-            f'<div style="text-align:center;width:62px;">'
-            f'{face_html(r["code"], int(r.get("team_code", 1) or 1), r["position"] == "GKP", 46)}'
-            f'<div style="font-size:10px;font-weight:800;color:#fff;margin-top:3px;'
-            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
-            f'{cap_badge(bool(r["is_captain"]))}{r["web_name"][:11]}</div>'
-            f'<div style="font-size:9px;color:{POS_COLORS.get(r["position"], MUTED)};'
-            f'font-weight:800;">£{r["price"]:.1f} · {r["pts"]:.0f}</div></div>'
-            for _, r in _xi_sorted.iterrows())
-        + "</div>").splitlines()),
-    unsafe_allow_html=True)
+# The squad as clickable faces · click one to load his numbers in the inspector.
+_ord = {"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
+_squad_sorted = squad.assign(_o=squad["position"].map(_ord)) \
+    .sort_values(["in_xi", "_o", "pts"], ascending=[False, True, False])
+
+st.caption("👆 Click any player to load his stats below · DEFCON per 90, penalties, "
+           "last season's goals and assists, projected minutes.")
+def _face_row(grp: pd.DataFrame) -> None:
+    """One row of clickable players.
+
+    Capped at six across · eleven columns squeezes each to about 50px and the
+    button label wraps one letter per line, which is unreadable.
+    """
+    _cols = st.columns(max(len(grp), 1))
+    for _c, (_, r) in zip(_cols, grp.iterrows()):
+        with _c:
+            st.markdown(
+                " ".join(s.strip() for s in (
+                    f'<div style="text-align:center;">'
+                    f'{face_html(r["code"], int(r.get("team_code", 1) or 1), r["position"] == "GKP", 44)}'
+                    f'<div style="font-size:9px;color:{POS_COLORS.get(r["position"], MUTED)};'
+                    f'font-weight:800;margin-top:2px;">'
+                    f'{cap_badge(bool(r["is_captain"]))}£{r["price"]:.1f} · {r["pts"]:.0f}</div>'
+                    f'</div>').splitlines()),
+                unsafe_allow_html=True)
+            if st.button(str(r["web_name"])[:12], key=f"pick_{r['code']}",
+                         use_container_width=True):
+                st.session_state["draft_inspect"] = str(r["web_name"])
+
+
+_ROW_MAX = 6
+_xi_grp = _squad_sorted[_squad_sorted["in_xi"]]
+_bench_grp = _squad_sorted[~_squad_sorted["in_xi"]]
+for _start in range(0, len(_xi_grp), _ROW_MAX):
+    _face_row(_xi_grp.iloc[_start:_start + _ROW_MAX])
+if not _bench_grp.empty:
+    st.caption("Bench" + (" · all four count under a Bench Boost"
+                          if "Bench Boost" in mode else ""))
+    _face_row(_bench_grp)
 
 if opening > 0:
     st.caption("Opening-fixtures weight is a tie-breaker · it favours soft GW1-6 runs among "
@@ -520,8 +566,33 @@ def _last_season_stats():
     s = load_season_summary()
     s = s[s["season"] == LAST_COMPLETE_SEASON]
     keep = ["goals", "assists", "xg", "xa", "xgi", "defcon_points", "minutes",
-            "total_points", "ppg", "clean_sheets", "bonus"]
+            "total_points", "ppg", "clean_sheets", "bonus", "cbit_total",
+            "starts_total", "games_played"]
     return s.set_index("code")[[c for c in keep if c in s.columns]]
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _defcon_per90():
+    """Defensive contributions per 90 last season, plus how often the threshold hit.
+
+    The mean alone flatters a player who spikes once · the DEFCON points are a
+    THRESHOLD (10 CBIT for a defender, 12 for a midfielder), so the hit rate is
+    what actually converts to points week to week.
+    """
+    from data.processors.archive import load_gw_archive
+    a = load_gw_archive()
+    a = a[(a["season"] == LAST_COMPLETE_SEASON) & (a["starts"] == 1)]
+    if a.empty:
+        return pd.DataFrame()
+    a = a.assign(_thr=a["position"].map({"DEF": 10, "MID": 12}).fillna(999))
+    a = a.assign(_hit=(a["defensive_contribution"] >= a["_thr"]).astype(float))
+    g = a.groupby("code").agg(dc_per_start=("defensive_contribution", "mean"),
+                              dc_hit_rate=("_hit", "mean"),
+                              starts=("starts", "sum"),
+                              mins=("minutes", "sum"))
+    g["dc_per90"] = (g["dc_per_start"] * 90.0
+                     / (g["mins"] / g["starts"]).clip(lower=1)).round(2)
+    return g.round(2)
 
 
 _pick = st.selectbox("Pick a player to see the numbers behind the projection",
@@ -545,9 +616,34 @@ _cc = {"High": "#00FF87", "Medium": "#FFA500", "Low": "#FF6B6B"}.get(str(_r.get(
 _of = float(_r.get("opening_factor") or 1.0)
 _of_lbl, _of_col = (("Kind", "#00FF87") if _of >= 1.03
                     else ("Tough", "#FF6B6B") if _of <= 0.97 else ("Average", MUTED))
+_dc = _defcon_per90()
+_dcr = _dc.loc[_code] if (not _dc.empty and _code in _dc.index) else None
+
+# Set pieces · the official FPL order, so this is fact rather than a guess.
+_p_ord, _f_ord, _c_ord = (_num_safe(_r.get("pens_order")), _num_safe(_r.get("fk_order")),
+                          _num_safe(_r.get("corners_order")))
+_sp_bits = []
+if _p_ord == 1:
+    _sp_bits.append('<span style="background:#FFD700;color:#000;border-radius:4px;'
+                    'padding:1px 7px;font-size:10px;font-weight:900;">⚽ ON PENALTIES</span>')
+elif _p_ord in (2, 3):
+    _sp_bits.append(f'<span style="color:#FFD700;font-size:11px;font-weight:800;">'
+                    f'Penalties: #{_p_ord} in the queue</span>')
+if _f_ord in (1, 2):
+    _sp_bits.append(f'<span style="color:#04f5ff;font-size:11px;font-weight:800;">'
+                    f'Free kicks #{_f_ord}</span>')
+if _c_ord in (1, 2):
+    _sp_bits.append(f'<span style="color:#04f5ff;font-size:11px;font-weight:800;">'
+                    f'Corners #{_c_ord}</span>')
+_sp_line = ('<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;'
+            'margin-bottom:8px;">' + "".join(_sp_bits) + '</div>') if _sp_bits else \
+           ('<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:8px;">'
+            'Not on penalties or first-choice set pieces.</div>')
+
 _hdr = "".join(s.strip() for s in f"""
 <div style="{CARD}border-top:3px solid {_acc};margin-bottom:10px;">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+    {face_html(_code, int(_r.get('team_code', 1) or 1), _r.get('position') == 'GKP', 54)}
     {team_dot(_r.get('team_short'), size=16)}
     <div style="font-size:20px;font-weight:900;color:#fff;">{_pick}</div>
     <div style="font-size:12px;color:{MUTED};">{_r.get('team_name','')} · {_r.get('position','')} · £{float(_r.get('actual_price') or 0):.1f}m</div>
@@ -562,9 +658,24 @@ _hdr = "".join(s.strip() for s in f"""
     {_tile('Owned', f"{float(_r.get('ownership') or 0):.0f}%", '#04f5ff')}
     {_tile('vs model', f"{float(_r.get('pricing_surprise') or 0):+.1f}", '#fff')}
     {_tile('Open 1-6', _of_lbl, _of_col)}
+    {_tile('Proj mins', f"{float(_r.get('projected_minutes') or 0):,.0f}",
+           '#00FF87' if float(_r.get('projected_minutes') or 0) >= 2400 else '#FFA500')}
+    {_tile('DEFCON /90', f"{float(_dcr['dc_per90']):.1f}" if _dcr is not None else '·',
+           '#00FF87' if (_dcr is not None and float(_dcr['dc_per90']) >= 10) else MUTED)}
+    {_tile('DEFCON hit', f"{float(_dcr['dc_hit_rate'])*100:.0f}%" if _dcr is not None else '·',
+           '#00FF87' if (_dcr is not None and float(_dcr['dc_hit_rate']) >= 0.5) else MUTED)}
   </div>
 </div>""".splitlines())
 st.markdown(_hdr, unsafe_allow_html=True)
+st.markdown(_sp_line, unsafe_allow_html=True)
+if _dcr is not None and str(_r.get("position")) in ("DEF", "MID"):
+    _thr = 10 if _r.get("position") == "DEF" else 12
+    st.caption(
+        f"DEFCON needs **{_thr}** defensive actions in a match to pay 2 points. "
+        f"{_pick} averaged **{float(_dcr['dc_per_start']):.1f}** per start last season "
+        f"and cleared the bar in **{float(_dcr['dc_hit_rate'])*100:.0f}%** of them "
+        f"({int(_dcr['starts'])} starts). The hit rate is what converts to points · "
+        f"a high average built on a few spikes does not.")
 
 if _s is not None:
     _ev = "".join(s.strip() for s in f"""

@@ -29,7 +29,7 @@ CHART_TITLE = {"color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Crunching 10 seasons of data…")
-def _answers(_v: int = 4):   # bump _v to bust the cache when analyses change
+def _answers(_v: int = 5):   # bump _v to bust the cache when analyses change
     from data.processors.archive import (build_optimizer_input, load_gw_archive,
                                          load_season_summary)
     from analytics import playbook as pb
@@ -58,6 +58,8 @@ def _answers(_v: int = 4):   # bump _v to bust the cache when analyses change
         "early_bb": pb.early_bench_boost(arch, summary),
         "decay": pb.wildcard_decay(arch, summary),
         "opening": pb.opening_fixture_signal(arch),
+        "beasts": pb.defcon_beasts(arch),
+        "by_role": pb.defcon_by_role(arch),
     }
 
 
@@ -708,6 +710,60 @@ if _op.get("predict_r") is not None:
                     "textStyle": CHART_TITLE}
     opt["grid"]["top"] = 46
     charts.render(opt, height="300px", key="pb_opening")
+
+
+# ── Q17 DEFCON beast spotter ─────────────────────────────────────────────────
+_bs = A["beasts"]
+_role = A["by_role"]
+if not _bs.empty:
+    _cb = _role[_role["role"] == "CB"]
+    _fb = _role[_role["role"] == "FB"]
+    _cbh = float(_cb["hit_rate"].iloc[0]) if not _cb.empty else 0.0
+    _fbh = float(_fb["hit_rate"].iloc[0]) if not _fb.empty else 0.0
+    _question(
+        17, "Who are the DEFCON beasts, and do full-backs count?",
+        f"DEFCON pays 2 points for clearing a <b>threshold</b> in a match · 10 defensive "
+        f"actions for a defender, 12 for a midfielder. So the average flatters anyone who "
+        f"spikes twice and vanishes: the number that converts to points is the <b>hit "
+        f"rate</b>, the share of starts that cleared the bar. On that measure the elite "
+        f"are <b>Anderson</b> (0.70 over 37 starts), <b>Senesi</b> (0.70/37), "
+        f"<b>Mavropanos</b> (0.67), <b>Tarkowski</b> (0.59) and <b>Canvot</b> (0.64 in "
+        f"only 14 starts). Rule: <b>rate per start, never season totals</b> · that is how "
+        f"you find a Canvot before the market does. And the archetype question is settled: "
+        f"centre-backs hit the threshold <b>{_cbh*100:.0f}%</b> of starts against "
+        f"<b>{_fbh*100:.0f}%</b> for full-backs, nearly four times as often, while "
+        f"full-backs did not even out-score them overall "
+        f"({float(_fb['pts_per_start'].iloc[0]) if not _fb.empty else 0:.2f} vs "
+        f"{float(_cb['pts_per_start'].iloc[0]) if not _cb.empty else 0:.2f} pts a start). "
+        f"<b>Buy full-backs for assists if you must, never for DEFCON.</b>",
+        "#00FF87")
+    _top = _bs.head(14).sort_values("hit_rate")
+    _opt = charts.bar_option(
+        x=list(_top["web_name"]),
+        y=[round(float(v) * 100, 0) for v in _top["hit_rate"]],
+        colors=["#00FF87" if p == "DEF" else "#e90052" for p in _top["position"]],
+        horizontal=True)
+    _opt["title"] = {"text": "DEFCON hit rate · % of starts clearing the threshold",
+                     "textStyle": CHART_TITLE}
+    _opt["grid"]["top"] = 36
+    _opt["grid"]["left"] = 150
+    _opt["tooltip"]["formatter"] = "{b}: {c}% of starts"
+    charts.render(_opt, height="360px", key="pb_defcon_beasts")
+    st.caption("Green = defender (10-action bar), magenta = midfielder (12). "
+               "Minimum 8 starts, so late breakthroughs still qualify.")
+    with st.expander("📋 Full DEFCON table · every player with 8+ starts"):
+        _t = _bs[["web_name", "team_name", "position", "starts", "dc_per_start",
+                  "hit_rate", "defcon_pts_per_start", "pts_per_start",
+                  "goals", "assists"]].copy()
+        _t.columns = ["Player", "Team", "Pos", "Starts", "DEFCON/start", "Hit rate",
+                      "DEFCON pts/start", "Pts/start", "Goals", "Assists"]
+        st.dataframe(_t, use_container_width=True, height=420, hide_index=True,
+                     column_config={
+                         "Hit rate": st.column_config.ProgressColumn(
+                             "Hit rate", format="%.2f", min_value=0.0, max_value=1.0),
+                         "DEFCON/start": st.column_config.ProgressColumn(
+                             "DEFCON/start", format="%.1f", min_value=0.0, max_value=16.0),
+                     })
 
 # ── Q16 Where do the two models disagree? ────────────────────────────────────
 _question(
