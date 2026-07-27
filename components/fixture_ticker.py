@@ -196,3 +196,30 @@ def run_summary(fixtures_by_gw, team_id: int, gw_lo: int = 1, gw_hi: int = 6) ->
             n += 1
     mean = round(sum(fdrs) / len(fdrs), 2) if fdrs else None
     return {"mean_fdr": mean, "home": homes, "games": n, "blanks": blanks}
+
+
+# ── Scout's model-based difficulty (2026-07-27) ───────────────────────────────
+def load_scout_ticker(path=None):
+    """Fantasy Football Scout's fixture ratings · {(team_short, gw): fdr}.
+
+    FPL's own difficulty is a fixed number per club: Palace at home to City and
+    away to City score identically, which is plainly wrong. Scout's is
+    model-based and varies by venue and opponent form, so it is the better read
+    where the two disagree.
+
+    A manual snapshot, like the projections · returns {} when absent so every
+    caller falls back to the official rating rather than failing.
+    """
+    import csv
+    from config import CACHE_DIR, NEXT_SEASON
+    path = path or CACHE_DIR / ("scout_ticker_%s.csv" % NEXT_SEASON.replace("-", "_"))
+    if not path.exists():
+        return {}
+    out = {}
+    with open(path) as fh:
+        for r in csv.DictReader(fh):
+            try:
+                out[(r["team"], int(r["gw"]))] = float(r["scout_fdr"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    return out

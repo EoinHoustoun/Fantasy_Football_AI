@@ -626,17 +626,30 @@ def _player_dialog(code: int) -> None:
 
     # Every upcoming fixture, colour-coded · the run is usually the reason you
     # are looking at a player at all, so it sits above the projection chart.
-    from components.fixture_ticker import player_fixture_strip, run_summary
+    from components.fixture_ticker import (load_scout_ticker, player_fixture_strip,
+                                           run_summary)
     _tid = int(r.get("team_id", 0) or 0)
-    _sum6 = run_summary(_FIX, _tid, 1, 6)
-    _sum12 = run_summary(_FIX, _tid, 1, 12)
+    # Scout's ratings vary by venue and opponent form; FPL's are fixed per club.
+    # Use Scout where a snapshot exists, and say which is on screen.
+    _sc = load_scout_ticker()
+    _fix_src = _FIX
+    _src_note = ("official FPL difficulty, which is set per club and does not "
+                 "vary by home or away")
+    if _sc:
+        _ts = str(r.get("team_short") or "")
+        _fix_src = {k: [(o, h, _sc.get((_ts, k[1]), f)) for o, h, f in v]
+                    for k, v in _FIX.items() if k[0] == _tid}
+        _src_note = ("Fantasy Football Scout's model ratings, which vary by venue "
+                     "and opponent form")
+    _sum6 = run_summary(_fix_src, _tid, 1, 6)
+    _sum12 = run_summary(_fix_src, _tid, 1, 12)
     st.markdown(
         " ".join(x.strip() for x in (
             f'<div style="font-size:10px;font-weight:800;letter-spacing:0.18em;'
             f'color:{MUTED};text-transform:uppercase;margin:14px 0 6px;">'
             f'Fixtures · GW1 to GW{_TICKER_GWS}</div>').splitlines()),
         unsafe_allow_html=True)
-    st.markdown(player_fixture_strip(_FIX, _tid, 1, _TICKER_GWS),
+    st.markdown(player_fixture_strip(_fix_src, _tid, 1, _TICKER_GWS),
                 unsafe_allow_html=True)
     _fdr6 = _sum6.get("mean_fdr")
     _read = ("kind" if (_fdr6 or 3) <= 2.85 else
@@ -644,8 +657,7 @@ def _player_dialog(code: int) -> None:
     st.caption(
         f"Opening six average **{_fdr6 if _fdr6 is not None else 'n/a'}** difficulty "
         f"({_read}), {_sum6['home']} at home. First twelve average "
-        f"**{_sum12.get('mean_fdr')}**. Green is easy, red is hard · official FPL "
-        f"difficulty, which is set per club and does not vary by home or away.")
+        f"**{_sum12.get('mean_fdr')}**. Green is easy, red is hard · {_src_note}.")
 
     # The opening run · this is the graph that actually drives a draft decision.
     _gws = list(range(1, 11))
