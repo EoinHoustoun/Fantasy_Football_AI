@@ -52,5 +52,15 @@
     "minutes": 2700,
     "pp90": 4.1,
     "note": "Brighton CB · 0 PL minutes so no rate to fit. 11.5+ CBIT/90 and 6 goals for HSV in the Bundesliga · rate set from a Senesi-like CB profile (4.73 pts/start), discounted for the league step up"
+  },
+  "485055": {
+    "name": "Kinsky",
+    "minutes": 3420,
+    "note": "Spurs No.1 · plays every minute. His per-90 is fitted on 630 minutes (7 starts) in 25/26, which is a thin sample for the rate even though the role is now certain"
+  },
+  "184254": {
+    "name": "Vicario",
+    "benched": true,
+    "note": "Displaced by Kinsky as Spurs No.1 · near-zero minutes unless he moves"
   }
 }
