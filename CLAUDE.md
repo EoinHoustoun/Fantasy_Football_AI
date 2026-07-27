@@ -137,6 +137,8 @@ Call `inject_global_animations()` at the top of every page. Provides:
 | `analytics/projection_overrides.py` | Manual fitness/role/regression overrides (`assets/player_overrides_2026_27.json`) |
 | `analytics/projection_confidence.py` | Confidence tier + range; downgrades overrides, fullbacks, new-club players |
 | `analytics/chip_timing.py` | First-half (GW1-19) BB/TC/FH timing by fixture ease |
+| `analytics/season_opener.py` | **Coupled chip route** · `opening_ease`/`fixture_swing` (single implementation · `value_board._opening_factors` shims to it), `bb_dilution` (Bench Boost break-even, returns a bracket), `compare_routes` (whole BB+WC routes over GW1-19) |
+| `analytics/scout_projections.py` | Second-opinion projections from a **manual, gitignored** Fantasy Football Scout snapshot (`data/cache/scout_projections_2026_27.csv`). `model_scale` + scale-adjusted `disagreements`. Never scraped on a schedule |
 | `assets/player_overrides_2026_27.json` | Hand overrides (minutes/pts_mult); user-editable |
 | `assets/defcon_players_2026_27.json` | DEFCON mids exempt from the 1-attacker-per-club rule |
 | `analytics/playbook.py` | Empirical strategy answers (formation, defenders, hits, minutes, horizons) |
@@ -261,13 +263,31 @@ down on its own; COV+HUL added to `TEAM_COLORS`; `scripts/verify_rollover.py` is
 the acceptance harness; preseason (zero played GWs) is handled by
 `ui/preseason.stop_if_preseason()` on squad/model pages.
 
+## Season Opener · the early chip route (2026-07-27)
+An early Bench Boost and an early Wildcard are **one decision**: the Boost needs
+fifteen playing assets, which costs XI strength every week it is carried, and the
+Wildcard repairs it. `analytics/season_opener.py` prices whole routes; the 26/27
+Draft page renders the comparison. Findings now in the Playbook (Q13-Q16):
+- **Bench Boost break-even ~3.5 GWs** across 10 seasons, but **7.2 in 2025-26**,
+  the only DEFCON season and the one that resembles 26/27 (cheap defenders carry a
+  real floor, so an all-playing fifteen barely costs anything).
+- **Squad staleness saturates.** ~14 pts lost in the first 3 gameweeks of age, only
+  ~3 more over the next 9. "My squad is rotting" does NOT justify an early wildcard.
+- **Opening fixtures are weak** (r = -0.38, weakening) while a fast start persists
+  (r = +0.53). Back good teams, not good fixtures. The opening slider says so now.
+- **Model scale gotcha:** our projection runs ~0.72x Scout's. Ranking players by the
+  raw gap ranks them by that offset · always use the scale-adjusted residual.
+
+**Two dead ends recorded in `wildcard_decay`'s docstring so they are not reinvented:**
+comparing a GW1 squad against one rebuilt at GW k measures window OVERLAP, not decay;
+and scoring squads of different ages only works if every build window closes strictly
+before the scored window, or the overlapping build wins on hindsight.
+
 Open / next up:
-1. **Wildcard fixture-swing timing** · per-GW "which week do lots of my players'
-   fixtures swing worth a full reset" (not raw points). Keep the MILP team-builder.
-2. **Value Lab 26/27 lens** (deferred) · overlay actual prices on the value frontier.
-3. **Merge `season-rollover-2026-27` to `main`** (15+ commits ahead).
-4. Mobile responsiveness · fixed-width HTML cards for phone viewing.
-5. Wire FFHub once credentials arrive; Mini-league default to private (`c`).
+1. **Value Lab 26/27 lens** (deferred) · overlay actual prices on the value frontier.
+2. **Merge `season-rollover-2026-27` to `main`** (17+ commits ahead).
+3. Mobile responsiveness · fixed-width HTML cards for phone viewing.
+4. Wire FFHub once credentials arrive; Mini-league default to private (`c`).
 
 ## Do not
 - Write Co-Authored-By / AI attribution in git commits.
