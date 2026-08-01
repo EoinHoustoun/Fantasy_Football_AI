@@ -604,8 +604,8 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
     html = (
         f'<div style="font-family:sans-serif;max-width:{900 if compact else 1040}px;'
         f'margin:0 auto;">'
-        + _formation_bar(formation, title_right, xi_total, total_label,
-                         f"XI {stat_label}", bench_total)
+        + _formation_bar(formation, title_right, xi_total,
+                         f"{total_label} {stat_label}", bench_total)
         + f'<div style="{pitch_bg}">' + _PITCH_LINES
         + '<div style="position:relative;z-index:2;">'
         + _row(by_pos["GKP"]) + _row(by_pos["DEF"])
