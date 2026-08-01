@@ -1467,6 +1467,46 @@ def _model_chart(row: pd.Series, code: int) -> None:
             labels.append(lab)
             values.append(round(float(v), 0))
             cols.append(theme.fill(tok))
+    # Every model's number, stated. The chart shows the SPREAD, but the reader
+    # also wants to know who said what · a blend of 109 means something very
+    # different when it is 118 against 102 than when all three sit on 109.
+    _rows = []
+    for col, lab, tok, what in (
+            ("src_ours", "Ours", "mint", "carryover from last season"),
+            ("src_scout", "Scout", "gold", "their season projection"),
+            ("src_ffh", "Hub", "cyan", "four-gameweek forecast, scaled to a season")):
+        v = row.get(col)
+        _rows.append(
+            f'<div style="display:flex;align-items:center;gap:10px;padding:4px 0;">'
+            f'<span style="width:9px;height:9px;border-radius:50%;flex-shrink:0;'
+            f'background:{V(tok) if pd.notna(v) else V("muted2")};"></span>'
+            f'<span style="font-size:12px;font-weight:700;color:{V("text")};'
+            f'width:44px;">{lab}</span>'
+            f'<span class="ff-display" style="font-size:15px;font-weight:800;'
+            f'color:{V(tok) if pd.notna(v) else V("muted2")};width:46px;'
+            f'text-align:right;">'
+            f'{("%.0f" % float(v)) if pd.notna(v) else "no view"}</span>'
+            f'<span style="font-size:11px;color:{V("muted")};">{what}</span></div>')
+    _blend = float(row.get(PTS_COL) or 0)
+    _rows.append(
+        f'<div style="display:flex;align-items:center;gap:10px;padding:7px 0 0;'
+        f'margin-top:4px;border-top:1px solid {V("line")};">'
+        f'<span style="width:9px;flex-shrink:0;"></span>'
+        f'<span style="font-size:12px;font-weight:800;color:{V("text")};'
+        f'width:44px;">Blend</span>'
+        f'<span class="ff-display" style="font-size:15px;font-weight:900;'
+        f'color:{V("text")};width:46px;text-align:right;">{_blend:.0f}</span>'
+        f'<span style="font-size:11px;color:{V("muted")};">'
+        f'what the page ranks him on</span></div>')
+    st.markdown(_one_line(f'<div style="{CARD}padding:10px 14px;margin-bottom:8px;">'
+                          + "".join(_rows) + '</div>'), unsafe_allow_html=True)
+
+    if bool(row.get("consensus_echoed_scout")):
+        st.caption("He has no Premier League record, so our number IS the Scout "
+                   "backfill · one opinion, not two. The Hub is shown but does "
+                   "not vote on his season: it runs about 40% hot on players it "
+                   "cannot see.")
+
     if len(labels) < 2:
         st.info("Only one model rates this player, so there is nothing to "
                 "cross-check. Treat the number as a single opinion.")

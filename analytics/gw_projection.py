@@ -172,7 +172,42 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
     if early and long is not None and not long.empty:
         long = _apply_early_minutes(long, early)
 
+    # The Hub is optimistic about players it has no Premier League record for,
+    # and the bias survives into its PER-GAMEWEEK cells. Measured against our
+    # own fixture shape it runs 23% hotter on them (median ratio 0.90 against
+    # 0.73 for established players). The season blend already refuses their
+    # vote; without this the same optimism walked straight into any objective
+    # scored over a window · a Coventry forward away at Arsenal read 3.3.
+    if long is not None and not long.empty and "consensus_echoed_scout" in board.columns:
+        no_record = set(board.loc[board["consensus_echoed_scout"].fillna(False).astype(bool),
+                                  "code"].astype(int))
+        if no_record:
+            long = _damp_no_record(long, no_record)
+
     return GwProjection(board, fixtures_by_gw, long, miss_gws=miss)
+
+
+# Our shape / the Hub's, for players with no Premier League record. Measured,
+# not chosen · see the comment above.
+NO_RECORD_DAMPING = 0.81
+
+
+def _damp_no_record(long: pd.DataFrame, codes: set) -> pd.DataFrame:
+    """Pull the Hub's match points back for players it cannot really see.
+
+    Minutes are left alone · those are a statement about selection, which the
+    Hub is good at even for a player it has no history for. Only the POINTS,
+    which need a scoring rate nobody has observed in this league, are damped.
+    """
+    out = long.copy()
+    hit = out["code"].astype(int).isin(codes)
+    if not hit.any():
+        return out
+    out.loc[hit, "pts"] = (pd.to_numeric(out.loc[hit, "pts"], errors="coerce")
+                           * NO_RECORD_DAMPING).round(2)
+    logger.info("damped %d match cells for %d players with no PL record",
+                int(hit.sum()), len(codes))
+    return out
 
 
 # A hand call can lift a player's minutes by at most this multiple. Beyond it
