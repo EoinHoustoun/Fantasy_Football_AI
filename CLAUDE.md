@@ -36,6 +36,30 @@ The user wants the app at **10/10 quality**. Three expert hats, always:
 
 This is binding. If you invent a new colour or spacing, you're drifting · stop and re-use tokens below.
 
+### Themes (2026-08-01) · use variables, never literals
+The app has **light and dark**. `ui/theme.py` owns both palettes and emits them
+as `--ff-*` CSS variables; the toggle sits under the sidebar wordmark.
+
+**Write `var(--ff-mint)` in inline HTML, never `#00FF87`.** Use
+`from ui.theme import var as V` then `V("text")`, `V("card")`, `V("line")`.
+For places CSS cannot reach (ECharts series, canvas, JSON) use `theme.fill(tok)`
+and `theme.pos_color(pos)`.
+
+**Two accent families, and mixing them up is what breaks light mode:**
+- `--ff-mint` / `gold` / `cyan` / `mag` / `red` / `orange` are **INK** · safe as
+  text on the current ground. In light they are deepened (`#00874A`, not `#00FF87`).
+- `--ff-mint-v` and friends are **VIVID FILLS** for chips carrying black text.
+  Near-identical in both themes, because a chip supplies its own ground.
+
+Other rules:
+- `app.py` must NOT carry a global CSS block · it lived at equal specificity and
+  fought the palette. It was deleted; do not re-add it.
+- Component iframes do not inherit custom properties. Pass `theme.component_css()`
+  into any bidirectional component's HTML.
+- Charts are re-themed on the way out by `charts.render()` (`_LIGHT_SWAP`). A new
+  helper needs no change as long as it uses the shared constants.
+- `FDR_COLORS` and position chips stay vivid in both themes on purpose.
+
 ### Colours
 ```
 Background         #151922   (primary)
@@ -59,7 +83,18 @@ Position chips   GKP #00FF87 · DEF #04f5ff · MID #e90052 · FWD #FF7B00
 FDR colours      1/2 green · 3 yellow #FFD60A · 4 orange #FF8C42 · 5 red #FF4B4B
 ```
 
-### Typography
+### Typography · three roles, nothing else (2026-08-01)
+**Weight carries hierarchy, not size.** That is what lets a dense page stay calm.
+- **body** · 400/450, 13.5px, line-height 1.55 · anything readable
+- **label** · 600, 10px, uppercase, 0.1-0.2em tracking · the small-caps furniture
+- **display** · 800/900 Archivo, tabular figures · headings and numbers that matter
+
+Do not add a fourth. Numbers always get `.ff-display` or `.ff-num` so columns
+line up. Section rules (`_sec`) take a Material Symbol and set their lead line in
+the same block · never a `st.caption` underneath, which is what made the page
+feel like small print. Icons come from `theme.icon()`, not emoji, inside HTML.
+
+### Typography (legacy tokens)
 - Font: `'Inter','SF Pro Display',sans-serif`
 - Hero title: **40–48px, weight 900, letter-spacing -1.2px**
 - Section heading (underline style): **11px, weight 800, letter-spacing 0.22em, uppercase**
@@ -127,7 +162,7 @@ Call `inject_global_animations()` at the top of every page. Provides:
 
 ## Stack
 - **Python 3.8** · always use `List`, `Dict`, `Optional`, `Union` from `typing`. Never `list[x]` or `dict[x]`.
-- **Streamlit + Apache ECharts** (`streamlit-echarts`) for UI/charts · every chart goes through the shared helpers in `ui/charts.py` (one dark theme, transparent grounds). Plotly is gone — do not reintroduce it.
+- **Streamlit + Apache ECharts** (`streamlit-echarts`) for UI/charts · every chart goes through the shared helpers in `ui/charts.py` (one dark theme, transparent grounds). Plotly is gone · do not reintroduce it.
 - **No database.** JSON cache with TTL in `data/cache/` · safe to delete for cold fetch.
 - **All weights, thresholds, scoring constants → `config.py`.**
 
@@ -162,6 +197,12 @@ Call `inject_global_animations()` at the top of every page. Provides:
 | `analytics/chip_timing.py` | First-half (GW1-19) BB/TC/FH timing by fixture ease |
 | `analytics/season_opener.py` | **Coupled chip route** · `opening_ease`/`fixture_swing` (single implementation · `value_board._opening_factors` shims to it), `bb_dilution` (Bench Boost break-even, returns a bracket), `compare_routes` (whole BB+WC routes over GW1-19) |
 | `analytics/scout_projections.py` | Second-opinion projections from a **manual, gitignored** Fantasy Football Scout snapshot (`data/cache/scout_projections_2026_27.csv`). `model_scale` + scale-adjusted `disagreements`. Never scraped on a schedule |
+| `data/fetchers/ffhub.py` | Third opinion · **manual, gitignored** Fantasy Football Hub snapshot (`data/cache/ffh_predictions_2026_27.csv`): per-fixture predicted points AND **expected minutes** for GW1-4. Join is name + club, never name alone |
+| `analytics/consensus.py` | Blends the three models onto one scale · `consensus_points`, `consensus_lo/hi`, `model_spread` → `consensus_confidence`, `ffh_nailedness`. `biggest_disagreements()` |
+| `analytics/gw_projection.py` | **Per-gameweek expected points, one implementation.** Match forecasts inside the snapshot window, fixture shape beyond it. Also `best_xi()` and `bench_boost_value()` |
+| `analytics/head_to_head.py` | Player vs player (per season / per £m / per 90, scaled across the compared players) and draft vs draft (`score_draft` prices each squad WITH its own chip plan, `compare_drafts` says which wins and why) |
+| `components/ff_table.py` | **All tables go through here, not `st.dataframe`.** Declarative column specs (face, player, num, bar, chip, fixture run, action), theme-aware, clickable. `build_html` is pure and unit-testable |
+| `analytics/drafts.py` | Named drafts, saved to `data/cache/saved_drafts.json`. A draft is the RECIPE (strategy, locks, dials, chip plan), never the fifteen · so it stays correct when prices move. Nine presets seeded once |
 | `assets/player_overrides_2026_27.json` | Hand overrides (minutes/pts_mult); user-editable |
 | `assets/defcon_players_2026_27.json` | DEFCON mids exempt from the 1-attacker-per-club rule |
 | `analytics/playbook.py` | Empirical strategy answers (formation, defenders, hits, minutes, horizons) |
@@ -308,10 +349,100 @@ before the scored window, or the overlapping build wins on hindsight.
 
 Open / next up:
 1. **Value Lab 26/27 lens** (deferred) · overlay actual prices on the value frontier.
-2. **Merge `season-rollover-2026-27` to `main`** (17+ commits ahead).
+2. ~~Merge `season-rollover-2026-27` to `main`~~ · done, the branches are level.
 3. Mobile responsiveness · fixed-width HTML cards for phone viewing.
 4. Wire FFHub once credentials arrive; Mini-league default to private (`c`).
 
+
+## Consensus projections + expected minutes (2026-08-01)
+
+Three independent models now sit behind every 26/27 number:
+**ours** (carryover, Spearman ~0.4) · **Scout** (season) · **Hub** (per fixture).
+`analytics/consensus.py` rescales them onto one scale and blends them; the
+**spread between them is the confidence signal**, which is stronger than the old
+minutes-sample heuristic because it catches the case where every model is
+guessing about the same new manager.
+
+Rules that are easy to get wrong and are already handled:
+1. **Rescale before comparing.** Ours runs ~0.73x Scout and ~0.61x the Hub.
+   Ranking on the raw gap ranks on that offset.
+2. **A Hub zero is an empty sample, not a forecast.** It means "no minutes in
+   GW1-4". Anything under 45 expected minutes a game is dropped from the SEASON
+   blend and flagged as `ffh_no_early_minutes` instead. It still drives the
+   per-gameweek view, where not playing IS the answer.
+3. **"High" confidence needs three models.** Two agreeing caps at Medium.
+
+**`ffh_nailedness` is the app's only STATED minutes forecast** (ours are all
+inferred from last season). It is what exposed the biggest live bug: without it
+the optimiser drafted Rice and Garner, whom the match model expects to play 15
+and 30 minutes in GW1. The 26/27 Draft's **"Weight early minutes"** dial scales
+the objective by it (default 0.5).
+
+**Per-gameweek points go through `analytics/gw_projection.py`**, never a local
+`season / 38 * ease` again. `source()` says whether a cell is a real match
+forecast or a fixture shape, and the UI must label which. The Chip Planner still
+uses the old fixture-shape model · wiring it to this is the next job.
+
+**The Draft page is pitch-first** (`views/18_draft_2026_27.py`): shirts carry the
+next three FDR-coloured fixtures + that week's expected points, `x` marks for
+replacement, `↓` benches, the kit opens the card. One table under the pitch
+(replacements when someone is marked, otherwise the pool), swaps via a `Swap in`
+checkbox in `st.data_editor`. All other analysis is behind tabs.
+
+**Gotcha: `st.metric` truncates label and value to a couple of characters inside
+`st.dialog`.** Use the HTML tile helper in dialogs.
+
+**Gotcha: a declared component's iframe defaults to 300px wide.** The pitch and
+the tables size themselves from their container, so at 300px they wrap into a
+tall cramped column and report that height back. The CSS fix is in `ui/theme.py`
+under "Custom components" · keep it.
+
+**Gotcha when debugging layout in a browser: `getBoundingClientRect` is wrong
+while `document.body.style.zoom` is set.** Reset zoom to 1 before measuring, or
+you will chase a width bug that does not exist.
+
+## Comparison surfaces (2026-08-01)
+
+`analytics/head_to_head.py` answers the two "which one" questions.
+
+**Player vs player** gives every axis three ways · per season, per £m, per 90 ·
+because a total flatters whoever is expensive. Axes scale across the compared
+players only. It keeps TWO scores on purpose: `totals` (0-1 scaled) draws the
+radar, `edges` (mean relative difference) writes the verdict. With two players
+every axis is 0 or 1, so `totals` alone would call a 4% edge a landslide.
+Alderete vs Ballard lands 1% apart and is reported as noise.
+
+**Is the gap real?** `simulate_drafts` is a Monte Carlo with TWO uncertainty
+sources: a per-player RATE draw held for the whole window (width from how far the
+three models disagree) and fresh overdispersed MATCH noise each gameweek. **Both
+draws are shared between drafts**, so players the squads have in common cancel
+and the comparison narrows to the picks that differ. Without that sharing the
+answer drowns in variance neither draft owns. `significance()` calls anything
+inside 65/35 a coin flip on purpose.
+
+**Squad shape, enforced not assumed:** a legal XI is exactly 1 GKP plus at least
+3 DEF, 2 MID, 1 FWD. `_legal_swaps` in the draft page lights only the players who
+can legally come on, so the rule is taught by the interface.
+
+**Transfers are keyed by gameweek.** `draft_swaps` is `{gw: {out: in}}` and
+`_current_squad(gw)` applies every move up to that week, so stepping back shows
+the squad as it was. `_transfer_ledger` implements the real rule: 1 free transfer
+a week from GW2, banked to a cap of 5, spent oldest first, the rest at -4. GW1 is
+the draft itself and is free by definition.
+
+**Draft vs draft** scores each squad over a window WITH its own chip plan: the XI
+is re-picked weekly, the captain doubles, and the bench pays in the Boost week.
+That is what makes "Bench Boost GW1" and "Bench Boost GW2" different plans rather
+than the same squad twice. `compare_drafts` returns the verdict plus the reasons
+(chip week, captaincy, biggest weekly swings, budget, and a warning when a
+boosted bench holds someone who is not playing).
+
+**Football context is the `fpl-football-lens` skill** (`.claude/skills/fpl-football-lens/SKILL.md`)
+· scoring asymmetries, guaranteed-points doctrine, why carryover breaks on new
+managers, the current club reads, template risk, and the coupled Bench Boost /
+Wildcard / goalkeeper-trap decision. It auto-triggers on player-ranking and
+optimiser work; invoke it explicitly with the Skill tool if it has not loaded.
+**Read it before ranking players or writing optimiser rules.**
 
 ## ⚠️ THIS REPO IS PUBLIC · read before committing anything
 

@@ -387,3 +387,596 @@ placeholder leaves a whitespace-only line. Always collapse card HTML to one line
 
 **Still open:** Wildcard fixture-swing timing; Value Lab 26/27 lens; merge the
 branch to main.
+
+---
+
+## 2026-08-01 · Consensus projections, expected minutes, and a pitch-first Draft
+
+### New data source · Fantasy Football Hub predicted points
+`data/cache/ffh_predictions_2026_27.csv` (gitignored, 409 players). A **manual,
+one-shot** snapshot of the Hub's `/predictions` tool taken from Eoin's own
+logged-in session: per-player predicted points for GW1-4, **expected minutes per
+gameweek**, points per gameweek, ownership and each fixture. Never polled or
+scheduled · same rules as the Scout snapshot.
+
+Loader: `data/fetchers/ffhub.py` · `load_snapshot`, `per_gw_frame` (long form),
+`per_gw_by_code` (joined to the stable FPL `code`), `match_to_board`. Club names
+match FPL's exactly, so the join is name + club (name alone collides across
+clubs and silently hands one player another's projection).
+
+### Consensus engine · `analytics/consensus.py`
+Blends three independent reads into one number plus an honest spread:
+ours (carryover, Spearman ~0.4) · Scout (season model) · Hub (match model).
+
+- **Scale first.** The models disagree on what a season is worth (ours runs
+  ~0.73x Scout, ~0.61x the Hub). `robust_scale` puts everything on our scale via
+  a median ratio before anything is compared, or the ranking is just the offset.
+- **Season weights** 0.35 ours / 0.40 Scout / 0.25 Hub, renormalised per row so a
+  player only one model can see keeps that model's number.
+- **Two zero-handling rules that matter.** A Hub zero means "no minutes in the
+  window", not "no points this season" · Saliba at 0 would otherwise drag a real
+  starter to a third of what the season models say. Anything under
+  `MIN_NAILEDNESS_FOR_SEASON` (0.5, i.e. 45 mins a game) is excluded from the
+  SEASON blend and surfaced as `ffh_no_early_minutes` instead. It still drives
+  the per-gameweek view, where "he is not playing" IS the answer.
+- **Disagreement is the confidence signal.** `model_spread` (coefficient of
+  variation) → High/Medium/Low. Two models agreeing caps at Medium; "High" means
+  three independent reads landed together.
+- New columns: `consensus_points`, `consensus_lo/hi`, `consensus_confidence`,
+  `model_spread`, `n_models`, `src_ours/src_scout/src_ffh`, `ffh_nailedness`,
+  `ffh_exp_mins_next/mean`, `ffh_mins_volatility`, `points_scale_to_match`.
+- `biggest_disagreements()` is the shortlist worth a human read.
+
+### Per-gameweek projections · `analytics/gw_projection.py`
+Replaces "season / 38 x fixture ease" with the Hub's real per-fixture forecast
+where the window covers it, and falls back to the old shape beyond it, rescaled
+so the two never sit side by side in different units. `source()` reports which
+produced each cell so the UI can label it. Also holds `best_xi()` (the XI for
+THIS gameweek, formation-legal) and `bench_boost_value()` (what the chip is
+actually worth, plus dead bench slots).
+
+**The old model was hiding a real problem.** With minutes ignored, the optimiser
+drafted Rice and Garner, whom the match model expects to play **15 and 30
+minutes** in GW1 (World Cup returnees). A GW1 Bench Boost was worth 8.4 points
+with Rice a dead slot. Hence the new **"Weight early minutes"** dial on the draft
+(default 0.5), which scales the objective by `ffh_nailedness`.
+
+### `views/18_draft_2026_27.py` rebuilt around the pitch
+The pitch IS the planner. Each shirt carries the **next three fixtures as
+FDR-coloured chips** and **that gameweek's expected points**; a red `!` marks
+anyone under 45 expected minutes. `x` marks a player for replacement, `↓` forces
+him to the bench, the kit opens his card. Below the pitch sits ONE table: the
+affordable, club-legal replacements when someone is marked, otherwise the pool.
+Swaps are a tick in a `Swap in` column (`st.data_editor`) · row-selection on
+`st.dataframe` is a canvas grid and could not be verified reliably.
+
+Everything else moved behind five tabs (Verdicts · Where the models disagree ·
+Wildcard · Chip route · All players) so the planner owns the screen.
+
+Player card tabs: **Model agreement** (one bar per model + what the spread
+means), **Minutes** (expected minutes per gameweek, the only stated minutes
+forecast in the app), **Opening run** (green = real match forecast, faded =
+fixture shape), **Last season**.
+
+State: `draft_swaps` (out → in), `draft_axe`, `draft_bench`, re-applied every
+rerun so the optimiser stays the starting point rather than the last word.
+
+**Gotcha:** `st.metric` truncates its label and value to a couple of characters
+inside `st.dialog`. Use the HTML tile helper (which CLAUDE.md already mandates
+for heroes) everywhere in dialogs.
+
+### Football context captured as a skill
+`.claude/skills/fpl-football-lens.md` · Eoin's football-first reasoning for
+26/27: the scoring asymmetries (a mid has three routes to points, a forward
+one), guaranteed points over exciting points, why carryover breaks on new
+managers, the current club-by-club reads, template risk as a cost rather than an
+obligation, and the coupled Bench Boost / Wildcard / goalkeeper-trap decision.
+Read it before ranking players or writing optimiser rules.
+
+**Still open:** wire the same per-gameweek model into the Chip Planner (it still
+uses the fixture-shape model); Value Lab 26/27 lens; mobile widths.
+
+---
+
+## 2026-08-01 (later) · Light mode, custom tables, and comparison
+
+### Theme system · `ui/theme.py` rewritten
+Two palettes, one set of `--ff-*` variable names. Every surface reads
+`var(--ff-...)` rather than a literal, so switching is a CSS swap with nothing to
+re-render. `theme_toggle()` sits under the sidebar wordmark.
+
+**The distinction that makes light mode readable:** two accent families.
+`--ff-mint` is an INK colour, safe as text on the current ground (bright mint in
+dark, a deeper `#00874A` in light). `--ff-mint-v` is a VIVID FILL for chips that
+carry black text, nearly identical in both themes because a chip supplies its own
+ground. Mixing them up is what makes a naive light mode unreadable.
+
+`app.py`'s hard-coded dark CSS block is GONE · it lived at equal specificity and
+would have fought the palette. Do not re-add it.
+
+Charts: `ui/charts.py` builds every option against the dark palette in ~20
+places. Rather than touch every call site, `render()` remaps a known set of
+literals on the way out (`_LIGHT_SWAP` + `_retheme`). The chart key gets a
+`_lt` suffix in light mode, or Streamlit reuses the mounted chart and keeps the
+old colours.
+
+Component iframes do not inherit the host's custom properties, so
+`component_css()` hands the palette to the pitch and the tables explicitly.
+
+### `components/ff_table.py` · tables we actually control
+Streamlit's dataframe is a canvas grid: it cannot be styled with CSS, it paints
+against Streamlit's configured base theme (so it stayed dark in light mode), and
+its row hit testing is opaque to automation. Replaced with a real HTML table
+behind a small bidirectional component. Buys the app's own look, rich cells
+(faces, coloured chips, inline bars, FDR fixture runs, action buttons) and clicks
+reported exactly like the pitch reports them. Declarative column specs:
+`col_face`, `col_player`, `col_num`, `col_bar`, `col_chip`, `col_run`,
+`col_action`, `col_html`. `build_html` is pure, so it unit tests without a browser.
+
+**Callers MUST dedupe on the returned nonce**, same as the pitch. `_click()` in
+the draft page is the shared helper.
+
+### `analytics/head_to_head.py` · the two "which one" questions
+**Player vs player.** Every axis is given three ways, because totals flatter
+whoever is expensive: per season, per £m, per 90. Axes are scaled across the
+compared players only, since the question is never "is he good" but "is he
+better than the alternative I can afford".
+
+Two scores, on purpose: `totals` (mean of the 0-1 scaled axes) drives the radar,
+while `edges` (mean RELATIVE difference vs the field) drives the verdict. With
+two players every axis scales to exactly 0 or 1, so `totals` would call a 4% edge
+a landslide. **Alderete vs Ballard comes out 1% apart, which the verdict now
+reports as noise rather than a win.**
+
+**Draft vs draft.** `score_draft` re-picks the XI every gameweek, doubles the
+captain, and pays the bench in the Bench Boost week, so "Bench Boost GW1" and
+"Bench Boost GW2" are genuinely different plans rather than the same squad twice.
+`compare_drafts` returns a verdict plus the reasons: which chip week was worth
+more, captaincy over the window, the biggest single-week swings, budget left
+over, and a warning when a boosted bench contains someone not expected to play.
+
+### Draft page · pitch-first, laptop-first
+- Gameweek **stepper** (◀ ▶) replaced the slider.
+- **Compact** pitch mode: smaller kits, price and projection on one line, tighter
+  rows. Pitch height 797px → 662px.
+- Hero shrunk to one line and the controls moved into a **popover beside it**, so
+  the pitch now starts at y=222 instead of y=446. Readout tiles moved BELOW the
+  pitch: the pitch is what you look at, the numbers are what you check after.
+- New tabs: **Compare players** (radar + per-gameweek lines + a metric table with
+  ◆ on the better number and a column saying why the row matters) and
+  **Compare drafts** (A/B with its own chip plan, weekly lines, a per-week
+  difference bar, and the reasons behind the gap).
+- Player card: a **keep-or-not verdict** built from minutes, points per £m rank
+  within his price band, and model agreement · not from the headline projection.
+
+**Bug worth remembering: Streamlit gives a declared component's iframe a 300px
+default width.** The pitch and tables size themselves from their container, so at
+300px they wrapped into a tall cramped column and reported that height back. The
+fix is CSS on `[data-testid="stCustomComponentV1"]`, in `ui/theme.py`.
+
+**Also:** `st.metric` truncates its label and value to a couple of characters
+inside `st.dialog`. Use the HTML tile helper there.
+
+**Measuring layout in a browser: never trust `getBoundingClientRect` while
+`document.body.style.zoom` is set.** It cost a detour chasing a "tiles are half
+width" bug that did not exist.
+
+**Still open:** wire the per-gameweek model into the Chip Planner (it still uses
+the fixture-shape model); convert the remaining pages' inline literals to
+`var(--ff-*)` so light mode is complete app-wide (Draft, tables, pitch, charts
+and chrome are done); Value Lab 26/27 lens.
+
+---
+
+## 2026-08-01 (evening) · Saved drafts and a simulated comparison
+
+### `analytics/drafts.py` · drafts are recipes, not squads
+A saved draft stores the RECIPE (strategy, locks, vetoes, budget/risk/opening/
+minutes dials, chip plan), not the fifteen players. That keeps a saved draft
+correct when prices move or a projection updates, which is the whole point of
+comparing them in early August.
+
+Squad and chip plan are independent on purpose, which is what lets "Optimal" and
+"Optimal, BB GW2 into WC GW4" be two comparable drafts built on the same fifteen.
+
+Nine presets seeded on first run: three squads (Optimal · +Mosquera+Haaland ·
++Fernandes+Mosquera+Haaland) across three chip plans (none · BB2→WC4 · BB1→WC4).
+A `_seeded` marker means a deleted preset stays deleted instead of reappearing.
+Stored in `data/cache/saved_drafts.json` (gitignored).
+
+### Monte Carlo comparison · `simulate_drafts` in `analytics/head_to_head.py`
+Two point estimates always differ, so the question "is this gap real" needs a
+spread, not a subtraction. Two sources of uncertainty:
+
+- **rate** · how good the player actually is. ONE draw per player for the whole
+  window, because being wrong about Isak in GW1 means being wrong in GW8 too.
+  Width comes from how far the three models disagree (`consensus_lo/hi`).
+- **match** · week-to-week variance, drawn fresh each gameweek, overdispersed
+  (variance ≈ 2.4x mean) because football is lumpy.
+
+**Both draws are SHARED between drafts.** If two squads have twelve players in
+common those twelve cancel in the difference, and the comparison narrows to the
+picks that actually differ. Simulating each draft independently would drown the
+signal in variance neither draft owns. This is the thing that makes the verdict
+trustworthy.
+
+`significance()` is deliberately conservative: anything inside 65/35 is reported
+as a coin flip, because a projection validating at Spearman 0.4 does not earn
+finer resolution. `build_phases()` splits a draft at its Wildcard so the second
+half is a squad rebuilt on the fixtures that follow the reset.
+
+Live result: all nine presets are within noise of each other on chip plan, and
+locking Fernandes + Mosquera + Haaland costs about 4 points against pure Optimal
+over GW1-8, which is inside the spread. Chip timing separates the drafts far
+more than the premium locks do.
+
+### Comparison UI
+- Verdict states the ACTION first ("Pick Base BB2 → WC4" / "Too close to call").
+- **Range bands are hand-drawn HTML, not ECharts.** A floating bar (lo to hi with
+  a tick at the mean) is awkward to encode in a charting library and was silently
+  rendering the spans at the wrong width. Absolute positioning makes overlap
+  exact, which is the entire point of the chart.
+- Colour carries the decision: leader mint, anyone still in the fight (beats it
+  in ≥35% of sims) gold, everyone clearly behind grey. Nine drafts in nine
+  colours is a rainbow, not a shortlist.
+- Chart labels abbreviate the SQUAD and keep the CHIP PLAN, because the chip is
+  usually what differs and a middle-truncated name hides it.
+- The head-to-head grid only renders at six drafts or fewer.
+
+### Substitution rules · `_legal_swaps` in the draft page
+A legal XI is exactly one keeper plus at least three defenders, two midfielders
+and one forward. Tapping ⇅ arms a swap and lights ONLY the players who can
+legally come on, so the formation rule is taught by the interface rather than
+enforced by an error. Verified: a keeper only swaps with the other keeper; with
+four defenders any position can come on; with three, only another defender can.
+
+Player names in every table are now the click target for the card.
+
+**Not done yet, next up:** the per-gameweek transfer ledger (transfers made at
+GW2+, free-transfer accrual capped at 5, hits at -4, and a summary-of-changes
+panel), plus the budget/FT strip at the top of the planner. The typography and
+icon pass across the draft page is also outstanding. Note that the light/dark
+choice lives in session state, so it resets on a full page reload.
+
+### One definition of a draft (2026-08-01, follow-up)
+The strategy picker at the top of the Draft page was still the old hardcoded
+`DRAFT_STRATEGIES` list, so the page offered bespoke premium modes ("Safe ·
+Haaland + Fernandes", "Punt · Fernandes, no Haaland") that the saved drafts knew
+nothing about. Two definitions of "a draft" that disagreed.
+
+The picker is now the SAVED DRAFTS. Selecting one loads its recipe into the
+dials, and the dials are overrides from there (keyed on the draft id so they
+re-read when you switch). A premium call is expressed as a LOCK, which is why
+there is no no-Haaland mode any more: that is Optimal without him locked.
+
+`DRAFT_STRATEGIES` is trimmed to the three that change the solver's OBJECTIVE
+(Optimal value, Bench Boost GW1, BB GW2 → WC4) · the bench-weighting arms cannot
+be expressed as locks. `solve_draft` still understands the removed names so a
+stale saved draft keeps working. The Chip Planner shares the list and picked the
+change up for free.
+
+**Preset bug fixed at the same time:** the BB presets carried a chip plan but
+still solved with `⚖️ Optimal value`, so they planned a Bench Boost on a bench
+built not to play. Each chip plan now carries the strategy that builds a squad
+capable of it.
+
+### More routes, and a walkthrough of the one you picked (2026-08-01)
+Four route experiments added to the presets, all on the Optimal squad because the
+chip question is largely separable from the squad question and varying it on one
+squad answers it without tripling the picker:
+
+- **BB1 → WC6** · same boost, carry the all-playing fifteen two weeks longer
+- **BB3 → WC6** · let the openers settle, boost into a known-good week
+- **WC4, no Boost** · the control arm for "is the Boost worth it at all"
+- **BB1, no Wildcard** · the control arm for "is the reset worth it"
+
+Thirteen presets total. The Draft page now lands on **Optimal · BB1 → WC4**,
+since that is the route under active consideration.
+
+`walk_route()` in `analytics/head_to_head.py` answers what a route name cannot:
+what the Boost returns in the week it is played, what the bench is worth in a
+normal week, how many players the Wildcard changes and what the reset is worth
+over the six weeks that follow it, and how many free transfers are banked by the
+time you get there. Rendered at the top of the Chip route tab for the selected
+draft, with a week-by-week table marking the chip weeks and flagging any benched
+player not expected to play.
+
+**A metric I wrote and then removed:** the first version computed a "carry cost"
+as the mean bench points in non-boost weeks and derived a break-even from it.
+That is not what carrying an all-playing fifteen costs · the real cost is XI
+strength given up by spending on the bench, which needs a second solve and is
+already done properly in `season_opener.bb_dilution`. The cheap version produced
+"break-even 0.6 gameweeks", which is nonsense. It now reports the bench in a
+normal week alongside the boost week and uses the difference to answer the
+TIMING question instead, which is what the cheap numbers can honestly support.
+
+Live read on BB1 → WC4: the Boost returns 14.9 against a normal-week bench of
+15.0, so the timing is neutral, and the GW4 reset is worth only +2.1 over GW4-9
+with 3 transfers banked. On this squad the Wildcard is not buying much.
+
+### Brighter surfaces, better charts, saving from the planner (2026-08-01)
+
+**The app was too black.** Every dark surface lifted a step and warmed toward
+blue (`bg` #0B0E13 → #10141F, `s1` #151922 → #1B2131), lines from 0.08 to 0.11
+alpha, and a third gradient added to the ground. The tiers now read as separate
+planes instead of one black field. Contrast is unaffected: text on bg is 16.2:1.
+
+**Light-mode greys were too thin** for small text: `muted` 0.60 → 0.68 and
+`muted2` 0.40 → 0.52. All six light accents now clear 4.6:1 on white (measured,
+not eyeballed).
+
+**Buttons.** The kit badges were flat circles with a bare glyph, which read as a
+stray dot on a busy pitch · now rounded squares with a lit top edge, a real
+shadow and a hover/press state. The table swap control went from a bare "+" to a
+labelled "Swap in" pill. Dialog buttons use Material icons
+(`:material/swap_horiz: Replace him`) instead of glyph-prefixed text.
+
+**Two new chart types in `ui/charts.py`:**
+- `fixture_run_option` · the opening run as bars **coloured by fixture
+  difficulty**, opponent on the axis under the gameweek, value on top, and an
+  optional expected-minutes line on a second axis. Colour carries the WHY, so
+  the run reads without a legend or a tooltip, and a tall bar sitting on thin
+  minutes (the trap) is visible immediately. Only the minutes line is legended:
+  the bars are individually coloured, so one swatch for them would be a lie.
+- `model_spread_option` · the three models as points on ONE axis with a
+  connecting rule and the blend as a diamond. Three separate bars make you
+  compare heights; one axis makes the SPREAD the thing you see, which is the
+  question being asked.
+
+**Player card rebuilt** around four tabs: Opening run, Model agreement, Value for
+money, Last season. The new one is **Value for money**: a radar against the
+median player of the same position within £0.5m of his price. The filter that
+makes it honest is `>= 40` projected points · without it the baseline is dragged
+down by two hundred squad players who never start and everyone looks like a
+bargain. Haaland correctly reports "too few comparable players" at £15.5m.
+
+**Saving moved to where drafts are built.** The Controls popover now has a name
+field, chip pickers and "Save as a new draft", and selects the new draft
+immediately. The Compare drafts tab keeps the manage/delete list.
+
+### Graded stats, per-gameweek availability, side-by-side squads (2026-08-01)
+
+**Every number in the player card is now graded**, because "108 projected points"
+means nothing on its own. Two kinds of grade for two kinds of number:
+- **RANK** against every player in his position that the models rate (points,
+  per £m, per 90). Top 10% green, top third amber, the rest red, and each tile
+  shows the rank: "2nd of 114 DEF".
+- **THRESHOLD** against a bar the rules define. DEFCON per 90 is green at or
+  above the bar (10 CBIT for a defender, 12 for a midfielder), amber within 20%
+  of it, red below.
+
+**Note a conflict to resolve with Eoin:** he asked for a defender threshold of
+20, but his own worked example (10.8 per 90 shown green) matches the bar of 10
+that FPL actually uses and that `_defcon_per90` already scores against. The code
+uses 10/12; if 20 is right, `DEFCON_THRESHOLD` is the one place to change.
+
+**`miss_gws` · per-gameweek unavailability.** A season minutes cut cannot say
+"Garner plays no part in GW1-2", because missing the opening two weeks says
+nothing about April. The override schema takes a `miss_gws` list, applied in
+`gw_projection` (new source `SRC_MANUAL`), so those cells are zero and everything
+downstream (XI selection, Bench Boost value, the simulation) sees it.
+
+Football overrides added from Eoin's reads: Garner out GW1-2; Porro the only
+certain Spurs defender; Senesi, Van de Ven and Van Hecke all haircut because the
+centre-back pairing is genuinely unknown; Tonali and Fernandes nailed; Maddison
+and Kudus lifted to 2400 minutes.
+
+**Pitch:** the axe and swap controls are smaller (17px) and moved OFF the shirt
+to its top corners; a gold P sits low-right on a penalty taker and the
+low-minutes warning low-left, so nothing collides.
+
+**Comparison:** two squads can now be lined up side by side at any gameweek in
+the window, with players unique to each draft marked and sorted to the top ·
+the shared players are not the argument.
+
+**Gotcha worth remembering: `st.cache_resource` holds the LIVE object across code
+edits.** Adding a method to `GwProjection` gave `AttributeError` on a method
+plainly present in the file, because the cached instance predated it. `_projector`
+now takes a `_PROJ_VERSION` in its key; bump it when the class changes.
+
+### Optimiser maths corrected, and no more light grey (2026-08-01)
+
+**Two real bugs in how "optimal" was found**, both found from Eoin asking why
+Garner kept being drafted while showing 0 expected points:
+
+1. **A missing match-model row was treated as a nailed starter.**
+   `ffh_nailedness` is NaN for 148 of 535 players (the Hub simply has no row for
+   them) and the minutes gate filled that with 1.0 · so the LEAST certain players
+   got the largest benefit of the doubt. Kroupi.Jr on a 0.39 minutes share was
+   scored as fully nailed. It now falls back to our own fitted `mins_share`.
+2. **A hand-entered absence never reached the solver.** `miss_gws` only applied
+   per gameweek, so the season objective happily drafted a player the same
+   codebase had scored at zero for the opening weeks. There is now a haircut
+   proportional to the share of the OPENING WINDOW missed, not of the season: a
+   draft is built for the start.
+
+Effect: Garner 112.1 → 65.7 as the solver sees him, and he leaves the fifteen.
+Kroupi.Jr 107.2 → 74.5. Haaland is untouched at 0.944 nailedness.
+
+**No light grey.** Eoin cannot read it: *"I never find light grey writing useful,
+I prefer white font on black and black font on white."* `--ff-muted` went 0.64 →
+0.86 and `--ff-muted2` 0.46 → 0.66 in dark (0.68 → 0.86 and 0.52 → 0.68 in
+light). Measured on a card: muted is now 10.8:1 dark and 11.8:1 light, muted2 is
+6.9:1 and 6.1:1. Written up as a user-level skill at
+`~/.claude/skills/no-light-grey-text/SKILL.md`, which also covers what to use
+INSTEAD of grey for hierarchy (weight, size, space, meaningful colour).
+
+**DEFCON confirmed:** the bar is 10 for defenders and 12 for midfielders, and
+clearing it pays a flat 2 points. That is why the card grades on hit rate as well
+as the per-90 average · a player who averages 11 by spiking once earns the bonus
+far less often than the mean implies.
+
+**Heatmap labels** were being clipped by a guessed 70px gutter. The grid now uses
+`containLabel`, column labels rotate 30 degrees when names are long, row labels
+truncate at a set width rather than overflowing, and each cell prints its value.
+
+### Saving a team you built, and Hub's season weight (2026-08-01)
+
+**A draft can now carry an explicit fifteen.** The old save stored only the
+RECIPE (strategy, locks, dials), so the thing you built by hand on the pitch and
+the thing that got saved were different objects · the recipe re-solves to
+something else tomorrow. `BASE` gains a `squad` field (15 player codes); when
+present the planner uses it verbatim and `build_phases` skips the solve, so the
+comparison scores the squad you actually chose.
+
+**Save moved onto the planner**, beside the team it saves: a name box and a
+button under the pitch. Saving the same name UPDATES that draft rather than
+making a second one, and the button reads "Update" once you are on your own
+draft. That is the loop Eoin described: name it, build it, save, tweak, save
+again.
+
+**Axing a player now adds his sale price to the money strip.** "In the bank"
+becomes "To spend" and reads `£X banked + £Y freed`, because the number you shop
+with is the sum, not the leftover.
+
+**Hub's season weight cut 0.25 → 0.15** (ours 0.35 → 0.40, Scout 0.40 → 0.45).
+Eoin's read, and it is right: the Hub deliberately does not look far ahead, so
+its season figure is a four-gameweek window extrapolated to 38. This changes
+nothing about the per-gameweek numbers, where it remains the primary source and
+the only stated minutes forecast.
+
+Note `changed_club` already flagged Anderson's move (Forest to Man City) and an
+override was already recording the rotation and DEFCON risk that comes with it.
+
+### The draft selector, redesigned (2026-08-01)
+The draft is the primary object on the page and it was a plain dropdown hidden
+inside a settings popover · you had to open a menu to find out what you had
+picked. It is now a row of pills directly under the title:
+
+- **An icon says what KIND of draft it is** · bookmark for a fifteen you saved,
+  lock for a premium call, flask for a chip-route experiment, scales for the
+  plain optimum. That is information a name alone cannot carry.
+- **Labels are shortened to the distinguishing part** and keep the chip plan
+  intact, because the chip is usually what differs between two drafts.
+- **Your own drafts sort first.** A preset is a starting point; the one you built
+  is the one you came back for.
+- **One scrolling line, not four wrapped rows.** Fourteen drafts wrapped to 182px
+  and pushed the pitch off a laptop screen; the row is now 39px and scrolls.
+  The wrap lives on the inner `[role=radiogroup]`, not on `stButtonGroup` ·
+  styling the outer element does nothing.
+- Selected pill takes the accent as a **fill**, not a tint. Targets are
+  `[data-testid^="stBaseButton-pills"]` and `stBaseButton-pillsActive`.
+
+Under the pills, one line states what the selection IS: a kind chip, the full
+name, and the facts (locks, chip plan). The cost-of-conviction readout folded
+into a single line with it and is colour-graded, which is how we can now see at
+a glance that locking Fernandes + Mosquera + Haaland costs **-52 projected XI
+points** against the free optimum.
+
+Net effect: the pitch moved from y=664 to y=500.
+
+### Sidebar, navigation and comparison identity (2026-08-01)
+
+**Sidebar.** The FPL purple against near-black was the harshest edge on the
+screen. It is now blue-slate in dark (`#1A2740`) and light blue in light
+(`#E7F0FB`), driven by four new tokens (`side`, `side2`, `side-ink`,
+`side-line`) so it follows the theme like everything else. Sidebar ink measures
+13.1:1 dark and 13.7:1 light, and the sidebar-to-content luminance ratio dropped
+to 2.88, which is what removes the slab effect. Nav links gained a resting hover
+and a real selected state (mint inset rule) instead of relying on contrast.
+
+**Navigation regrouped** from six sections to four by INTENT: Play (this week),
+Plan (draft, transfers, chips), Stats (research), History. Nineteen links at once
+was a directory, not navigation.
+
+**Gotcha:** Streamlit sets `visibility: hidden` on `[data-testid="stNavSectionHeader"]`
+when `st.navigation(..., expanded=False)`. The categories ARE the navigation
+here, so the CSS forces them visible; without that the groups render as unlabelled
+gaps.
+
+**Draft identities.** Comparing drafts by name meant the same long string in five
+places, truncated differently each time, in a green multiselect box that read as
+a tag rather than a selection. Each compared draft now gets a stable identity ·
+a LETTER, a colour and a shape · used by the key row, the ranked table, the
+range bands, the cumulative lines, the win bars, the head-to-head grid and the
+squad columns. The shape matters as much as the colour: it keeps the comparison
+readable in greyscale and for a colour-blind reader.
+
+The setup is now numbered (1 choose, 2 window, then run), and the run button is
+primary and disabled until two drafts are picked.
+
+**Side-by-side squads gained a Pitch view**, the same compact pitch the planner
+uses, with players unique to that draft ringed in mint. A list is right for
+scanning numbers; a pitch is right for seeing a team.
+
+**Foden override added**: 2400 minutes, on Eoin's read that he starts the opening
+weeks under the new City manager. His 25/26 rate was 5.67 per 90, so the rate was
+never the question · only the minutes. Season projection 94.5 → 113.7.
+
+### Pitch cards, top-three picks, richer filters (2026-08-01)
+
+**Every player sits on a card now.** A light translucent panel with a defined
+edge, a lit top border and a soft shadow, so the kit and its numbers read as one
+object instead of floating on grass. That edge is what lets the cards pack
+tighter (68px wide compact, gaps down to 5px) without the rows blurring into
+each other · and it lifts the text off a busy background, so the nameplate lost
+its black slab and now uses a text shadow.
+
+**Sidebar is light blue in BOTH themes** by request, with near-black ink (13.2:1
+dark, 14.1:1 light) and a deep-green accent for the selected page and the
+category headers. This is the one surface that deliberately does not follow the
+theme.
+
+**Axing a player now answers the question.** The top three affordable
+replacements appear as ranked cards (rank badge, face, price delta, next three
+fixtures, points over the next four gameweeks, expected minutes) with a one-click
+"Bring in" under each, above the full 22-row list. Twenty-two rows is a research
+tool; three cards is an answer, and an answer is what you want the moment you
+take someone out. Ranked on the horizon, not on the single gameweek.
+
+**Pool filters rebuilt:** position as a segmented control (four options should
+never need typing), a name search, a club picker, a max-price slider, and the
+important one · **a horizon slider (default 4)** that re-ranks the whole table on
+expected points over the next N gameweeks from the one you are viewing. "Best
+next week" and "best over the next eight" are different questions and the table
+now answers whichever you are asking, with a matching column.
+
+**Still open · the big one:** making the side-by-side comparison INTERACTIVE ·
+stepping gameweeks inside it, making trial transfers and swaps on either squad,
+and having each side track its own budget, transfers used and chips. That is a
+feature in its own right, not a tweak, and it is the next thing to build.
+
+### Gameweek stepping in the comparison, glossier sidebar (2026-08-01)
+
+**The side-by-side steps through gameweeks.** A prev/next stepper with a live
+readout of each draft's XI points for that week, beside its letter badge. The
+squads barely change week to week but the FIXTURES do, and that is what moves
+the numbers · stepping GW1 to GW2 re-picks both best elevens (formation went
+4-4-2 to 4-3-3, the keeper changed) and repaints every fixture chip.
+
+**The run is cached against `(picks, window, sims, board)`.** Without it every
+gameweek step re-solved up to nine MILPs and re-ran 1500 simulations, which made
+the stepper unusable. It reuses the stored `entries` and `sim` unless the button
+is pressed again or the inputs change.
+
+**Sidebar is a brighter, glossier light blue:** `#EAF6FF` to `#BFE1FF` with a
+white sheen over the top fifth, an inset highlight down the right edge and a soft
+outer shadow. Ink stays at 12:1 against the darkest part of the gradient.
+
+**Still open:** trial transfers and swaps INSIDE the comparison, with each side
+tracking its own budget, transfers used and chips. Stepping the weeks is done;
+editing the squads in place is the remaining half.
+
+### Review response · three P0s fixed, compare-all added (2026-08-01)
+
+Acted on `docs/DRAFT_PAGE_IMPROVEMENT_PLAN.md` after verifying its claims rather
+than taking them on trust. Three were real and are fixed:
+
+1. **`_one_line` was eating words** · it joined stripped lines with "", so any
+   prose that wrapped in the source welded together ("costs 0.6 pts a" +
+   "gameweek" -> "pts agameweek"). This was MY helper and the bug was systemic,
+   not one card. Fixed to insert a space only where a word meets a word or a
+   word meets an inline tag, so chips stay flush. Six join cases tested.
+2. **A recipe-only save wiped a saved fifteen** · `save_draft` rebuilt the entry
+   from `BASE`, so any save without a `squad` nulled one. Now it starts from the
+   stored entry and only an explicit non-None value overrides.
+3. **`_write` was not atomic** · a truncated write left `saved_drafts.json`
+   empty, `_read` returned {} and `load_drafts` re-seeded presets over the top,
+   destroying every user draft. Now writes a temp file, fsyncs and `os.replace`s.
+
+Also added the **compare-all shortcuts** Eoin asked for (all / just mine / clear)
+and extended `_ID_LETTERS` to A-Z, since "compare all" passes fourteen drafts and
+a repeated identity letter is worse than none.
+
+Note the plan predates this session's caching work: P1-1 (cache the Monte Carlo)
+was already done via `_ab_cache`, and the gameweek stepper in P2-3 already exists.

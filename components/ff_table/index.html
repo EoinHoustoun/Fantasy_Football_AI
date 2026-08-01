@@ -1,0 +1,118 @@
+<!doctype html>
+<meta charset="utf-8">
+<!--
+  ff_table · a styled, theme-aware, clickable table.
+
+  Streamlit's own dataframe is a canvas grid: it cannot be styled with CSS, it
+  renders against Streamlit's configured base theme rather than ours, and its
+  row-selection hit testing is opaque to test automation. This component renders
+  a real HTML table instead, so it follows the app's CSS variables, can carry
+  faces / bars / chips / sparklines in a cell, and reports clicks reliably.
+
+  Receives {theme_css, html, sticky} and posts {action, id, nonce} on a click of
+  any element carrying data-ffaction / data-ffid.
+-->
+<style>
+  html, body { margin:0; padding:0; background:transparent; }
+  body {
+    font-family: 'Inter','SF Pro Display',-apple-system,sans-serif;
+    color: var(--ff-text, #eef1f5);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { overflow-x:auto; overflow-y:auto; border-radius:14px;
+          border:1px solid var(--ff-line, rgba(255,255,255,0.08));
+          background: var(--ff-card-solid, #161A22); }
+  table { border-collapse:separate; border-spacing:0; width:100%;
+          font-size:12.5px; font-weight:400; font-variant-numeric: tabular-nums; }
+  thead th {
+    position:sticky; top:0; z-index:3;
+    background: var(--ff-s2, #1B2130);
+    color: var(--ff-muted, rgba(236,241,245,0.56));
+    font-size:9.5px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase;
+    text-align:left; padding:9px 10px; white-space:nowrap;
+    border-bottom:1px solid var(--ff-line, rgba(255,255,255,0.08));
+  }
+  thead th.num, td.num { text-align:right; font-variant-numeric: tabular-nums; }
+  tbody td {
+    padding:7px 10px; white-space:nowrap;
+    border-bottom:1px solid var(--ff-line, rgba(255,255,255,0.06));
+    vertical-align:middle;
+  }
+  tbody tr:nth-child(even) td { background: var(--ff-row-alt, rgba(255,255,255,0.02)); }
+  tbody tr:hover td { background: var(--ff-row-hover, rgba(255,255,255,0.05)); }
+  tbody tr:last-child td { border-bottom:0; }
+  tbody tr.clickable { cursor:pointer; }
+  tbody tr.hl td { background: rgba(0,255,135,0.10) !important; }
+
+  /* Pinned identity columns survive horizontal scroll */
+  .pin1 { position:sticky; left:0; z-index:2; }
+  .pin2 { position:sticky; z-index:2; }
+  thead .pin1, thead .pin2 { z-index:4; }
+  tbody .pin1, tbody .pin2 { background: var(--ff-card-solid, #161A22); }
+  tbody tr:nth-child(even) .pin1, tbody tr:nth-child(even) .pin2 {
+    background: var(--ff-s1, #151922);
+  }
+  tbody tr:hover .pin1, tbody tr:hover .pin2 { background: var(--ff-s2, #1B2130); }
+
+  .face { width:26px; height:26px; border-radius:50%; object-fit:cover; display:block;
+          background: var(--ff-s3, #232B3B); }
+  .nm { font-weight:600; color: var(--ff-text, #eef1f5); letter-spacing:-0.01em; }
+  .nm.link { cursor:pointer; text-decoration: underline; text-decoration-style: dotted;
+             text-underline-offset: 3px; text-decoration-color: var(--ff-muted2, #666); }
+  .nm.link:hover { color: var(--ff-mint, #00FF87); text-decoration-color: var(--ff-mint, #00FF87); }
+  .sub { font-size:10px; color: var(--ff-muted2, rgba(236,241,245,0.34)); }
+  .chip { display:inline-block; border-radius:4px; padding:1px 5px;
+          font-size:9px; font-weight:900; color:#000; letter-spacing:-0.1px; }
+  .bar { position:relative; height:16px; min-width:56px; border-radius:4px;
+         background: var(--ff-chip-bg, rgba(255,255,255,0.07)); overflow:hidden; }
+  .bar > i { position:absolute; inset:0 auto 0 0; display:block; border-radius:4px; }
+  .bar > b { position:relative; font-size:10.5px; font-weight:700; line-height:16px;
+             padding-left:6px; color: var(--ff-text, #eef1f5); }
+  .act { display:inline-flex; align-items:center; justify-content:center; gap:4px;
+         height:24px; padding:0 10px; border-radius:7px; cursor:pointer;
+         background: var(--ff-mint, #00FF87); color:#06251a; font-weight:800;
+         font-size:11px; letter-spacing:0.02em; line-height:1; white-space:nowrap;
+         box-shadow: 0 2px 6px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.35);
+         transition: transform .12s cubic-bezier(.2,.8,.2,1), filter .12s ease; }
+  .act:hover { transform: translateY(-1px); filter: brightness(1.08); }
+  .act:active { transform: translateY(0) scale(0.97); }
+  .act.ghost { background: var(--ff-chip-bg, rgba(255,255,255,0.08));
+               color: var(--ff-text, #eef1f5); box-shadow:none;
+               border:1px solid var(--ff-line, rgba(255,255,255,0.12)); }
+  .empty { padding:22px; text-align:center; color: var(--ff-muted, #999); font-size:12.5px; }
+</style>
+<div id="root"></div>
+<script>
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*");
+  }
+  function setHeight() {
+    var r = document.getElementById("root");
+    send("streamlit:setFrameHeight", { height: r.scrollHeight + 6 });
+  }
+  window.addEventListener("message", function (ev) {
+    var msg = ev.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+    var a = msg.args || {};
+    var root = document.getElementById("root");
+    root.innerHTML = (a.theme_css || "") + (a.html || "");
+    root.querySelectorAll("[data-ffaction]").forEach(function (el) {
+      el.addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        send("streamlit:setComponentValue", {
+          dataType: "json",
+          value: {
+            action: el.getAttribute("data-ffaction"),
+            id: parseInt(el.getAttribute("data-ffid"), 10),
+            nonce: Date.now()
+          }
+        });
+      });
+    });
+    setHeight();
+    root.querySelectorAll("img").forEach(function (im) { im.addEventListener("load", setHeight); });
+    setTimeout(setHeight, 250);
+    setTimeout(setHeight, 1000);
+  });
+  send("streamlit:componentReady", { apiVersion: 1 });
+</script>

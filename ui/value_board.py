@@ -126,9 +126,54 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     except Exception as exc:                      # never let it break the board
         logger.warning("Scout backfill skipped: %s", exc)
 
+    # ── Consensus · blend our carryover model with Scout and FFH ──────────────
+    # Three independent reads beat one, and where they disagree is exactly where
+    # a point estimate is lying to you. Also lands FFH's expected minutes on the
+    # board · the only stated "will he start" signal in the stack.
+    verdicts = _add_consensus(verdicts, live_bs)
+
     bt = dict(trained["backtest"][trained["winner"]])
     bt["model"] = trained["winner"]
     return verdicts, scout, bt, validation
+
+
+def _add_consensus(verdicts: pd.DataFrame, live_bs: dict) -> pd.DataFrame:
+    """Attach consensus columns. Never fatal · a missing snapshot just means
+    fewer models in the blend, and `build_consensus` renormalises for that."""
+    from analytics.consensus import build_consensus
+
+    scout_matched = None
+    try:
+        from analytics.scout_projections import load_snapshot as _scout_snap, match_to_board as _scout_match
+        snap = _scout_snap()
+        if snap is not None:
+            scout_matched = _scout_match(snap, verdicts)["matched"]
+    except Exception as exc:
+        logger.warning("Scout leg of the consensus skipped: %s", exc)
+
+    ffh_matched, ease = None, None
+    try:
+        from data.fetchers.ffhub import load_snapshot as _ffh_snap, match_to_board as _ffh_match, window_gws
+        snap = _ffh_snap()
+        if snap is not None:
+            ffh_matched = _ffh_match(snap, verdicts)["matched"]
+            gws = window_gws(snap)
+            if gws:
+                from analytics.season_opener import opening_ease
+                from data.fetchers.fpl_api import fetch_fixtures, get_fixtures_df
+                fx = get_fixtures_df(fetch_fixtures(), live_bs)
+                oe = opening_ease(fx, gws[0], gws[-1])
+                ease = dict(zip(oe["team_id"].astype(int), oe["ease"].astype(float)))
+    except Exception as exc:
+        logger.warning("FFH leg of the consensus skipped: %s", exc)
+
+    try:
+        out, diag = build_consensus(verdicts, scout_matched, ffh_matched, ease)
+        logger.info("consensus built · %s", diag)
+        return out
+    except Exception as exc:
+        logger.warning("consensus skipped: %s", exc)
+        return verdicts
 
 
 def _opening_factors(fixtures, cfg: dict) -> dict:
@@ -141,11 +186,18 @@ def _opening_factors(fixtures, cfg: dict) -> dict:
     return opening_factors(fixtures, cfg)
 
 
-# Shared draft strategies · used by the 26/27 Draft page and the Chip Planner.
+# Shared draft strategies. A strategy only earns a slot here when it changes the
+# OBJECTIVE the solver optimises · the Bench Boost arms weight the bench, which
+# no amount of locking players can express.
+#
+# The premium strategies that used to live here ("Safe · Haaland + Fernandes",
+# "Punt · Fernandes, no Haaland") are gone: a premium call is just a LOCK on a
+# saved draft, and keeping a second way to say the same thing meant the picker
+# on the Draft page and the saved drafts in the comparison disagreed about what
+# a draft is. `solve_draft` still understands the old names so a stale saved
+# draft keeps working.
 DRAFT_STRATEGIES = [
     "⚖️ Optimal value",
-    "🛡️ Safe · Haaland + Fernandes",
-    "🎲 Punt · Fernandes, no Haaland",
     "🔋 Bench Boost GW1",
     "🚀 Bench Boost GW2 → Wildcard GW4",
 ]

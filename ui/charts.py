@@ -476,22 +476,34 @@ def heatmap_option(x: List[str], y: List[str], matrix: List[List[float]],
             flat.append(v)
     lo = vmin if vmin is not None else (min(flat) if flat else 0)
     hi = vmax if vmax is not None else (max(flat) if flat else 1)
+    # `containLabel` lets the grid size itself around the axis text instead of
+    # sitting inside a guessed 70px gutter · long category names were being
+    # clipped, which is worse than useless on a matrix where the row label IS
+    # the identity. Rotating the column labels buys the same room horizontally.
+    longest = max([len(str(v)) for v in y] + [0])
     return {
         "backgroundColor": "transparent",
-        "grid": {"left": 70, "right": 18, "top": 20, "bottom": 40},
+        "grid": {"left": 8, "right": 20, "top": 16, "bottom": 54,
+                 "containLabel": True},
         "tooltip": {"position": "top", "backgroundColor": "rgba(11,14,19,0.94)",
                     "borderColor": "rgba(255,255,255,0.12)",
                     "textStyle": {"color": _TEXT, "fontFamily": _FONT}},
         "xAxis": {"type": "category", "data": x, "splitArea": {"show": True},
-                  "axisLabel": {"color": _MUT, "fontSize": 9, "fontFamily": _FONT}},
+                  "axisTick": {"show": False},
+                  "axisLabel": {"color": _MUT, "fontSize": 9, "fontFamily": _FONT,
+                                "rotate": 30 if longest > 8 else 0,
+                                "interval": 0, "hideOverlap": False}},
         "yAxis": {"type": "category", "data": y, "splitArea": {"show": True},
-                  "axisLabel": {"color": _MUT, "fontSize": 9, "fontFamily": _FONT}},
+                  "axisTick": {"show": False},
+                  "axisLabel": {"color": _MUT, "fontSize": 9, "fontFamily": _FONT,
+                                "interval": 0, "width": 130, "overflow": "truncate"}},
         "visualMap": {"min": lo, "max": hi, "calculable": True, "orient": "horizontal",
-                      "left": "center", "bottom": 4,
+                      "left": "center", "bottom": 2, "itemHeight": 80,
                       "inRange": {"color": ["#123", COLORS["cyan"], COLORS["mint"]]},
                       "textStyle": {"color": _MUT, "fontSize": 9}},
         "series": [{"type": "heatmap", "data": data,
-                    "label": {"show": False},
+                    "label": {"show": True, "fontSize": 9, "color": "#0B0E13",
+                              "fontWeight": "bold", "formatter": "{@[2]}"},
                     "emphasis": {"itemStyle": {"borderColor": "#fff", "borderWidth": 1}}}],
     }
 
@@ -583,8 +595,205 @@ def with_mark_line(option: Dict[str, Any], value: float, label: str = "",
     return option
 
 
+def fixture_run_option(gws: List[int], points: List[float], opponents: List[str],
+                       fdr: List[float], minutes: Optional[List[float]] = None,
+                       fdr_colors: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
+    """The opening run · one bar a gameweek, coloured by fixture difficulty.
+
+    Colouring by difficulty rather than by data source is the whole point: the
+    reader sees WHY a week is high or low without a legend, because the bar is
+    green when the fixture is kind and red when it is not. The opponent goes on
+    the axis under the gameweek, so no tooltip is needed to read the run.
+
+    An optional minutes line rides on a second axis · a tall bar on thin minutes
+    is the trap this chart exists to expose.
+    """
+    cols = fdr_colors or {1: "#00E37A", 2: "#00E37A", 3: "#FFD60A",
+                          4: "#FF8C42", 5: "#FF4B4B"}
+    labels = [f"GW{g}\n{o or 'blank'}" for g, o in zip(gws, opponents)]
+    ax_x = _axis("category", labels)
+    ax_x["axisLabel"]["fontSize"] = 9
+    ax_x["axisLabel"]["lineHeight"] = 13
+    ax_x["axisLabel"]["interval"] = 0
+    ax_y = _axis("value")
+    ax_y["splitLine"]["lineStyle"]["type"] = "dashed"
+
+    series: List[Dict[str, Any]] = [{
+        "type": "bar", "name": "Expected points", "barWidth": "58%",
+        "data": [{"value": round(float(p), 2),
+                  "itemStyle": {"color": cols.get(int(round(float(f))), "#FFD60A"),
+                                "borderRadius": [5, 5, 0, 0], "opacity": 0.92}}
+                 for p, f in zip(points, fdr)],
+        "label": {"show": True, "position": "top", "fontSize": 10,
+                  "fontWeight": "bold", "color": _MUT, "formatter": "{c}"},
+    }]
+    axes = [ax_y]
+    if minutes is not None:
+        axes.append({**_axis("value"), "max": 90, "splitLine": {"show": False},
+                     "axisLabel": {"color": _MUT, "fontSize": 9,
+                                   "formatter": "{value}'"}})
+        series.append({
+            "type": "line", "name": "Expected minutes", "yAxisIndex": 1,
+            "data": [None if m is None else round(float(m), 0) for m in minutes],
+            "smooth": False, "symbol": "circle", "symbolSize": 6,
+            "lineStyle": {"color": COLORS["cyan"], "width": 2, "type": "dashed"},
+            "itemStyle": {"color": COLORS["cyan"]},
+        })
+    return {
+        "backgroundColor": "transparent",
+        "grid": {"left": 40, "right": 44 if minutes is not None else 16,
+                 "top": 34, "bottom": 42},
+        "tooltip": _tooltip(),
+        # Only the minutes line goes in the legend. The bars are individually
+        # coloured by difficulty, so a single swatch for them would be a lie (and
+        # ECharts picks its own blue for it, which clashes with everything).
+        "legend": {"top": 0, "left": 0, "itemWidth": 14, "itemHeight": 8,
+                   "data": ["Expected minutes"] if minutes is not None else [],
+                   "textStyle": {"color": _MUT, "fontSize": 10, "fontFamily": _FONT}},
+        "xAxis": ax_x, "yAxis": axes, "series": series,
+    }
+
+
+def model_spread_option(labels: List[str], values: List[float],
+                        blend: float, colors: List[str]) -> Dict[str, Any]:
+    """Where each model lands, on one line, with the blend marked.
+
+    Three separate bars make you compare heights; one axis with three points
+    makes the SPREAD the thing you see, which is the question being asked.
+    """
+    lo, hi = min(values + [blend]), max(values + [blend])
+    pad = max((hi - lo) * 0.18, 4)
+    ax_x = {**_axis("value"), "min": round(lo - pad), "max": round(hi + pad)}
+    ax_y = {**_axis("category", [""]), "axisLine": {"show": False},
+            "splitLine": {"show": False}}
+    return {
+        "backgroundColor": "transparent",
+        "grid": {"left": 12, "right": 24, "top": 44, "bottom": 30, "containLabel": True},
+        "tooltip": {"trigger": "item", "backgroundColor": "rgba(11,14,19,0.94)",
+                    "borderColor": "rgba(255,255,255,0.12)",
+                    "textStyle": {"color": _TEXT, "fontFamily": _FONT}},
+        "xAxis": ax_x, "yAxis": ax_y,
+        "series": [
+            # The connecting rule, so the gap between models is a visible length.
+            {"type": "line", "data": [[min(values), 0], [max(values), 0]],
+             "symbol": "none", "silent": True, "z": 1,
+             "lineStyle": {"color": "rgba(255,255,255,0.18)", "width": 6}},
+            {"type": "scatter", "symbolSize": 17, "z": 3,
+             "data": [{"value": [round(v, 1), 0], "name": n,
+                       "itemStyle": {"color": c, "borderColor": "rgba(0,0,0,0.35)",
+                                     "borderWidth": 1}}
+                      for n, v, c in zip(labels, values, colors)],
+             "label": {"show": True, "position": "top", "fontSize": 10,
+                       "fontWeight": "bold", "color": _MUT,
+                       "formatter": "{b}"},
+             "tooltip": {"formatter": "{b}: {@[0]} pts"}},
+            {"type": "scatter", "symbol": "diamond", "symbolSize": 15, "z": 4,
+             "data": [{"value": [round(blend, 1), 0], "name": "Blend",
+                       "itemStyle": {"color": "#FFFFFF"}}],
+             "label": {"show": True, "position": "bottom", "fontSize": 10,
+                       "color": _MUT, "formatter": "blend {@[0]}"},
+             "tooltip": {"formatter": "Blend: {@[0]} pts"}},
+        ],
+    }
+
+
+def range_bars_option(labels: List[str], lo: List[float], mid: List[float],
+                      hi: List[float], colors: Optional[List[str]] = None,
+                      x_name: str = "") -> Dict[str, Any]:
+    """Horizontal floating bars from `lo` to `hi` with a tick at `mid`.
+
+    The one chart that answers "is this difference real". Two point estimates
+    always differ; two RANGES that overlap heavily do not. Reading which bars
+    fail to overlap is faster and more honest than reading a table of means.
+
+    Built from a stacked pair: an invisible bar up to `lo`, then the visible span.
+    """
+    span = [round(h - l, 2) for l, h in zip(lo, hi)]
+    base = [round(l, 2) for l in lo]
+    cols = colors or [COLORS["mint"]] * len(labels)
+
+    ax_y = _axis("category", labels)
+    ax_y["axisLabel"]["fontSize"] = 10
+    ax_x = _axis("value")
+    ax_x["name"] = x_name
+    ax_x["nameTextStyle"] = {"color": _MUT, "fontSize": 10}
+    ax_x["min"] = round(min(lo) - (max(hi) - min(lo)) * 0.06, 1) if lo else 0
+    ax_x["max"] = round(max(hi) + (max(hi) - min(lo)) * 0.06, 1) if hi else 1
+
+    return {
+        "backgroundColor": "transparent",
+        "grid": {"left": 8, "right": 24, "top": 16, "bottom": 34,
+                 "containLabel": True},
+        "tooltip": {"trigger": "item", "backgroundColor": "rgba(11,14,19,0.94)",
+                    "borderColor": "rgba(255,255,255,0.12)",
+                    "textStyle": {"color": _TEXT, "fontFamily": _FONT, "fontSize": 12}},
+        "xAxis": ax_x, "yAxis": ax_y,
+        "series": [
+            {"type": "bar", "stack": "r", "silent": True,
+             "itemStyle": {"color": "transparent"}, "data": base,
+             "tooltip": {"show": False}},
+            {"type": "bar", "stack": "r", "barWidth": "52%",
+             "data": [{"value": v, "itemStyle": {
+                 "color": _rgba(c, 0.42) if c.startswith("#") else c,
+                 "borderColor": c, "borderWidth": 1, "borderRadius": 4}}
+                 for v, c in zip(span, cols)],
+             "tooltip": {"formatter": "{b}"}},
+            {"type": "scatter", "symbol": "rect", "symbolSize": [3, 22],
+             "data": [{"value": [m, i], "itemStyle": {"color": c}}
+                      for i, (m, c) in enumerate(zip(mid, cols))],
+             "tooltip": {"formatter": "{b}: {c}"}, "z": 5},
+        ],
+    }
+
+
+# ── Light-mode re-theming ─────────────────────────────────────────────────────
+# Every helper above builds its option against the dark palette, in about twenty
+# places. Rewriting all of them to consult the palette at build time would mean
+# touching every call site for a change that is, in the end, a fixed set of
+# colour substitutions. So the swap happens once, on the way out: walk the
+# finished option and remap the known literals. Adding a helper costs nothing as
+# long as it uses the shared constants, and a colour this map does not know is
+# passed through untouched rather than mangled.
+_LIGHT_SWAP = {
+    # grounds and lines
+    "rgba(11,14,19,0.94)": "rgba(255,255,255,0.97)",   # tooltip ground
+    "rgba(255,255,255,0.12)": "rgba(16,24,40,0.14)",   # tooltip border
+    "rgba(255,255,255,0.14)": "rgba(16,24,40,0.18)",   # axis line
+    "rgba(255,255,255,0.10)": "rgba(16,24,40,0.12)",
+    "rgba(255,255,255,0.06)": "rgba(16,24,40,0.08)",   # grid line
+    "rgba(255,255,255,0.05)": "rgba(16,24,40,0.05)",
+    "rgba(255,255,255,0.02)": "rgba(16,24,40,0.03)",
+    # text
+    "rgba(236,241,245,0.55)": "rgba(16,24,40,0.60)",
+    "rgba(255,255,255,0.7)": "rgba(16,24,40,0.75)",
+    "#EEF1F5": "#101828", "#eef1f5": "#101828",
+    # Brand accents, darkened just enough to survive on white. A 2px mint line
+    # at #00FF87 is invisible on a light ground; as a large bar fill it is fine,
+    # so these land between the two rather than at the deep ink value.
+    "#00FF87": "#00C46A", "#04f5ff": "#0AA6C2", "#04F5FF": "#0AA6C2",
+    "#FFD700": "#D9A400",
+}
+
+
+def _retheme(node: Any) -> Any:
+    """Recursively swap dark-palette literals for their light equivalents."""
+    if isinstance(node, str):
+        return _LIGHT_SWAP.get(node, node)
+    if isinstance(node, dict):
+        return {k: _retheme(v) for k, v in node.items()}
+    if isinstance(node, (list, tuple)):
+        return [_retheme(v) for v in node]
+    return node
+
+
 def render(option: Dict[str, Any], height: str = "260px",
            key: Optional[str] = None) -> None:
     """Render an ECharts option with the app theme. `key` must be unique per chart."""
     from streamlit_echarts import st_echarts
+    from ui.theme import is_light
+    if is_light():
+        option = _retheme(option)
+        # The key has to change with the palette or Streamlit reuses the mounted
+        # chart and the old colours stay on screen.
+        key = (key + "_lt") if key else None
     st_echarts(options=option, height=height, key=key)

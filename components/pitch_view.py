@@ -160,12 +160,14 @@ def _shirt_img(code: int, is_gkp: bool, width: int = 60) -> str:
     )
 
 
-def _nameplate(name: str, tcol: str) -> str:
-    label = (name[:11] + "…") if len(name) > 12 else name
+def _nameplate(name: str, tcol: str, size: int = 12) -> str:
+    cap = 12 if size >= 12 else 10
+    label = (name[:cap - 1] + "…") if len(name) > cap else name
     return (
-        f'<div style="background:rgba(0,0,0,0.82);color:#fff;padding:3px 8px;'
-        f'border-radius:5px;font-size:12px;font-weight:800;margin-top:7px;'
-        f'white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis;'
+        f'<div style="color:#fff;padding:1px 4px;text-shadow:0 1px 3px rgba(0,0,0,0.8);'
+        f'border-radius:4px;font-size:{size}px;font-weight:800;margin-top:5px;'
+        f'white-space:nowrap;max-width:{"92" if size >= 12 else "72"}px;'
+        f'overflow:hidden;text-overflow:ellipsis;'
         f'text-align:center;border-bottom:2px solid {tcol};">{label}</div>'
     )
 
@@ -237,26 +239,45 @@ def _position_row(players: List[pd.Series], interactive: bool = False,
                       for p in players) + '</div>')
 
 
-def _formation_bar(formation: str, title_right: str = "") -> str:
-    left = (f'<div style="color:rgba(255,255,255,0.6);font-size:13px;font-weight:600;">'
+def _formation_bar(formation: str, title_right: str = "",
+                   total: Optional[float] = None, total_label: str = "XI",
+                   bench_total: Optional[float] = None) -> str:
+    """Squad header · label, projected total, formation.
+
+    The total lives here rather than in a tile below the pitch, because it is
+    the number you want while you are looking at the team.
+    """
+    left = (f'<div style="color:rgba(255,255,255,0.75);font-size:13px;font-weight:600;">'
             f'{title_right}</div>') if title_right else '<div></div>'
+    mid = ""
+    if total is not None:
+        bench = (f'<span style="font-size:11px;font-weight:600;'
+                 f'color:rgba(255,255,255,0.6);margin-left:8px;">'
+                 f'bench {bench_total:.1f}</span>' if bench_total is not None else "")
+        mid = (f'<div style="display:flex;align-items:baseline;gap:7px;">'
+               f'<span style="font-size:10px;font-weight:800;letter-spacing:0.16em;'
+               f'text-transform:uppercase;color:rgba(255,255,255,0.65);">'
+               f'{total_label}</span>'
+               f'<span style="font-family:{_DISPLAY};font-size:22px;font-weight:900;'
+               f'color:#00FF87;line-height:1;">{total:.1f}</span>{bench}</div>')
     return (
         f'<div style="display:flex;justify-content:space-between;align-items:center;'
-        f'margin-bottom:8px;">{left}'
-        f'<div style="font-family:{_DISPLAY};color:#fff;font-size:14px;font-weight:800;'
+        f'gap:12px;margin-bottom:8px;">{left}{mid}'
+        f'<div style="font-family:{_DISPLAY};color:#fff;font-size:13px;font-weight:800;'
         f'letter-spacing:0.02em;">Formation <span style="color:#00FF87;">{formation}</span></div>'
         f'</div>'
     )
 
 
-def _bench_strip(cards_html: str) -> str:
+def _bench_strip(cards_html: str, compact: bool = False) -> str:
+    pad = "7px 6px 9px" if compact else "12px 8px 14px"
     return (
         '<div style="border-top:2px dashed rgba(255,255,255,0.3);'
-        'padding:12px 8px 14px;background:rgba(0,0,0,0.22);position:relative;z-index:2;">'
-        '<div style="color:rgba(255,255,255,0.85);font-size:11px;letter-spacing:0.4em;'
-        'text-align:center;margin-bottom:8px;font-weight:800;'
+        f'padding:{pad};background:rgba(0,0,0,0.22);position:relative;z-index:2;">'
+        '<div style="color:rgba(255,255,255,0.85);font-size:10px;letter-spacing:0.4em;'
+        'text-align:center;margin-bottom:6px;font-weight:800;'
         'text-shadow:0 1px 2px rgba(0,0,0,0.4);">BENCH</div>'
-        '<div style="display:flex;justify-content:space-evenly;">'
+        '<div style="display:flex;justify-content:center;gap:8px;">'
         + cards_html + '</div></div>'
     )
 
@@ -330,61 +351,207 @@ def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
         + '</div>'
     )
     if interactive or detail_only:
-        return _pitch_click(html=html, key=key, default=None)
+        from ui.theme import component_css
+        return _pitch_click(html=component_css() + html, key=key, default=None)
     st.markdown(html, unsafe_allow_html=True)
     return None
 
 
 # ── Generic pitch for Season Lab squads (perfect season, drafts) ───────────────
-def _simple_card(row: Dict, stat_label: str, is_bench: bool = False,
-                 interactive: bool = False) -> str:
+def _run_strip(fixtures: Optional[List[Dict]], big: bool = False) -> str:
+    """The next few fixtures as FDR-coloured chips · the run at a glance.
+
+    Three chips is the sweet spot: enough to read a run, few enough to stay
+    inside a 96px card. Each chip is opponent + venue, coloured by difficulty.
+    """
+    if not fixtures:
+        return ""
+    _fs = 9.5 if big else 8
+    _pad = "2px 5px" if big else "1px 3px"
+    chips = []
+    for f in fixtures[:3]:
+        opp = str(f.get("opp") or "?")[:3].upper()
+        if opp == "BLANK" or f.get("blank"):
+            chips.append('<span style="background:rgba(255,255,255,0.12);color:'
+                         'rgba(255,255,255,0.55);border-radius:3px;padding:1px 3px;'
+                         'font-size:8px;font-weight:900;">BLK</span>')
+            continue
+        col = _fdr_color(float(f.get("fdr", 3) or 3))
+        side = "" if f.get("home") else "·a"
+        chips.append(f'<span style="background:{col};color:#04140C;border-radius:4px;'
+                     f'padding:{_pad};font-size:{_fs}px;font-weight:900;'
+                     f'letter-spacing:-0.2px;">{opp}{side}</span>')
+    return (f'<div style="display:flex;gap:3px;margin-top:{5 if big else 4}px;'
+            f'justify-content:center;">' + "".join(chips) + '</div>')
+
+
+def _action_badge(action: str, fpl_id: int, glyph: str, bg: str,
+                  placement: str, color: str = "#fff") -> str:
+    """A kit action chip.
+
+    A flat circle with a bare glyph read as a stray dot on a busy pitch. A
+    rounded square with a lighter top edge, a real shadow and a hover state reads
+    as a control, which is what it is.
+    """
+    return (
+        f'<span class="ff-kit-act" data-ffaction="{action}" data-ffid="{fpl_id}" '
+        f'style="position:absolute;{placement};width:17px;height:17px;'
+        f'border-radius:6px;display:grid;place-items:center;'
+        f'background:linear-gradient(160deg,{bg} 0%,{bg} 55%,rgba(0,0,0,0.22) 100%);'
+        f'color:{color};font-size:10px;font-weight:800;line-height:1;'
+        f'border:1.5px solid rgba(255,255,255,0.30);'
+        f'box-shadow:0 3px 9px rgba(0,0,0,0.45),inset 0 1px 0 rgba(255,255,255,0.28);'
+        f'z-index:5;">{glyph}</span>')
+
+
+def _corner_button(action: str, fpl_id: int, glyph: str, bg: str,
+                   placement: str) -> str:
+    """A control pinned to a CORNER OF THE CARD, never over the shirt.
+
+    On the jersey these read as part of the player and were easy to hit by
+    accident. In the corner of a card they read as what they are: the card's
+    controls.
+    """
+    return (
+        f'<span class="ff-kit-act" data-ffaction="{action}" data-ffid="{fpl_id}" '
+        f'style="position:absolute;{placement};width:17px;height:17px;'
+        f'border-radius:6px;display:grid;place-items:center;z-index:6;'
+        f'background:{bg};color:#fff;font-size:11px;font-weight:800;line-height:1;'
+        f'border:1px solid rgba(255,255,255,0.35);'
+        f'box-shadow:0 2px 6px rgba(0,0,0,0.45);">{glyph}</span>')
+
+
+def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
+                 interactive: bool = False, compact: bool = False) -> str:
+    """One player as a card on the pitch.
+
+    The card is the object, not the kit. It carries its own dark ground so it
+    reads clearly against grass, its controls live in its corners rather than on
+    the shirt, and the two numbers that decide a pick · the upcoming run and the
+    projection · get the space they deserve. Wide enough to fit all that, tight
+    enough that a whole row still sits together.
+    """
+    W, SHIRT = (100, 36) if compact else (120, 52)
+    FS_NAME = 11 if compact else 12.5
+    FS_STAT = 17 if compact else 20
+    FS_PRICE = 10 if compact else 11
+
     code = int(row.get("team_code", 1) or 1)
     is_gkp = str(row.get("position", "")) == "GKP"
     name = str(row.get("web_name", "?"))
     tcol = team_color(row.get("team_short"))
-    opacity = "0.62" if is_bench else "1"
+    is_axed = bool(row.get("is_axed", False))
+    opacity = "0.4" if is_axed else ("0.66" if is_bench else "1")
 
+    # Kit markers that belong ON the shirt: the armband, the penalty flag, and
+    # the minutes warning. The transfer controls do not · they go in the card's
+    # corners, where they never sit over a player.
     markers = ""
     if bool(row.get("is_captain", False)):
-        markers = _marker("top:-8px;right:-8px", "#FFD700", "C", "#000", pulse=True)
+        markers = _marker("top:-7px;right:-7px", "#FFD700", "C", "#000", pulse=True)
+    if _num(row.get("penalties_order")) == 1:
+        markers += ('<span title="Takes the penalties" style="position:absolute;'
+                    'bottom:-4px;right:-6px;width:15px;height:15px;border-radius:5px;'
+                    'display:grid;place-items:center;background:#FFB000;color:#000;'
+                    'font-size:9px;font-weight:900;line-height:1;'
+                    'border:1.5px solid rgba(0,0,0,0.4);">P</span>')
+    mins = _num(row.get("exp_mins"))
+    if mins is not None and mins < 45:
+        markers += ('<span title="Barely any minutes expected" style="position:absolute;'
+                    'bottom:-4px;left:-6px;width:15px;height:15px;border-radius:5px;'
+                    'display:grid;place-items:center;background:#FF4B4B;color:#fff;'
+                    'font-size:9px;font-weight:900;line-height:1;'
+                    'border:1.5px solid rgba(0,0,0,0.4);">!</span>')
 
-    price = row.get("price")
-    price_html = (f'<div style="color:rgba(255,255,255,0.55);font-size:11px;font-weight:600;'
-                  f'margin-top:2px;">£{float(price):.1f}m</div>'
-                  if price is not None and not pd.isna(price) else "")
-    fixture = row.get("fixture_label")
-    fixture_html = (f'<div style="color:rgba(255,255,255,0.6);font-size:10px;font-weight:700;'
-                    f'margin-top:3px;background:rgba(0,0,0,0.45);border-radius:3px;'
-                    f'padding:1px 6px;">{fixture}</div>' if fixture else "")
-    stat = _num(row.get("stat"))
-    stat_html = ""
-    if stat is not None:
-        stat_html = (f'<div style="color:#00FF87;font-size:13px;font-weight:800;margin-top:3px;'
-                     f'font-family:{_DISPLAY};">{stat:.0f} '
-                     f'<span style="color:rgba(255,255,255,0.5);font-weight:500;font-size:10px;">'
-                     f'{stat_label}</span></div>')
-
-    _shirt = _shirt_img(code, is_gkp)
+    _shirt = _shirt_img(code, is_gkp, width=SHIRT)
     _pid = row.get("fpl_id")
+    corners = ""
     if interactive and _pid:
         _shirt = f'<span data-ffaction="detail" data-ffid="{int(_pid)}">{_shirt}</span>'
+        if row.get("allow_axe"):
+            corners += _corner_button(
+                "unaxe" if is_axed else "axe", int(_pid), "↺" if is_axed else "×",
+                "#6b7280" if is_axed else "#FF4B4B", "top:4px;left:4px")
+        if row.get("allow_bench"):
+            corners += _corner_button(
+                "bench", int(_pid), "↑" if is_bench else "↓", "#04C7DE",
+                "top:4px;right:4px")
+
+    # Swap state, in priority order: the player being subbed, then anyone who
+    # can legally come on for him.
+    if row.get("is_sub_source"):
+        edge = ("border-color:#04F5FF;box-shadow:0 0 0 2px rgba(4,245,255,0.45),"
+                "0 6px 16px rgba(0,0,0,0.4);")
+    elif row.get("swap_ok"):
+        edge = ("border-color:#00FF87;box-shadow:0 0 0 2px rgba(0,255,135,0.4),"
+                "0 6px 16px rgba(0,0,0,0.4);"
+                "animation:fplh-swap-ready 1.1s ease-in-out infinite;")
+    elif is_axed:
+        edge = "border-color:#FF4B4B;border-style:dashed;"
+    else:
+        edge = ""
+
+    price = _num(row.get("price"))
+    stat = _num(row.get("stat"))
+    dp = int(row.get("stat_dp", 0))
+
+    # The run gets real estate · it is half the reason you are looking.
+    fixtures = row.get("fixtures")
+    fixture_html = _run_strip(fixtures, big=True) if fixtures else ""
+    if not fixture_html and row.get("fixture_label"):
+        fixture_html = (f'<div style="color:#fff;font-size:10px;font-weight:800;'
+                        f'margin-top:5px;background:rgba(0,0,0,0.4);'
+                        f'border-radius:4px;padding:2px 6px;">{row["fixture_label"]}</div>')
+
+    # Price on the left, projection on the right and large · the projection is
+    # the number you are comparing, so it should be the loudest thing here.
+    foot = ""
+    if price is not None or stat is not None:
+        left = (f'<span style="font-size:{FS_PRICE}px;font-weight:700;'
+                f'color:rgba(255,255,255,0.72);">£{price:.1f}</span>'
+                if price is not None else "<span></span>")
+        right = (f'<span class="ff-pitch-stat" style="font-size:{FS_STAT}px;'
+                 f'font-weight:900;color:#00FF87;font-family:{_DISPLAY};'
+                 f'line-height:1;">{stat:.{dp}f}</span>'
+                 if stat is not None else "")
+        foot = (f'<div style="display:flex;align-items:baseline;'
+                f'justify-content:space-between;width:100%;margin-top:4px;'
+                f'padding:0 2px;">{left}{right}</div>')
+
     return (
-        f'<div style="display:flex;flex-direction:column;align-items:center;'
-        f'width:96px;opacity:{opacity};">'
-        f'<div style="position:relative;display:inline-block;">'
-        f'{_shirt}{markers}</div>'
-        f'{_nameplate(name, tcol)}{fixture_html}{price_html}{stat_html}</div>'
+        f'<div style="position:relative;display:flex;flex-direction:column;'
+        f'align-items:center;width:{W}px;opacity:{opacity};'
+        f'background:linear-gradient(180deg,rgba(23,32,52,0.90) 0%,'
+        f'rgba(14,20,34,0.94) 100%);'
+        f'border:1.5px solid rgba(255,255,255,0.22);{edge}'
+        f'border-radius:12px;padding:{"17px 6px 6px" if compact else "19px 8px 8px"};'
+        f'box-shadow:0 6px 18px rgba(0,0,0,0.42),'
+        f'inset 0 1px 0 rgba(255,255,255,0.16);">'
+        f'{corners}'
+        f'<div style="position:relative;display:inline-block;">{_shirt}{markers}</div>'
+        f'<div style="color:#fff;font-size:{FS_NAME}px;font-weight:800;margin-top:4px;'
+        f'white-space:nowrap;max-width:{W - 12}px;overflow:hidden;'
+        f'text-overflow:ellipsis;text-align:center;padding-bottom:2px;'
+        f'border-bottom:2px solid {tcol};">{name}</div>'
+        f'{fixture_html}{foot}</div>'
     )
 
 
 def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
                        title_right: str = "",
                        interactive: bool = False,
+                       compact: bool = False,
+                       show_total: bool = True,
                        key: str = "ff_pitch_replay"):
     """Generic pitch for Season Lab squads (GK→DEF→MID→FWD, top to bottom).
 
     Each player dict: web_name, position (GKP/DEF/MID/FWD), team_code, on_bench.
-    Optional: is_captain, stat (number under name), price, team_short, fixture_label.
+    Optional: is_captain, stat (number under name), price, team_short,
+    fixture_label, fixtures (list of {opp, home, fdr}), exp_mins, allow_axe,
+    allow_bench, is_axed.
+
+    `compact` shrinks every dimension so the fifteen plus the bench fit a laptop
+    screen without scrolling.
     """
     xi = [p for p in players if not p.get("on_bench")]
     bench = [p for p in players if p.get("on_bench")]
@@ -397,27 +564,43 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
     bench = sorted(bench, key=lambda p: (bench_order.get(p.get("position"), 4),
                                          -(p.get("stat") or 0)))
     formation = f"{len(by_pos['DEF'])}-{len(by_pos['MID'])}-{len(by_pos['FWD'])}"
+    xi_total = sum((p.get("stat") or 0) for p in xi) if show_total else None
+    bench_total = sum((p.get("stat") or 0) for p in bench) if show_total else None
+
+    pad = "3px 5px" if compact else "7px 7px"
+    row_style = ("display:flex;justify-content:center;align-items:flex-start;"
+                 f"gap:{6 if compact else 9}px;padding:{pad};"
+                 "position:relative;z-index:2;")
 
     def _row(ps):
-        return (f'<div style="{_ROW_STYLE}border-bottom:1px solid rgba(255,255,255,0.14);">'
-                + "".join(_simple_card(p, stat_label, interactive=interactive)
+        return (f'<div style="{row_style}">'
+                + "".join(_simple_card(p, stat_label, interactive=interactive,
+                                       compact=compact)
                           for p in ps) + '</div>')
 
     bench_cards = "".join(_simple_card(p, stat_label, is_bench=True,
-                                       interactive=interactive) for p in bench)
+                                       interactive=interactive, compact=compact)
+                          for p in bench)
 
+    pitch_bg = _PITCH_BG.replace("padding:14px 10px 10px;", "padding:8px 6px 6px;") \
+        if compact else _PITCH_BG
     html = (
-        '<div style="font-family:sans-serif;max-width:900px;margin:0 auto;">'
-        + _formation_bar(formation, title_right)
-        + f'<div style="{_PITCH_BG}">' + _PITCH_LINES
+        f'<div style="font-family:sans-serif;max-width:{900 if compact else 1040}px;'
+        f'margin:0 auto;">'
+        + _formation_bar(formation, title_right, xi_total,
+                         f"XI {stat_label}", bench_total)
+        + f'<div style="{pitch_bg}">' + _PITCH_LINES
         + '<div style="position:relative;z-index:2;">'
         + _row(by_pos["GKP"]) + _row(by_pos["DEF"])
         + _row(by_pos["MID"]) + _row(by_pos["FWD"])
         + '</div>'
-        + _bench_strip(bench_cards)
+        + _bench_strip(bench_cards, compact)
         + '</div></div>'
     )
     if interactive:
-        return _pitch_click(html=html, key=key, default=None)
+        # The iframe does not inherit the host's custom properties, so hand the
+        # palette over explicitly or the chrome around the pitch ignores the theme.
+        from ui.theme import component_css
+        return _pitch_click(html=component_css() + html, key=key, default=None)
     st.markdown(html, unsafe_allow_html=True)
     return None

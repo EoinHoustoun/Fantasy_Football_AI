@@ -35,81 +35,13 @@ st.set_page_config(
 )
 
 from components.animations import inject_global_animations
-from ui.theme import inject_theme
+from ui.theme import inject_theme, theme_toggle
 inject_global_animations()
 inject_theme()   # elevated design system (depth/glass/glow) · see docs/OVERHAUL_PLAN.md
 
-# ── Global CSS ─────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-  /* ── Sidebar ── */
-  [data-testid="stSidebar"] {
-      background: linear-gradient(180deg, #37003c 0%, #1a0020 100%) !important;
-  }
-  [data-testid="stSidebar"] * { color: #ffffff !important; }
-  [data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.15) !important; }
-
-  /* ── Metrics ── */
-  [data-testid="stMetricValue"] {
-      color: #00FF87 !important;
-      font-size: 1.6rem !important;
-      font-weight: 800 !important;
-  }
-  [data-testid="stMetricLabel"] {
-      font-size: 0.78rem !important;
-      color: rgba(255,255,255,0.5) !important;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-  }
-  [data-testid="stMetricDelta"] { font-size: 0.8rem !important; }
-
-  /* ── Headings ── */
-  h1 { color: #fff !important; letter-spacing: -0.5px; }
-  h2 { color: #e2e2e2 !important; }
-  h3 { color: #c8c8c8 !important; }
-
-  /* ── Tabs ── */
-  button[data-baseweb="tab"] {
-      background: transparent !important;
-      border-bottom: 2px solid transparent !important;
-      color: rgba(255,255,255,0.5) !important;
-      font-weight: 500;
-  }
-  button[data-baseweb="tab"][aria-selected="true"] {
-      border-bottom: 2px solid #00FF87 !important;
-      color: #00FF87 !important;
-      font-weight: 700;
-  }
-
-  /* ── Buttons ── */
-  .stButton > button {
-      transition: transform 0.15s ease, border-color 0.15s, color 0.15s;
-  }
-  .stButton > button:hover {
-      border-color: #00FF87 !important;
-      color: #00FF87 !important;
-  }
-
-  /* ── Inputs ── */
-  .stSelectbox > div > div,
-  .stNumberInput > div > div > input,
-  .stTextInput > div > div > input {
-      background: rgba(255,255,255,0.05) !important;
-      border: 1px solid rgba(255,255,255,0.12) !important;
-      border-radius: 6px !important;
-      color: #e2e2e2 !important;
-  }
-
-  /* ── Dividers ── */
-  hr { border-color: rgba(255,255,255,0.08) !important; }
-
-  /* ── Hide Streamlit branding ── */
-  #MainMenu { visibility: hidden; }
-  footer    { visibility: hidden; }
-  header    { visibility: hidden; }
-</style>
-""", unsafe_allow_html=True)
-
+# Global CSS, metrics, tabs, controls and the sidebar all live in ui/theme.py
+# now, so they can switch with the palette. Do not re-add a hard-coded block
+# here · it would fight light mode at equal specificity.
 
 # ── Shared data loading (cached; every page reads from session_state) ──────────
 
@@ -143,11 +75,12 @@ with st.sidebar:
     st.markdown(
         "<div style='text-align:center;padding:12px 0 4px;'>"
         "<span style='font-size:28px;'>⚽</span>"
-        "<div style='font-size:17px;font-weight:800;color:#00FF87;letter-spacing:-0.3px;'>FPL Analytics Hub</div>"
-        "<div style='font-size:11px;color:rgba(255,255,255,0.35);margin-top:2px;'>Data-driven FPL</div>"
+        "<div style='font-size:17px;font-weight:800;color:var(--ff-mint);letter-spacing:-0.3px;'>FPL Analytics Hub</div>"
+        "<div style='font-size:11px;color:var(--ff-side-ink);opacity:0.7;margin-top:2px;'>Data-driven FPL</div>"
         "</div>",
         unsafe_allow_html=True,
     )
+    theme_toggle(st)
     st.markdown("---")
 
     if st.button("🔄 Refresh Data", use_container_width=True):
@@ -224,36 +157,68 @@ except Exception as e:  # noqa: BLE001 · surface any load failure to the UI
 # Transfers + Value Lab); standalone Planner removed (the My Team pitch is the
 # planner now, Buy/Sell keeps the verdict engine). Scouting = who to buy next;
 # Data Science Lab = models, hindsight engines and season retrospectives.
-nav = st.navigation({
-    "This Week": [
-        st.Page("views/home.py",               title="Home",        icon=":material/home:", default=True),
-        st.Page("views/00_my_team.py",          title="My Team",     icon=":material/groups:"),
-        st.Page("views/06_captain_picker.py",   title="Captain",     icon=":material/military_tech:"),
+# Four categories, each expanding to its own pages. The old six sections put
+# nineteen links on screen at once, which is a directory rather than navigation.
+# The grouping is by INTENT: what am I doing right now, what am I planning, what
+# am I researching, what already happened.
+# Four categories, each of which DRIPS DOWN its pages when you click it. Streamlit's
+# own sidebar nav renders every page under every header at once, which is a
+# nineteen-item directory. So the nav is hidden and the sidebar builds the
+# accordion itself with st.page_link, which gives real routing and a real
+# aria-current state without the flat list.
+PAGES = {
+    "Play": [
+        st.Page("views/home.py",                   title="Home",          icon=":material/home:", default=True),
+        st.Page("views/00_my_team.py",             title="My Team",       icon=":material/groups:"),
+        st.Page("views/06_captain_picker.py",      title="Captain",       icon=":material/military_tech:"),
+        st.Page("views/08_injuries.py",            title="Injuries",      icon=":material/medical_services:"),
     ],
-    "Transfers": [
+    "Plan": [
+        st.Page("views/18_draft_2026_27.py",       title="26/27 Draft",   icon=":material/draw:"),
         st.Page("views/02_transfer_suggestions.py", title="Transfers",    icon=":material/swap_horiz:"),
-        st.Page("views/07_buy_sell.py",             title="Buy / Sell",   icon=":material/payments:"),
-        st.Page("views/08_injuries.py",             title="Injuries",     icon=":material/medical_services:"),
+        st.Page("views/07_buy_sell.py",            title="Buy / Sell",    icon=":material/payments:"),
+        st.Page("views/14_chip_planner.py",        title="Chip Planner",  icon=":material/casino:"),
+        st.Page("views/09_wildcard.py",            title="Wildcard",      icon=":material/style:"),
+        st.Page("views/13_free_hit.py",            title="Free Hit",      icon=":material/my_location:"),
     ],
-    "Chips": [
-        st.Page("views/09_wildcard.py",             title="Wildcard",     icon=":material/style:"),
-        st.Page("views/13_free_hit.py",             title="Free Hit",     icon=":material/my_location:"),
-        st.Page("views/14_chip_planner.py",         title="Chip Planner", icon=":material/casino:"),
-    ],
-    "Scouting": [
+    "Stats": [
+        st.Page("views/12_predictions.py",         title="Predictions",   icon=":material/insights:"),
         st.Page("views/04_differentials.py",       title="Differentials", icon=":material/diamond:"),
         st.Page("views/05_xg_underperformers.py",  title="xG Tracker",    icon=":material/bolt:"),
-        st.Page("views/12_predictions.py",         title="Predictions",   icon=":material/insights:"),
         st.Page("views/10_ownership_trend.py",     title="Ownership",     icon=":material/trending_up:"),
+        st.Page("views/17_value_lab.py",           title="Value Lab",     icon=":material/science:"),
+        st.Page("views/19_playbook.py",            title="Playbook",      icon=":material/menu_book:"),
     ],
-    "Data Science Lab": [
-        st.Page("views/16_perfect_season.py", title="Perfect Season", icon=":material/emoji_events:"),
-        st.Page("views/17_value_lab.py",      title="Value Lab",      icon=":material/science:"),
-        st.Page("views/19_playbook.py",       title="Playbook",       icon=":material/menu_book:"),
-        st.Page("views/18_draft_2026_27.py",  title="26/27 Draft",    icon=":material/description:"),
-        st.Page("views/11_gw_history.py",     title="GW History",     icon=":material/history:"),
-        st.Page("views/15_mini_league.py",    title="Mini-League",    icon=":material/leaderboard:"),
+    "History": [
+        st.Page("views/11_gw_history.py",          title="GW History",    icon=":material/history:"),
+        st.Page("views/15_mini_league.py",         title="Mini-League",   icon=":material/leaderboard:"),
+        st.Page("views/16_perfect_season.py",      title="Perfect Season", icon=":material/emoji_events:"),
     ],
-})
+}
+CATEGORY_ICONS = {"Play": ":material/sports_soccer:", "Plan": ":material/draw:",
+                  "Stats": ":material/insights:", "History": ":material/history:"}
+
+nav = st.navigation(PAGES, position="hidden")
+
+# Open the category the current page lives in, so a reload never collapses you
+# out of where you are.
+_current = getattr(nav, "title", None)
+_home_cat = next((c for c, ps in PAGES.items()
+                  if any(getattr(p, "title", None) == _current for p in ps)), "Play")
+st.session_state.setdefault("nav_cat", _home_cat)
+
+with st.sidebar:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    for _cat, _pages in PAGES.items():
+        _open = st.session_state["nav_cat"] == _cat
+        if st.button(_cat, key=f"navcat_{_cat}", icon=CATEGORY_ICONS[_cat],
+                     use_container_width=True,
+                     type="primary" if _open else "secondary"):
+            # Clicking the open one closes it · a category is a toggle.
+            st.session_state["nav_cat"] = "" if _open else _cat
+            st.rerun()
+        if _open:
+            for _pg in _pages:
+                st.page_link(_pg, icon=None)
 
 nav.run()
