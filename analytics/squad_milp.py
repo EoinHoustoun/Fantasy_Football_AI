@@ -159,3 +159,44 @@ def optimize_squad(
         "solver_status": label,
         "proven_optimal": proven,
     }
+
+
+def diagnose_infeasible(players: pd.DataFrame, budget: float = 100.0,
+                        pts_col: str = "pts", **kw) -> str:
+    """Say WHY no squad could be built, by relaxing one rule at a time.
+
+    A solver that returns None teaches the user nothing and reads as a broken
+    model. It is almost never "you cannot afford it" · far more often a squad
+    rule bites in a way nobody had in mind. Two forced Man Utd midfielders
+    against a one-attacker-per-club rule is not a budget problem, and saying
+    "infeasible" invites exactly the wrong fix.
+
+    Relaxations are tried in order of how often they are the real cause.
+    """
+    if optimize_squad(players, budget=budget, pts_col=pts_col, **kw):
+        return ""
+
+    trials = [
+        ("max_attackers_per_club",
+         "the max-attackers-per-club rule · two of your forced players are "
+         "attackers at the same club"),
+        ("max_defenders_per_club",
+         "the max-defenders-per-club rule · two of your forced players are "
+         "defenders at the same club"),
+        ("exclude_codes", "your vetoes · too many players are ruled out"),
+        ("force_codes", "your locked players · they cannot fit together"),
+    ]
+    for key, why in trials:
+        if kw.get(key) in (None, (), []):
+            continue
+        relaxed = dict(kw)
+        relaxed[key] = None
+        if optimize_squad(players, budget=budget, pts_col=pts_col, **relaxed):
+            return why
+
+    for extra in (5.0, 20.0):
+        if optimize_squad(players, budget=budget + extra, pts_col=pts_col, **kw):
+            return ("the budget · this needs about £%.0fm more than you have"
+                    % extra)
+    return ("the pool · after the vetoes there are not enough players left to "
+            "fill a legal fifteen")

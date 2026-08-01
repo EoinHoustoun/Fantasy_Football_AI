@@ -1011,11 +1011,30 @@ if _SAVED_SQUAD is None and res is None:
         elif spend > budget - (15 - len(locked)) * 4.0:
             why = (f" Your locks cost £{spend:.1f}m, leaving under £4.0m a head for "
                    f"the remaining {15 - len(locked)} · that cannot be filled.")
-        else:
-            why = (" It is likely a club limit: at most 3 per club, and this draft "
-                   "allows only 1 attacker and 1 defender per club.")
-    st.error("Solver found no feasible squad." + why
-             + " Widen the budget, lower risk, or drop a lock.")
+
+    # No guessing. Relax one rule at a time and report which one actually
+    # unblocks it · "likely a club limit" sent a user hunting for money when
+    # the real cause was two forced Man Utd midfielders against a
+    # one-attacker-per-club rule.
+    if not why:
+        try:
+            from analytics.squad_milp import diagnose_infeasible
+            _d = SOLVE_BOARD.rename(
+                columns={"actual_price": "price", "projected_points": "pts"})
+            _cause = diagnose_infeasible(
+                _d, budget=budget, pts_col="pts",
+                force_codes=[int(c) for c in
+                             board[board["web_name"].isin(locked)]["code"]],
+                exclude_codes=[int(c) for c in
+                               board[board["web_name"].isin(excluded)]["code"]],
+                max_attackers_per_club=2 if two_att else 1)
+            if _cause:
+                why = " The binding constraint is %s." % _cause
+        except Exception:
+            logger.exception("infeasibility diagnosis failed")
+
+    st.error("No legal squad fits these settings." + why
+             + " Change that one thing rather than the budget.")
     st.stop()
 
 if _SAVED_SQUAD is not None:
