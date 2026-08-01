@@ -35,14 +35,18 @@ SEASON_MINUTES = 3420.0   # 38 x 90
 # Each axis: (label, board column, higher-is-better, "what it tells you").
 # `per` marks how the raw number should be normalised for a fair read.
 AXES: List[Dict] = [
+    # The window you are actually planning comes first · a season total cannot
+    # separate a nailed 4.2 a week from a punt who posts 8 twice and blanks.
+    {"key": "run", "label": "Points, next N GWs", "col": None, "better": "high",
+     "why": "What he returns over the window you are planning. The decision number."},
+    {"key": "exp_mins_pg", "label": "Minutes per game", "col": None, "better": "high",
+     "why": "What the match model expects him to play. No minutes, no points."},
     {"key": "season", "label": "Season points", "col": None, "better": "high",
      "why": "Total return if the projection lands. Flatters expensive players."},
     {"key": "per_m", "label": "Points per £m", "col": None, "better": "high",
      "why": "Return for what he costs. The only one that respects a budget."},
     {"key": "per_90", "label": "Points per 90", "col": None, "better": "high",
      "why": "Rate when he is on the pitch, with minutes taken out of it."},
-    {"key": "mins", "label": "Expected minutes", "col": "ffh_nailedness",
-     "better": "high", "why": "Minutes are the master variable. No minutes, no points."},
     {"key": "defcon", "label": "DEFCON hit rate", "col": None, "better": "high",
      "why": "Share of starts clearing the threshold. This is what converts."},
     {"key": "fixtures", "label": "Opening fixtures", "col": "opening_factor",
@@ -54,7 +58,7 @@ AXES: List[Dict] = [
 
 def player_profile(row: pd.Series, pts_col: str = "consensus_points",
                    defcon: Optional[pd.DataFrame] = None,
-                   proj=None) -> Dict:
+                   proj=None, from_gw: int = 1, horizon: int = 6) -> Dict:
     """One player's comparable numbers, normalised three ways.
 
     `defcon` is the per-90 frame from the draft page (indexed by code); `proj` is
@@ -102,6 +106,28 @@ def player_profile(row: pd.Series, pts_col: str = "consensus_points",
     if proj is not None:
         out["next6"] = round(proj.run_total(code, 1, 6), 1)
         out["gw1"] = round(proj.points(code, 1), 1)
+        # The numbers a squad decision is actually made on: what he returns over
+        # the window you are planning, and what he is expected to play. A season
+        # total cannot separate a nailed 4.2 a week from a rotation risk who
+        # posts 8 twice and blanks four times.
+        out["gw_from"] = gw_from = int(from_gw)
+        out["gw_to"] = gw_to = int(from_gw) + int(horizon) - 1
+        out["run"] = round(proj.run_total(code, gw_from, gw_to), 1)
+        out["run_gws"] = int(horizon)
+        weeks = [round(proj.points(code, g), 2) for g in range(gw_from, gw_to + 1)]
+        out["weeks"] = weeks
+        out["per_gw"] = round(sum(weeks) / max(len(weeks), 1), 2)
+        out["run_per_m"] = (round(out["run"] / price, 1)
+                            if price and price > 0 and not pd.isna(price) else np.nan)
+
+        mins = [proj.expected_minutes(code, g) for g in range(gw_from, gw_to + 1)]
+        mins = [m for m in mins if m is not None]
+        # Fall back to the season minutes share when the match model is silent ·
+        # a blank here reads as "no minutes" when it means "nobody has said".
+        out["exp_mins_pg"] = (round(float(np.mean(mins)), 0) if mins
+                              else (round(float(nailed) * 90, 0)
+                                    if pd.notna(nailed) else np.nan))
+        out["mins_stated"] = bool(mins)
     return out
 
 
@@ -195,25 +221,86 @@ def _fmt(key: str, v) -> str:
     return "%.0f" % float(v) if key == "season" else "%.1f" % float(v)
 
 
-def verdict_line(cmp: Dict, profiles: List[Dict]) -> str:
-    """One sentence a human can act on."""
-    if cmp.get("winner") is None:
-        return "Not enough overlap between these players to call it."
+# A gap under this is noise on a model that validates at Spearman 0.4. Above
+# the second, it is a real difference worth paying for.
+SAME_WITHIN = 0.05
+CLEAR_ABOVE = 0.15
+
+
+def verdict(cmp: Dict, profiles: List[Dict]) -> Dict:
+    """Better, worse, or the same · and what to DO about it.
+
+    Returns {call, headline, detail, pick, tone}. `pick` is the player to
+    actually buy, which is not always the highest scorer: when two players are
+    inside the noise, the cheaper one wins by default because the difference
+    is money you can spend elsewhere in the squad.
+    """
+    if cmp.get("winner") is None or len(profiles) < 2:
+        return {"call": "unclear", "tone": "muted", "pick": None,
+                "headline": "Not enough overlap between these players to call it.",
+                "detail": ""}
+
     w = cmp["winner"]
-    win = profiles[w]
     ed = cmp["edges"]
-    # Mean relative advantage over the field. 12% is a real gap; 4% is a
-    # rounding difference dressed up as a decision.
     margin = ed[w] - max(v for i, v in enumerate(ed) if i != w)
-    others = ", ".join(p["name"] for i, p in enumerate(profiles) if i != w)
-    if margin < 0.05:
-        return (f"<b>{win['name']}</b> and {others} are separated by about "
-                f"{margin * 100:.0f}% across these axes, which is noise. They are "
-                f"the same pick · take the one whose minutes you believe.")
-    edge = "clearly ahead" if margin > 0.15 else "narrowly ahead"
-    top = [r["axis"].lower() for r in cmp["reasons"] if r["for_winner"]][:2]
+    win = profiles[w]
+    others = [p for i, p in enumerate(profiles) if i != w]
+    other_names = ", ".join(p["name"] for p in others)
+
+    # ── The same ──────────────────────────────────────────────────────────────
+    if margin < SAME_WITHIN:
+        priced = [p for p in profiles
+                  if p.get("price") is not None and not pd.isna(p.get("price"))]
+        cheapest = min(priced, key=lambda p: p["price"]) if priced else None
+        dearest = max(priced, key=lambda p: p["price"]) if priced else None
+        saving = (dearest["price"] - cheapest["price"]) if cheapest is not None else 0.0
+
+        head = (f"<b>No real difference.</b> These are separated by "
+                f"{margin * 100:.0f}% across the axes, which is inside the noise "
+                f"of a model that ranks at about 0.4 correlation.")
+        if cheapest is not None and saving >= 0.2:
+            det = (f"So take <b>{cheapest['name']}</b> at £{cheapest['price']:.1f}m "
+                   f"and put the <b>£{saving:.1f}m</b> somewhere it changes "
+                   f"something. Paying £{dearest['price']:.1f}m for "
+                   f"{dearest['name']} buys you nothing this comparison can see.")
+            return {"call": "same", "tone": "cyan", "pick": cheapest["name"],
+                    "headline": head, "detail": det}
+        det = ("They also cost the same, so this comes down to which minutes you "
+               "believe and which fixtures you prefer.")
+        return {"call": "same", "tone": "cyan", "pick": None,
+                "headline": head, "detail": det}
+
+    # ── One is better ─────────────────────────────────────────────────────────
+    clear = margin > CLEAR_ABOVE
+    top = [r["axis"].lower() for r in cmp.get("reasons", []) if r.get("for_winner")][:2]
     on = (" on " + " and ".join(top)) if top else ""
-    return f"<b>{win['name']}</b> is {edge} of {others}{on}."
+    head = (f"<b>{win['name']}</b> is {'clearly' if clear else 'narrowly'} "
+            f"the better pick than {other_names}{on}.")
+
+    # Narrowly better AND dearer is the case people get wrong · the edge is
+    # real, but so is the money, so say what it costs per point of advantage.
+    det = ""
+    wp = win.get("price")
+    cheaper = [p for p in others
+               if p.get("price") is not None and wp is not None and p["price"] < wp]
+    if cheaper and not clear:
+        c = min(cheaper, key=lambda p: p["price"])
+        gap = wp - c["price"]
+        det = (f"It is a narrow edge and it costs £{gap:.1f}m. "
+               f"{c['name']} is the pick if that money does more elsewhere.")
+    elif cheaper and clear:
+        c = min(cheaper, key=lambda p: p["price"])
+        det = (f"He is £{wp - c['price']:.1f}m more than {c['name']}, and on this "
+               f"evidence worth it.")
+    return {"call": "clear" if clear else "lean",
+            "tone": "mint" if clear else "gold", "pick": win["name"],
+            "headline": head, "detail": det}
+
+
+def verdict_line(cmp: Dict, profiles: List[Dict]) -> str:
+    """Back-compat one-liner. New callers should use `verdict`."""
+    v = verdict(cmp, profiles)
+    return (v["headline"] + (" " + v["detail"] if v["detail"] else "")).strip()
 
 
 # ── Draft vs draft ────────────────────────────────────────────────────────────

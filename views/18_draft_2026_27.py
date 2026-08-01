@@ -989,6 +989,83 @@ def _profile(code: int) -> Dict:
     return player_profile(row.iloc[0], PTS_COL, DEFCON, PROJ)
 
 
+def _profile_window(code: int, from_gw: int, horizon: int) -> Dict:
+    """A profile scored over the window being planned, not over a season."""
+    from analytics.head_to_head import player_profile
+    row = board[board["code"] == int(code)]
+    if row.empty:
+        return {}
+    return player_profile(row.iloc[0], PTS_COL, DEFCON, PROJ,
+                          from_gw=int(from_gw), horizon=int(horizon))
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _points_cuts(horizon: int, _stamp: str = "") -> Dict:
+    """Per-position red/amber/green cut points, fitted to this board.
+
+    Derived rather than hardcoded so the colours stay meaningful as prices and
+    projections move, and computed once because the comparison redraws often.
+    """
+    from analytics import grading
+    gws = list(range(1, max(2, int(horizon)) + 1))
+    return grading.points_cuts(grading.sample_from_projection(board, PROJ, gws))
+
+
+def _run_chips(fixtures: List[Dict]) -> str:
+    """A fixture run as FDR-coloured chips."""
+    if not fixtures:
+        return f'<span style="color:{V("muted2")};font-size:11px;">no fixtures</span>'
+    out = []
+    for fx in fixtures:
+        if fx.get("blank"):
+            out.append('<span style="background:rgba(128,128,128,0.5);color:#fff;'
+                       'border-radius:4px;padding:2px 6px;font-size:10px;'
+                       'font-weight:800;">BLK</span>')
+            continue
+        c = theme.FDR_COLORS.get(int(round(float(fx.get("fdr", 3) or 3))), "#FFD60A")
+        side = "" if fx.get("home") else "·a"
+        out.append(f'<span style="background:{c};color:#000;border-radius:4px;'
+                   f'padding:2px 6px;font-size:10px;font-weight:800;">'
+                   f'{fx.get("opp", "?")}{side}</span>')
+    return ('<div style="display:flex;gap:4px;flex-wrap:wrap;">'
+            + "".join(out) + '</div>')
+
+
+def _week_bars(prof: Dict, cuts: Dict) -> str:
+    """Per-gameweek projected points as bars, coloured by how good the score
+    actually is FOR THAT POSITION.
+
+    A flat cut looks decisive and is quietly wrong: keepers cluster (sd 0.65)
+    while forwards spread (sd 1.82), so 4.5 is an ordinary week for a forward
+    and an excellent one for a keeper.
+    """
+    from analytics import grading
+    weeks = prof.get("weeks") or []
+    if not weeks:
+        return f'<div style="{CARD}padding:11px;color:{V("muted2")};">No forecast.</div>'
+    top = max(max(weeks), 1.0) * 1.12
+    rows = []
+    for i, v in enumerate(weeks):
+        gw = prof["gw_from"] + i
+        band = grading.band_of(v, prof["position"], cuts)
+        col = V(grading.BAND_TOKENS[band])
+        pct = max(2.0, min(100.0, v / top * 100))
+        rows.append(
+            f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">'
+            f'<span style="font-size:9.5px;font-weight:700;color:{V("muted2")};'
+            f'width:30px;flex-shrink:0;">GW{gw}</span>'
+            f'<div style="flex:1;height:14px;background:{V("chip-bg")};'
+            f'border-radius:4px;overflow:hidden;">'
+            f'<div style="width:{pct:.0f}%;height:100%;background:{col};'
+            f'opacity:0.82;border-radius:4px;"></div></div>'
+            f'<span class="ff-display" style="font-size:12px;font-weight:800;'
+            f'color:{col};width:32px;text-align:right;flex-shrink:0;">'
+            f'{v:.1f}</span></div>')
+    return (f'<div style="{CARD}padding:11px 12px;">'
+            f'<div style="font-size:11px;font-weight:700;color:{V("text")};'
+            f'margin-bottom:6px;">{prof["name"]}</div>' + "".join(rows) + '</div>')
+
+
 def _set_piece_line(row) -> str:
     """Penalties and set pieces from the OFFICIAL FPL order · fact, not a guess."""
     p_ord, f_ord = _num_safe(row.get("pens_order")), _num_safe(row.get("fk_order"))
@@ -2039,47 +2116,116 @@ tab_cmp, tab_ab, tab_verdict, tab_models, tab_wc, tab_route, tab_all = st.tabs(
 
 # ── Compare players ───────────────────────────────────────────────────────────
 with tab_cmp:
-    st.caption("Two or three players on the same axes. Totals flatter whoever is "
-               "expensive, so the comparison is also shown **per £m** and **per 90** "
-               "· the first respects your budget, the second takes minutes out of it.")
     st.session_state.setdefault("cmp_players", [])
-    picks = st.multiselect(
-        "Players", options=NAMES, default=st.session_state["cmp_players"],
-        max_selections=3, key="cmp_pick",
-        help="Pick two or three. The ⚖ button on a player's card adds them here.")
+    _c1, _c2 = st.columns([3, 1])
+    with _c1:
+        picks = st.multiselect(
+            "Players", options=NAMES, default=st.session_state["cmp_players"],
+            max_selections=3, key="cmp_pick", label_visibility="collapsed",
+            placeholder="Pick two or three players to compare",
+            help="The ⚖ button on a player's card adds them here.")
+    with _c2:
+        cmp_h = st.slider("Over the next", 1, 12, 6, key="cmp_horizon",
+                          help="The window the verdict is judged on. A season "
+                               "total cannot separate a nailed 4.2 a week from "
+                               "a punt who posts 8 twice and blanks four times.")
     st.session_state["cmp_players"] = picks
 
     if len(picks) < 2:
-        st.info("Pick two players to compare.")
+        st.info("Pick two or three players. Everything below is judged on the "
+                "window you choose, not on a season total.")
     else:
-        from analytics.head_to_head import compare_players, verdict_line
-        profs = [_profile(int(board[board["web_name"] == nm].iloc[0]["code"]))
-                 for nm in picks]
+        from analytics import grading
+        from analytics.head_to_head import compare_players, verdict
+
+        _cmp_gw = int(st.session_state.get(_sk("draft_gw"), 1))
+        profs = [_profile_window(int(board[board["web_name"] == nm].iloc[0]["code"]),
+                                 _cmp_gw, cmp_h) for nm in picks]
         cmp = compare_players(profs)
+        vd = verdict(cmp, profs)
 
+        # ── The answer, first ────────────────────────────────────────────────
         st.markdown(_one_line(
-            f'<div style="{CARD}border-left:3px solid {V("mint")};margin:6px 0 14px;">'
+            f'<div style="{CARD}border-left:4px solid {V(vd["tone"])};'
+            f'margin:2px 0 14px;padding:14px 16px;">'
+            f'<div style="font-size:9.5px;font-weight:800;letter-spacing:0.16em;'
+            f'text-transform:uppercase;color:{V(vd["tone"])};margin-bottom:5px;">'
+            f'{"No real difference" if vd["call"] == "same" else "Verdict"}</div>'
             f'<div style="font-size:15px;color:{V("text")};line-height:1.6;">'
-            f'{verdict_line(cmp, profs)}</div></div>'), unsafe_allow_html=True)
+            f'{vd["headline"]}</div>'
+            + (f'<div style="font-size:13.5px;color:{V("muted")};line-height:1.6;'
+               f'margin-top:6px;">{vd["detail"]}</div>' if vd["detail"] else "")
+            + '</div>'), unsafe_allow_html=True)
 
+        # ── The numbers that decide it, per player ───────────────────────────
+        _cuts = _points_cuts(cmp_h)
         head = st.columns(len(profs))
         for col, p in zip(head, profs):
             with col:
+                _is_pick = vd.get("pick") == p["name"]
+                _mins = p.get("exp_mins_pg")
+                _mins_txt = ("no forecast" if _mins is None or pd.isna(_mins)
+                             else f"{_mins:.0f} min a game")
+                _band = grading.band_of(p.get("per_gw"), p["position"], _cuts)
                 st.markdown(_one_line(
-                    f'<div style="{CARD}text-align:center;">'
+                    f'<div style="{CARD}text-align:center;padding:14px 12px;'
+                    + (f'border:2px solid {V(vd["tone"])};' if _is_pick else "")
+                    + f'">'
                     f'<div style="display:flex;justify-content:center;margin-bottom:6px;">'
-                    f'{face_html(p["code"], p["team_code"], p["position"] == "GKP", 56)}</div>'
+                    f'{face_html(p["code"], p["team_code"], p["position"] == "GKP", 58)}</div>'
                     f'<div class="ff-display" style="font-size:18px;font-weight:900;'
                     f'color:{V("text")};">{p["name"]}</div>'
-                    f'<div style="font-size:11px;color:{V("muted")};">'
-                    f'{p["team"]} · {p["position"]} · £{p["price"]:.1f}m</div></div>'),
-                    unsafe_allow_html=True)
+                    f'<div style="font-size:11px;color:{V("muted")};margin-bottom:9px;">'
+                    f'{p["team"]} · {p["position"]} · £{p["price"]:.1f}m</div>'
+                    f'<div class="ff-display" style="font-size:30px;font-weight:900;'
+                    f'color:{V(grading.BAND_TOKENS[_band])};line-height:1;">'
+                    f'{p.get("run", 0):.1f}</div>'
+                    f'<div style="font-size:10px;font-weight:600;letter-spacing:0.1em;'
+                    f'text-transform:uppercase;color:{V("muted2")};margin-top:3px;">'
+                    f'pts GW{p["gw_from"]}-{p["gw_to"]}</div>'
+                    f'<div style="display:flex;justify-content:space-around;'
+                    f'margin-top:10px;padding-top:9px;border-top:1px solid {V("line")};">'
+                    f'<div><div class="ff-display" style="font-size:15px;font-weight:800;'
+                    f'color:{V("text")};">{p.get("per_gw", 0):.2f}</div>'
+                    f'<div style="font-size:9px;color:{V("muted2")};">a week</div></div>'
+                    f'<div><div class="ff-display" style="font-size:15px;font-weight:800;'
+                    f'color:{V("text")};">{p.get("run_per_m", 0):.1f}</div>'
+                    f'<div style="font-size:9px;color:{V("muted2")};">per £m</div></div>'
+                    f'<div><div class="ff-display" style="font-size:15px;font-weight:800;'
+                    f'color:{V("text")};">{_mins_txt.split(" ")[0]}</div>'
+                    f'<div style="font-size:9px;color:{V("muted2")};">mins/game</div></div>'
+                    f'</div></div>'), unsafe_allow_html=True)
 
+        # ── Week by week, coloured by how good that score really is ──────────
+        _sec(f"Week by week, GW{profs[0]['gw_from']}-{profs[0]['gw_to']}",
+             grading.band_label(profs[0]["position"], _cuts)
+             if len({p["position"] for p in profs}) == 1
+             else "Colours are set per position · a 4.5 is an ordinary week for a "
+                  "forward and an excellent one for a keeper.",
+             icon="bar_chart")
+        _wk_cols = st.columns(len(profs))
+        for col, p in zip(_wk_cols, profs):
+            with col:
+                st.markdown(_week_bars(p, _cuts), unsafe_allow_html=True)
+
+        # ── Fixtures, side by side ───────────────────────────────────────────
+        _sec("The run", "Same weeks, both players, so a fixture swing is obvious.",
+             icon="calendar_month")
+        _fx_cols = st.columns(len(profs))
+        for col, p in zip(_fx_cols, profs):
+            with col:
+                _fx = _fixtures_for(
+                    int(board[board["code"] == p["code"]].iloc[0].get("team_id", 0) or 0),
+                    p["gw_from"], min(cmp_h, 8))
+                st.markdown(_one_line(
+                    f'<div style="{CARD}padding:11px 12px;">'
+                    f'<div style="font-size:11px;font-weight:700;color:{V("text")};'
+                    f'margin-bottom:7px;">{p["name"]}</div>'
+                    + _run_chips(_fx) + '</div>'), unsafe_allow_html=True)
+
+        # ── Shape and the full metric table ──────────────────────────────────
         cc1, cc2 = st.columns([1, 1])
         with cc1:
-            # Radar · each axis scaled across the compared players only, because
-            # the question is never "is he good" but "is he better than the
-            # alternative I can actually afford".
             axes = cmp["axes"]
             if axes:
                 inds = [{"name": a["label"], "max": 1.0} for a in axes]
@@ -2092,9 +2238,7 @@ with tab_cmp:
                 charts.render(charts.radar_compare_option(inds, series),
                               height="330px", key="cmp_radar")
         with cc2:
-            # The near-term run, week by week. Two lines make a fixture swing
-            # obvious in a way a season total never will.
-            gws = list(range(1, 11))
+            gws = list(range(profs[0]["gw_from"], profs[0]["gw_to"] + 1))
             series = []
             for i, p in enumerate(profs):
                 pts = [(g, round(PROJ.points(p["code"], g), 2)) for g in gws]
@@ -2105,12 +2249,14 @@ with tab_cmp:
 
         rows = []
         for a in cmp["axes"]:
-            row = {"axis": a["label"], "why": a["why"]}
+            row = {"axis": a["label"].replace("next N GWs",
+                                              f"GW{profs[0]['gw_from']}-{profs[0]['gw_to']}"),
+                   "why": a["why"]}
             for i, p in enumerate(profs):
                 v = a["values"][i]
                 row["p%d" % i] = "n/a" if v is None or pd.isna(v) else (
                     "%.0f%%" % (v * 100) if a["key"] == "defcon" else
-                    "%.0f'" % v if a["key"] == "mins" else
+                    "%.0f'" % v if a["key"] == "exp_mins_pg" else
                     "%.2f" % v if a["key"] in ("per_90", "agreement", "fixtures") else
                     "%.1f" % v)
                 if i == a["best"]:
@@ -2120,7 +2266,7 @@ with tab_cmp:
                 T.col_text("why", "What it tells you")]
         cols[1:1] = [T.col_text("p%d" % i, p["name"], align=T.ALIGN_NUM)
                      for i, p in enumerate(profs)]
-        T.render(rows, cols, key="cmp_table", row_key="axis", max_height=320)
+        T.render(rows, cols, key="cmp_table", row_key="axis", max_height=340)
         st.caption("◆ marks the better number on that row. The final column is why "
                    "the row matters, so a lead on a metric that does not decide "
                    "anything reads as exactly that.")
