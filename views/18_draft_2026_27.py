@@ -946,14 +946,20 @@ def _window_board(_base: pd.DataFrame, lo: int, hi: int, _stamp: str) -> pd.Data
     d = _base.copy()
     codes = [int(c) for c in d["code"]]
     run = PROJ.matrix(codes, list(range(int(lo), int(hi) + 1))).sum(axis=1)
-    run = d["code"].astype(int).map(run).fillna(0.0)
+    run = d["code"].astype(int).map(run).fillna(0.0).round(2)
 
+    # `solve_draft` optimises `projected_points`, so THAT is the column that has
+    # to become the window total · setting only the consensus column leaves the
+    # solver quietly maximising a season it is never going to play, which is the
+    # exact bug this function exists to fix.
     season = pd.to_numeric(d[PTS_COL], errors="coerce").replace(0, pd.NA)
-    ratio = (run / season).astype(float).fillna(0.0)
-    for c in ("proj_lo", "projected_points"):
-        if c in d.columns:
-            d[c] = (pd.to_numeric(d[c], errors="coerce") * ratio).round(2)
-    d[PTS_COL] = run.round(2)
+    ratio = (run / season).astype(float).clip(0, 5).fillna(0.0)
+    if "proj_lo" in d.columns:
+        # The floor keeps its RELATIVE distance from the mean, so the risk dial
+        # still means "prefer the safer projection" over the window.
+        d["proj_lo"] = (pd.to_numeric(d["proj_lo"], errors="coerce") * ratio).round(2)
+    d["projected_points"] = run
+    d[PTS_COL] = run
     return d
 
 
