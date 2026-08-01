@@ -54,7 +54,12 @@
   }
   tbody tr:hover .pin1, tbody tr:hover .pin2 { background: var(--ff-s2, #1B2130); }
 
-  .face { width:26px; height:26px; border-radius:50%; object-fit:cover; display:block;
+  /* FPL portraits are 110x140 with the head near the top and a lot of shirt
+     below it. object-fit:cover centres by default, which takes equal bites off
+     both ends and clips the top of the head · the one part that identifies the
+     player. Pull the crop window upwards so the chin goes instead. */
+  .face { width:26px; height:26px; border-radius:50%; object-fit:cover;
+          object-position: 50% 12%; display:block;
           background: var(--ff-s3, #232B3B); }
   .nm { font-weight:600; color: var(--ff-text, #eef1f5); letter-spacing:-0.01em; }
   .nm.link { cursor:pointer; text-decoration: underline; text-decoration-style: dotted;
@@ -79,6 +84,14 @@
   .act.ghost { background: var(--ff-chip-bg, rgba(255,255,255,0.08));
                color: var(--ff-text, #eef1f5); box-shadow:none;
                border:1px solid var(--ff-line, rgba(255,255,255,0.12)); }
+  /* Out of budget. Shown rather than hidden · "too expensive" is information,
+     an absent row is a mystery. Reports nothing because it has no data-ffaction. */
+  .act.off { background: transparent; color: var(--ff-muted2, #7a8394);
+             box-shadow:none; cursor: not-allowed; font-weight:700;
+             border:1px dashed var(--ff-line, rgba(255,255,255,0.16)); }
+  .act.off:hover { transform:none; filter:none; }
+  tr.unaffordable { opacity: 0.42; }
+  tr.unaffordable:hover { opacity: 0.62; }
   .empty { padding:22px; text-align:center; color: var(--ff-muted, #999); font-size:12.5px; }
 </style>
 <div id="root"></div>

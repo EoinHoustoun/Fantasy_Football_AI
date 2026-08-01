@@ -107,10 +107,17 @@ def col_run(key: str, label: str = "Next") -> Dict:
 
 
 def col_action(key: str, action: str, glyph: str, label: str = "",
-               ghost: bool = False) -> Dict:
-    """A clickable button cell. The click posts {action, id: row[key]}."""
+               ghost: bool = False, disabled_key: Optional[str] = None,
+               disabled_glyph: str = "") -> Dict:
+    """A clickable button cell. The click posts {action, id: row[key]}.
+
+    `disabled_key` names a truthy row field that greys the button out and stops
+    it reporting. Showing an option you cannot take is more useful than hiding
+    it · "too expensive" is information, an absent row is a mystery.
+    """
     return {"kind": "action", "key": key, "action": action, "glyph": glyph,
-            "label": label, "ghost": ghost}
+            "label": label, "ghost": ghost, "disabled_key": disabled_key,
+            "disabled_glyph": disabled_glyph}
 
 
 def col_html(key: str, label: str, align: str = "") -> Dict:
@@ -181,6 +188,10 @@ def _cell(spec: Dict, row: Dict) -> str:
         return '<span style="display:inline-flex;gap:3px;">' + "".join(out) + "</span>"
 
     if kind == "action":
+        dk = spec.get("disabled_key")
+        if dk and row.get(dk):
+            return (f'<span class="act off" title="Not available">'
+                    f'{_esc(spec.get("disabled_glyph") or spec["glyph"])}</span>')
         cls = "act ghost" if spec.get("ghost") else "act"
         return (f'<span class="{cls}" data-ffaction="{_esc(spec["action"])}" '
                 f'data-ffid="{int(_num(v, 0) or 0)}">{spec["glyph"]}</span>')
@@ -227,12 +238,14 @@ def build_html(rows: List[Dict], cols: List[Dict], max_height: int = 420,
     hl = highlight or set()
     for r in rows:
         rid = _num(r.get(row_key), 0) or 0
+        # A row the caller has marked unavailable is dimmed rather than dropped.
+        dim = " unaffordable" if r.get("_unavailable") else ""
         attrs = ""
-        if row_action:
-            attrs = (f' class="clickable{" hl" if int(rid) in hl else ""}"'
+        if row_action and not r.get("_unavailable"):
+            attrs = (f' class="clickable{" hl" if int(rid) in hl else ""}{dim}"'
                      f' data-ffaction="{_esc(row_action)}" data-ffid="{int(rid)}"')
-        elif int(rid) in hl:
-            attrs = ' class="hl"'
+        elif int(rid) in hl or dim:
+            attrs = f' class="{"hl" if int(rid) in hl else ""}{dim}"'
         tds = "".join(
             f'<td{_cls(i, c)}{_style(i, c)}>{_cell(c, r)}</td>'
             for i, c in enumerate(cols))

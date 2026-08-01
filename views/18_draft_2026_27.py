@@ -165,7 +165,7 @@ def _changes_summary(ledger: Dict) -> str:
     The question this answers is "what did I actually do", so it reads as a list
     of moves rather than a table of state: who left, who arrived, free or -4.
     """
-    weeks = [w for w in ledger["weeks"] if w["moves"]]
+    weeks = [w for w in ledger["weeks"] if w["used"]]
     if not weeks:
         return _one_line(
             f'<div style="{CARD}color:{V("muted")};font-size:13px;">'
@@ -176,7 +176,10 @@ def _changes_summary(ledger: Dict) -> str:
     blocks = []
     for w in weeks:
         rows = []
-        for i, (out, inn) in enumerate(w["moves"].items()):
+        # `moves` is the NET change for the week: who actually left and who
+        # actually arrived. A player sold and bought back appears in neither.
+        _pairs = list(zip(w["moves"].get("out", []), w["moves"].get("in", [])))
+        for i, (out, inn) in enumerate(_pairs):
             free = i < w["free_used"]
             tag = ("FREE" if free else "-4")
             tok = "mint" if free else "red"
@@ -921,7 +924,7 @@ _DRAFT_ID = str(_spec["id"])
 
 _DRAFT_STATE_DEFAULTS = {
     "draft_swaps": dict,      # {gw: {out_code: in_code}}
-    "draft_axe": lambda: None,
+    "draft_axe": list,   # ORDERED codes marked out · fills slots first-in-first-out
     "draft_bench": set,
     "sub_from": lambda: None,  # player tapped to be subbed
     "xi_override": dict,      # {gw: set(codes)} manual XI
@@ -974,10 +977,16 @@ def _current_squad(gw: Optional[int] = None) -> pd.DataFrame:
 
 
 def _transfer_ledger(upto_gw: int) -> Dict:
-    """This draft's free transfers and hits. Rules live in analytics."""
+    """This draft's free transfers and hits. Rules live in analytics.
+
+    The drafted fifteen is passed in so moves count NET: sell Virgil for
+    Gabriel, change your mind and buy Virgil back, and you have made no
+    transfer and spent nothing.
+    """
     from analytics.squad_planner import FT_CAP
     return SR.transfer_ledger(st.session_state[_sk("draft_swaps")],
-                              upto_gw, ft_cap=FT_CAP)
+                              upto_gw, ft_cap=FT_CAP,
+                              start_codes=[int(c) for c in SOLVED["code"]])
 
 
 # ── Player evidence ───────────────────────────────────────────────────────────
@@ -1504,7 +1513,10 @@ def _player_dialog(code: int) -> None:
         if st.button(":material/swap_horiz: Replace him", key=f"dlg_axe_{code}",
                      use_container_width=True, disabled=not in_squad,
                      type="primary" if in_squad else "secondary"):
-            st.session_state[_sk("draft_axe")] = int(code)
+            _cur = list(st.session_state[_sk("draft_axe")])
+            if int(code) not in _cur:
+                _cur.append(int(code))
+            st.session_state[_sk("draft_axe")] = _cur
             st.rerun()
     with b2:
         if st.button(":material/balance: Compare him", key=f"dlg_cmp_{code}",
@@ -1673,11 +1685,29 @@ def _candidates(sq: pd.DataFrame, out_code: int, bank: float) -> pd.DataFrame:
     return alt[alt["team_id"].map(lambda t: clubs.get(t, 0)) < 3]
 
 
+def _candidates_multi(sq: pd.DataFrame, out_codes: List[int], budget: float,
+                      positions: List[str]) -> pd.DataFrame:
+    """Replacements for SEVERAL marked players at once.
+
+    Everyone in the requested positions who is not already in the squad and
+    would not break the 3-per-club limit. Affordability is judged per row
+    afterwards rather than filtered here, because a player you cannot afford is
+    worth seeing greyed out · it tells you what freeing more money would buy.
+    """
+    outs = {int(c) for c in out_codes}
+    keep = sq[~sq["code"].isin(outs)]
+    clubs = keep["team_id"].value_counts().to_dict()
+    alt = board[(board["position"].isin(list(positions)))
+                & (~board["code"].isin(keep["code"]))
+                & (~board["code"].isin(outs))].copy()
+    return alt[alt["team_id"].map(lambda t: clubs.get(t, 0)) < 3]
+
+
 @st.fragment
 def planner() -> None:
     gw = int(st.session_state[_sk("draft_gw")])
     sq = _current_squad(gw)
-    axed = st.session_state[_sk("draft_axe")]
+    axed = [int(c) for c in st.session_state[_sk("draft_axe")]]
     ledger = _transfer_ledger(gw)
 
     # ── Gameweek stepper ─────────────────────────────────────────────────────
@@ -1721,9 +1751,10 @@ def planner() -> None:
     _made = _this_week["used"] if _this_week else 0
 
     # Axing a player frees his sale price, and THAT is the number you shop with.
-    _freed = 0.0
-    if axed is not None and int(axed) in set(sq["code"].astype(int)):
-        _freed = float(board[board["code"] == axed].iloc[0]["actual_price"])
+    _in_squad = set(sq["code"].astype(int))
+    _freed = float(sum(
+        float(board[board["code"] == c].iloc[0]["actual_price"])
+        for c in axed if c in _in_squad))
     _spend = bank + _freed
     _bank_label = ("To spend" if _freed else "In the bank")
     _bank_sub = (f"£{bank:.1f}m banked + £{_freed:.1f}m freed" if _freed
@@ -1756,6 +1787,15 @@ def planner() -> None:
     cap_bonus = PROJ.points(captain, gw) if captain is not None else 0.0
     xi_pts += cap_bonus
     bench_pts = sum(PROJ.points(c, gw) for c in codes if c not in xi)
+
+    # A Bench Boost is worth what the bench actually scores, so in the week the
+    # draft plays it the fifteen all count. Without this a draft that spends a
+    # chip read exactly the same as one that did not, which is the opposite of
+    # the point: the whole reason to carry a playing bench is the week it pays.
+    boost_gw = _spec.get("bench_boost_gw")
+    boost_on = boost_gw is not None and int(boost_gw) == int(gw)
+    if boost_on:
+        xi_pts += bench_pts
 
     # An 80% band, not a Monte Carlo · this tile redraws on every click.
     from analytics.head_to_head import week_band
@@ -1794,7 +1834,7 @@ def planner() -> None:
             "fpl_id": code, "stat": round(PROJ.points(code, gw), 1), "stat_dp": 1,
             "exp_mins": PROJ.expected_minutes(code, gw),
             "penalties_order": r.get("pens_order"),
-            "is_axed": axed == code, "allow_axe": True, "allow_bench": True,
+            "is_axed": code in axed, "allow_axe": True, "allow_bench": True,
             "is_sub_source": sub_from == code,
             "swap_ok": code in swap_targets,
         })
@@ -1804,13 +1844,21 @@ def planner() -> None:
         interactive=True, compact=compact,
         # Same number as the XI tile · the pitch would otherwise sum the cards
         # and quietly drop the captain's double.
-        xi_total_override=round(xi_pts, 1), key="draft_pitch"), "_pitch_nonce")
+        xi_total_override=round(xi_pts, 1),
+        total_label="SQUAD" if boost_on else "XI", key="draft_pitch"), "_pitch_nonce")
     if click:
         action, cid = click.get("action"), int(click.get("id") or 0)
         if action == "detail":
             _player_dialog(cid)
         elif action in ("axe", "unaxe"):
-            st.session_state[_sk("draft_axe")] = cid if action == "axe" else None
+            # ✕ marks a player out and ✕ again takes him off the list, so several
+            # can be queued and filled one by one from the table.
+            _cur = [int(c) for c in st.session_state[_sk("draft_axe")]]
+            if action == "axe" and cid not in _cur:
+                _cur.append(cid)
+            elif action == "unaxe" and cid in _cur:
+                _cur.remove(cid)
+            st.session_state[_sk("draft_axe")] = _cur
             st.rerun(scope="fragment")
         elif action == "bench":
             # First tap arms the swap, second tap completes it. Tapping the armed
@@ -1881,9 +1929,13 @@ def planner() -> None:
 
     _tiles([
         ("Spend", f"£{cost:.1f}m", f"£{bank:.1f}m banked", "mint"),
-        (f"XI · GW{gw}", f"{xi_pts:.0f}", f"p10 {_band['lo']:.0f} · p90 {_band['hi']:.0f}",
-         "gold"),
-        (f"Bench · GW{gw}", f"{bench_pts:.1f}", "what a Boost adds", "cyan"),
+        (f"{'Squad' if boost_on else 'XI'} · GW{gw}", f"{xi_pts:.0f}",
+         (f"Boost on · +{bench_pts:.1f} from the bench" if boost_on
+          else f"p10 {_band['lo']:.0f} · p90 {_band['hi']:.0f}"),
+         "mint" if boost_on else "gold"),
+        (f"Bench · GW{gw}", f"{bench_pts:.1f}",
+         "counted this week" if boost_on else "what a Boost adds",
+         "mint" if boost_on else "cyan"),
         ("Non-starters", str(len(dead)),
          ", ".join(dead)[:30] if dead else "everyone plays", "red" if dead else "muted2"),
         ("Forecast", f"{hit}/{n}", "on match forecasts" if hit else "fixture shape",
@@ -1908,99 +1960,137 @@ def planner() -> None:
 
 
     # ── One table: replacements when someone is marked, otherwise the pool ───
-    if axed is not None and int(axed) in set(sq["code"].astype(int)):
-        out_row = board[board["code"] == axed].iloc[0]
-        _sec(f"Replacing {out_row['web_name']}",
-             f"£{float(out_row['actual_price']):.1f}m out, "
-             f"£{float(out_row['actual_price']) + bank:.1f}m to spend, staying inside "
-             f"3 per club. Click + to swap him in.")
-        alt = _candidates(sq, int(axed), bank)
-        if alt.empty:
-            st.info("Nothing affordable in this position without freeing money first.")
-        else:
-            # The top three, surfaced as cards before the full list. Twenty-two
-            # rows is a research tool; three cards is an answer, and an answer is
-            # what you want the moment you take someone out.
-            _top3 = alt.assign(_k=[PROJ.run_total(int(c), gw, min(gw + 3, 38))
-                                   for c in alt["code"]]).nlargest(3, "_k")
-            _cards = []
-            for _rank, (_, _c) in enumerate(_top3.iterrows(), start=1):
-                _cc = int(_c["code"])
-                _tok = ["mint", "gold", "cyan"][_rank - 1]
-                _d_price = float(_c["actual_price"]) - float(out_row["actual_price"])
-                _runs = _fixtures_for(int(_c.get("team_id", 0) or 0), gw, 3)
-                _chips = "".join(
-                    f'<span style="background:{theme.FDR_COLORS.get(int(round(float(f.get("fdr", 3)))), "#FFD60A")};'
-                    f'color:#000;border-radius:4px;padding:1px 5px;font-size:9px;'
-                    f'font-weight:900;">{str(f.get("opp", "?"))[:3]}'
-                    f'{"" if f.get("home") else "·a"}</span>' for f in _runs)
-                _mins = PROJ.expected_minutes(_cc, gw)
-                _cards.append(
-                    f'<div style="{CARD}flex:1;min-width:210px;border-top:3px solid {V(_tok)};">'
-                    f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
-                    f'<span style="display:inline-grid;place-items:center;width:22px;'
-                    f'height:22px;border-radius:7px;background:{V(_tok)};color:#06251A;'
-                    f'font-family:var(--ff-display);font-size:12px;font-weight:900;">'
-                    f'{_rank}</span>'
-                    f'{face_html(_cc, int(_c.get("team_code", 1) or 1), _c["position"] == "GKP", 34)}'
-                    f'<div style="min-width:0;flex:1;">'
-                    f'<div style="font-size:13.5px;font-weight:700;color:{V("text")};'
-                    f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
-                    f'{_c["web_name"]}</div>'
-                    f'<div style="font-size:10.5px;color:{V("muted")};">'
-                    f'{_c.get("team_short", "")} · £{float(_c["actual_price"]):.1f}m '
-                    f'({_d_price:+.1f})</div></div></div>'
-                    f'<div style="display:flex;gap:3px;margin-bottom:8px;">{_chips}</div>'
-                    f'<div style="display:flex;justify-content:space-between;gap:6px;">'
-                    f'<div><div class="ff-display" style="font-size:17px;font-weight:800;'
-                    f'color:{V(_tok)};">{float(_c["_k"]):.1f}</div>'
-                    f'<div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;'
-                    f'color:{V("muted2")};">next 4 GWs</div></div>'
-                    f'<div><div class="ff-display" style="font-size:17px;font-weight:800;'
-                    f'color:{V("text")};">{PROJ.points(_cc, gw):.1f}</div>'
-                    f'<div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;'
-                    f'color:{V("muted2")};">GW{gw}</div></div>'
-                    f'<div><div class="ff-display" style="font-size:17px;font-weight:800;'
-                    f'color:{V("text")};">{("%.0f" % _mins) if _mins is not None else "-"}</div>'
-                    f'<div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;'
-                    f'color:{V("muted2")};">mins</div></div></div></div>')
-            st.markdown(_one_line(
-                '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px;">'
-                + "".join(_cards) + "</div>"), unsafe_allow_html=True)
-            _r1, _r2, _r3 = st.columns(3)
-            for _col, (_, _c) in zip((_r1, _r2, _r3), _top3.iterrows()):
-                with _col:
-                    if st.button(f"Bring in {_c['web_name']}", use_container_width=True,
-                                 key=f"top3_{int(_c['code'])}"):
-                        st.session_state[_sk("draft_swaps")].setdefault(int(gw), {})[
-                            int(axed)] = int(_c["code"])
-                        st.session_state[_sk("draft_axe")] = None
-                        st.rerun(scope="fragment")
+    _open = [c for c in axed if c in set(sq["code"].astype(int))]
+    if _open:
+        _out_rows = [board[board["code"] == c].iloc[0] for c in _open]
+        _freed = float(sum(float(r["actual_price"]) for r in _out_rows))
+        _budget = _freed + bank
+        _slots = [str(r["position"]) for r in _out_rows]
 
-            s1, s2 = st.columns([3, 1])
-            with s1:
-                rank_by = st.radio("Rank by", [f"GW{gw}", "Season", "Per £m"],
-                                   horizontal=True, key="cand_sort",
-                                   label_visibility="collapsed")
-            with s2:
-                if st.button("Cancel", key="cand_cancel", use_container_width=True):
-                    st.session_state[_sk("draft_axe")] = None
-                    st.rerun(scope="fragment")
-            if rank_by.startswith("GW"):
+        _sec(f"Replacing {len(_open)} player{'' if len(_open) == 1 else 's'}",
+             f"£{_freed:.1f}m freed · £{_budget:.1f}m to spend. A signing fills "
+             f"the first open slot of his position. Unaffordable players stay "
+             f"visible but greyed out.", icon="swap_horiz")
+
+        # The queue, so it is obvious who is out and who is next to be filled.
+        _q = []
+        for _i, _r in enumerate(_out_rows):
+            _nxt = _i == 0
+            _q.append(
+                f'<div style="display:flex;align-items:center;gap:8px;'
+                f'background:{V("card")};border:1px solid '
+                f'{V("mint") if _nxt else V("line")};border-radius:9px;'
+                f'padding:6px 10px;">'
+                f'{face_html(int(_r["code"]), int(_r.get("team_code", 1) or 1), _r["position"] == "GKP", 26)}'
+                f'<div><div style="font-size:12px;font-weight:700;color:{V("text")};">'
+                f'{_r["web_name"]}</div>'
+                f'<div style="font-size:9.5px;color:{V("muted2")};">'
+                f'{_r["position"]} · £{float(_r["actual_price"]):.1f}m'
+                f'{" · next" if _nxt else ""}</div></div></div>')
+        st.markdown(_one_line(
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">'
+            + "".join(_q) + '</div>'), unsafe_allow_html=True)
+
+        # ── Filters ──────────────────────────────────────────────────────────
+        _f1, _f2, _f3, _f4 = st.columns([2, 2, 2, 2])
+        with _f1:
+            _pos_opts = sorted(set(_slots), key=POS_ORDER.index)
+            _pos_f = st.segmented_control(
+                "Slot", _pos_opts, default=_pos_opts[0] if len(_pos_opts) == 1 else None,
+                key="cand_pos", label_visibility="collapsed",
+                help="Which open slot you are filling.")
+        with _f2:
+            _q_name = st.text_input("Search", key="cand_name", placeholder="Search",
+                                    label_visibility="collapsed")
+        with _f3:
+            _max_p = st.slider("Max £m", 3.5, 16.0, min(16.0, round(_budget + 0.5, 1)),
+                               0.5, key="cand_price")
+        with _f4:
+            _sort = st.selectbox(
+                "Rank by", [f"GW{gw}", f"Next 4 GWs", "Season", "Per £m"],
+                index=1, key="cand_sort", label_visibility="collapsed")
+
+        _want = [_pos_f] if _pos_f else _pos_opts
+        alt = _candidates_multi(sq, _open, _budget, _want)
+        if _q_name.strip():
+            alt = alt[alt["web_name"].str.contains(_q_name.strip(), case=False,
+                                                   na=False, regex=False)]
+        alt = alt[alt["actual_price"] <= _max_p]
+
+        if alt.empty:
+            st.info("Nothing matches those filters.")
+        else:
+            _hi4 = min(38, gw + 3)
+            if _sort.startswith("GW"):
                 alt = alt.assign(_k=[PROJ.points(int(c), gw) for c in alt["code"]])
-            elif rank_by == "Season":
+            elif _sort.startswith("Next"):
+                _m = PROJ.matrix([int(c) for c in alt["code"]],
+                                 list(range(gw, _hi4 + 1))).sum(axis=1)
+                alt = alt.assign(_k=alt["code"].astype(int).map(_m).fillna(0.0))
+            elif _sort == "Season":
                 alt = alt.assign(_k=alt[PTS_COL])
             else:
                 alt = alt.assign(_k=alt[PTS_COL] / alt["actual_price"].clip(lower=0.1))
-            rows = _pool_rows(alt.nlargest(POOL_PAGE, "_k"), gw, out_row)
-            pick = _click(T.render(rows, _pool_cols(gw, with_delta=True, rows=rows),
-                                   key=f"cand_{axed}", max_height=360),
+
+            _n_match = len(alt)
+            _shown_key = _sk("cand_shown")
+            st.session_state.setdefault(_shown_key, POOL_PAGE)
+            _lim = min(int(st.session_state[_shown_key]), _n_match)
+
+            _page = alt.nlargest(_lim, "_k")
+            rows = _pool_rows(_page, gw, _out_rows[0])
+            _run4 = PROJ.matrix([int(c) for c in _page["code"]],
+                                list(range(gw, _hi4 + 1))).sum(axis=1)
+            # What each row would cost given the slot it fills, so "affordable"
+            # means affordable AFTER the player it replaces is sold.
+            _price_by = dict(zip(board["code"].astype(int), board["actual_price"]))
+            _slot_price = {p: max((float(r["actual_price"]) for r in _out_rows
+                                   if str(r["position"]) == p), default=0.0)
+                           for p in _pos_opts}
+            for _r in rows:
+                _r["horizon"] = round(float(_run4.get(int(_r["code"]), 0.0)), 1)
+                _ceiling = bank + _slot_price.get(_r["position"], 0.0)
+                _r["_unavailable"] = float(_r["actual_price"]) > _ceiling + 1e-9
+            _cols = _pool_cols(gw, with_delta=True, rows=rows)
+            _cols.insert(-1, T.col_bar("horizon", f"GW{gw}-{_hi4}",
+                                       max_value=_bar_max(rows, "horizon", "season"),
+                                       color="gold", fmt="%.1f"))
+            _cols[-1] = T.col_action("code", "swap", "Sign", disabled_key="_unavailable",
+                                     disabled_glyph="Too dear")
+            pick = _click(T.render(rows, _cols, key="cand_tbl", max_height=380),
                           "_cand_nonce")
-            if pick:
-                if pick.get("action") == "swap":
+            if pick and pick.get("action") == "swap":
+                _in = int(pick["id"])
+                _inpos = str(board[board["code"] == _in].iloc[0]["position"])
+                # First open slot of that position · the queue order is the
+                # order they were marked, which is the order a user expects.
+                _target = next((c for c in _open
+                                if str(board[board["code"] == c].iloc[0]["position"])
+                                == _inpos), None)
+                if _target is not None:
                     st.session_state[_sk("draft_swaps")].setdefault(int(gw), {})[
-                        int(axed)] = int(pick["id"])
-                    st.session_state[_sk("draft_axe")] = None
+                        int(_target)] = _in
+                    st.session_state[_sk("draft_axe")] = [
+                        c for c in st.session_state[_sk("draft_axe")]
+                        if int(c) != int(_target)]
+                    st.rerun(scope="fragment")
+
+            _p1, _p2, _p3 = st.columns([3, 1, 1])
+            with _p1:
+                st.markdown(_one_line(
+                    f'<div style="font-size:11.5px;color:{V("muted")};padding:6px 2px;">'
+                    f'Showing <b style="color:{V("text")};">{_lim}</b> of '
+                    f'<b style="color:{V("text")};">{_n_match}</b> candidates.</div>'),
+                    unsafe_allow_html=True)
+            with _p2:
+                if _lim < _n_match:
+                    if st.button(f"Show {min(POOL_PAGE, _n_match - _lim)} more",
+                                 use_container_width=True, key="cand_more"):
+                        st.session_state[_shown_key] = _lim + POOL_PAGE
+                        st.rerun(scope="fragment")
+            with _p3:
+                if st.button("Clear marks", use_container_width=True, key="cand_cancel"):
+                    st.session_state[_sk("draft_axe")] = []
                     st.rerun(scope="fragment")
     else:
         _sec("The pool", "Everyone you could pick, ranked for this gameweek. "

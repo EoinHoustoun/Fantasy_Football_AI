@@ -60,7 +60,8 @@ def legal_swaps(out_code: int, xi: Iterable[int], squad_codes: Iterable[int],
 
 
 def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
-                    first_paid_gw: int = 2) -> Dict:
+                    first_paid_gw: int = 2,
+                    start_codes: Optional[Iterable[int]] = None) -> Dict:
     """Free transfers, hits and what each week's moves cost.
 
     One free transfer a gameweek from GW2, banked up to `ft_cap`, spent oldest
@@ -72,12 +73,33 @@ def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
     part of why an early Bench Boost and Wildcard are attractive.
 
     `swaps` is {gw: {out_code: in_code}}.
+
+    Moves are counted NET against the squad at the start of the week. Selling
+    Virgil for Gabriel and then buying Virgil back is two entries in the chain
+    and zero transfers made: anyone who starts the week in the squad and ends it
+    there was never transferred, whatever route he took. That is also how a user
+    undoes a change of mind, so charging for it would be charging for nothing.
+    Pass `start_codes` (the drafted fifteen) to enable it.
     """
     weeks, avail, total_hits = [], 0, 0
+    squad = [int(c) for c in (start_codes or [])]
+
     for g in range(int(first_paid_gw), int(upto_gw) + 1):
         avail = min(ft_cap, avail + 1)
         moves = (swaps or {}).get(g, {}) or {}
-        used = len(moves)
+
+        if squad:
+            began = set(squad)
+            for out, inn in moves.items():
+                if int(out) in squad:
+                    squad[squad.index(int(out))] = int(inn)
+            ended = set(squad)
+            gone, came = began - ended, ended - began
+            used = len(gone)
+            moves = {"out": sorted(gone), "in": sorted(came)}
+        else:
+            used = len(moves)
+
         free_used = min(used, avail)
         hits = used - free_used
         total_hits += hits

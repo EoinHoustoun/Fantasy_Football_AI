@@ -143,3 +143,52 @@ def test_empty_swaps_is_free():
     led = transfer_ledger(None, upto_gw=6)
     assert led["points_cost"] == 0
     assert led["hits"] == 0
+
+
+# ── net transfers · the user's undo ──────────────────────────────────────────
+
+START = list(range(1, 16))
+
+
+def test_selling_and_buying_back_costs_nothing():
+    """Anyone who starts the week in the squad and ends it there was never
+    transferred, whatever route he took. This is how a user undoes a change of
+    mind, so charging for it would be charging for nothing."""
+    led = transfer_ledger({2: {1: 99, 99: 1}}, upto_gw=2, start_codes=START)
+    wk = led["weeks"][0]
+    assert wk["used"] == 0
+    assert led["points_cost"] == 0
+    assert led["available_now"] == 1        # the free transfer is still there
+
+
+def test_a_real_transfer_still_counts():
+    led = transfer_ledger({2: {1: 99}}, upto_gw=2, start_codes=START)
+    wk = led["weeks"][0]
+    assert wk["used"] == 1
+    assert wk["moves"] == {"out": [1], "in": [99]}
+
+
+def test_a_chain_through_a_third_player_counts_once():
+    """1 out for 99, then 99 out for 77. One player left, one arrived."""
+    led = transfer_ledger({2: {1: 99, 99: 77}}, upto_gw=2, start_codes=START)
+    wk = led["weeks"][0]
+    assert wk["used"] == 1
+    assert wk["moves"] == {"out": [1], "in": [77]}
+
+
+def test_two_genuine_transfers_on_one_free_still_takes_a_hit():
+    led = transfer_ledger({2: {1: 99, 2: 98}}, upto_gw=2, start_codes=START)
+    assert led["weeks"][0]["used"] == 2
+    assert led["points_cost"] == HIT_COST
+
+
+def test_a_revert_in_a_LATER_week_is_a_real_transfer():
+    """Undo is per gameweek. Buying a player back next week is a new transfer,
+    because the squad that started that week did not contain him."""
+    led = transfer_ledger({2: {1: 99}, 3: {99: 1}}, upto_gw=3, start_codes=START)
+    assert [w["used"] for w in led["weeks"]] == [1, 1]
+
+
+def test_without_start_codes_it_falls_back_to_counting_entries():
+    led = transfer_ledger({2: {1: 99, 99: 1}}, upto_gw=2)
+    assert led["weeks"][0]["used"] == 2
