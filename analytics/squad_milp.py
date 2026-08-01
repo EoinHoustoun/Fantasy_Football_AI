@@ -37,6 +37,7 @@ def optimize_squad(
     max_attackers_per_club: Optional[int] = None,
     defcon_codes: Optional[List] = None,
     max_defenders_per_club: Optional[int] = None,
+    bench_pts_col: Optional[str] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -61,11 +62,33 @@ def optimize_squad(
     cap = pulp.LpVariable.dicts("cap", idx, cat="Binary")
 
     pts = df[pts_col].astype(float)
-    prob += pulp.lpSum(
-        pts[i] * (lineup[i] + cap[i] * (1 if captain else 0)
-                  + bench_weight * (squad[i] - lineup[i]))
-        for i in idx
-    )
+
+    # What a benched player is actually worth.
+    #
+    # `bench_weight` is a fudge: it says a bench player is worth some fraction
+    # of a starter, which is true of nothing in particular. When you know you
+    # will play a Bench Boost, the truth is exact · in that ONE gameweek every
+    # one of the fifteen scores, and in the others only the eleven do. Pass
+    # `bench_pts_col` holding each player's points in the boost week and the
+    # objective becomes the plan itself rather than a proxy for it.
+    #
+    # This matters because chasing a bench POINTS TARGET is a constraint, not
+    # an objective, and optimising against it can build a worse fifteen: you
+    # end up buying bench quality that never earns its price in the ten weeks
+    # you are not boosting.
+    if bench_pts_col is not None and bench_pts_col in df.columns:
+        bench_pts = df[bench_pts_col].astype(float)
+        prob += pulp.lpSum(
+            pts[i] * (lineup[i] + cap[i] * (1 if captain else 0))
+            + bench_pts[i] * (squad[i] - lineup[i])
+            for i in idx
+        )
+    else:
+        prob += pulp.lpSum(
+            pts[i] * (lineup[i] + cap[i] * (1 if captain else 0)
+                      + bench_weight * (squad[i] - lineup[i]))
+            for i in idx
+        )
 
     prob += pulp.lpSum(squad[i] for i in idx) == 15
     prob += pulp.lpSum(lineup[i] for i in idx) == 11

@@ -50,7 +50,18 @@ SEASON_GWS = 38
 #           extrapolated to 38, and the Hub deliberately does not look far ahead,
 #           so it is deliberately the smallest season weight (0.15). None of this
 #           touches the per-gameweek numbers, where it is the primary source.
-SEASON_WEIGHTS = {"ours": 0.40, "scout": 0.45, "ffh": 0.15}
+# The Hub earns more than the 0.15 it started with. It is the only source that
+# forecasts a specific fixture with stated minutes, it is refreshed by hand so
+# it tracks news our carryover model cannot see, and where it has a real record
+# to work from it has been the sharpest of the three on minutes. Our own model
+# gives up the most, because carryover from last season is the weakest evidence
+# about this one.
+#
+# It does NOT get more weight where it cannot see: a player with no Premier
+# League record has the Hub excluded from the season blend entirely, and his
+# per-gameweek cells damped, both handled elsewhere in this module and in
+# gw_projection.
+SEASON_WEIGHTS = {"ours": 0.35, "scout": 0.40, "ffh": 0.25}
 
 # Below this many matched players a scale ratio is noise, so fall back to 1.0
 # and say so rather than rescaling everything by an accident.
