@@ -1,0 +1,145 @@
+"""Formation legality and free-transfer accounting · FPL's rules, tested.
+
+These lived inside a Streamlit view where nothing could reach them.
+"""
+from analytics.squad_rules import (HIT_COST, formation_of, is_legal_xi,
+                                   legal_swaps, transfer_ledger)
+
+# 2 keepers, 5 defenders, 5 midfielders, 3 forwards · a standard fifteen.
+POS = {}
+POS.update({c: "GKP" for c in (1, 2)})
+POS.update({c: "DEF" for c in (3, 4, 5, 6, 7)})
+POS.update({c: "MID" for c in (8, 9, 10, 11, 12)})
+POS.update({c: "FWD" for c in (13, 14, 15)})
+SQUAD = list(range(1, 16))
+
+
+def _xi(*codes):
+    return set(codes)
+
+
+# ── formation ────────────────────────────────────────────────────────────────
+
+def test_formation_counts_by_position():
+    assert formation_of([1, 3, 4, 8, 13], POS) == {"GKP": 1, "DEF": 2,
+                                                   "MID": 1, "FWD": 1}
+
+
+def test_unknown_codes_are_ignored():
+    assert formation_of([1, 999], POS)["GKP"] == 1
+
+
+# ── legality ─────────────────────────────────────────────────────────────────
+
+def test_a_standard_343_is_legal():
+    assert is_legal_xi(_xi(1, 3, 4, 5, 8, 9, 10, 11, 13, 14, 15), POS)
+
+
+def test_a_541_is_legal():
+    assert is_legal_xi(_xi(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13), POS)
+
+
+def test_eleven_players_is_required():
+    assert not is_legal_xi(_xi(1, 3, 4, 5, 8, 9, 10, 11, 13, 14), POS)
+
+
+def test_exactly_one_keeper():
+    assert not is_legal_xi(_xi(1, 2, 3, 4, 5, 8, 9, 10, 11, 13, 14), POS)
+    assert not is_legal_xi(_xi(3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15), POS)
+
+
+def test_minimum_three_defenders():
+    # two defenders, five midfielders, three forwards
+    assert not is_legal_xi(_xi(1, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15), POS)
+
+
+def test_minimum_one_forward():
+    assert not is_legal_xi(_xi(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), POS)
+
+
+# ── swaps ────────────────────────────────────────────────────────────────────
+
+def test_a_keeper_can_only_be_swapped_for_the_other_keeper():
+    xi = _xi(1, 3, 4, 5, 8, 9, 10, 11, 13, 14, 15)
+    assert legal_swaps(1, xi, SQUAD, POS) == [2]
+
+
+def test_the_third_defender_can_only_be_replaced_by_a_defender():
+    """Taking off a third defender with exactly three on means only another
+    defender keeps the eleven legal · the rule the interface teaches."""
+    xi = _xi(1, 3, 4, 5, 8, 9, 10, 11, 13, 14, 15)
+    got = legal_swaps(3, xi, SQUAD, POS)
+    assert set(got) == {6, 7}
+    assert all(POS[c] == "DEF" for c in got)
+
+
+def test_a_spare_defender_can_be_replaced_by_anyone_on_the_bench():
+    """Five defenders on, so dropping one still leaves four · every bench
+    outfielder becomes legal."""
+    xi = _xi(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13)
+    got = set(legal_swaps(3, xi, SQUAD, POS))
+    assert {12, 14, 15} <= got
+    assert 2 not in got                       # never the spare keeper
+
+
+def test_nobody_on_the_bench_means_no_swaps():
+    assert legal_swaps(3, set(SQUAD[:11]), SQUAD[:11], POS) == []
+
+
+# ── the transfer ledger ──────────────────────────────────────────────────────
+
+def test_gw1_is_free_and_never_appears():
+    led = transfer_ledger({1: {1: 2, 3: 4}}, upto_gw=1)
+    assert led["weeks"] == []
+    assert led["points_cost"] == 0
+
+
+def test_one_free_transfer_a_week():
+    led = transfer_ledger({2: {1: 2}}, upto_gw=2)
+    assert led["weeks"][0]["free_used"] == 1
+    assert led["weeks"][0]["hits"] == 0
+    assert led["points_cost"] == 0
+
+
+def test_a_second_transfer_in_one_week_costs_four():
+    led = transfer_ledger({2: {1: 2, 3: 4}}, upto_gw=2)
+    assert led["weeks"][0]["hits"] == 1
+    assert led["points_cost"] == HIT_COST
+
+
+def test_transfers_bank_when_unused():
+    led = transfer_ledger({}, upto_gw=4)
+    assert led["available_now"] == 3          # GW2, GW3, GW4
+
+
+def test_the_bank_is_capped():
+    led = transfer_ledger({}, upto_gw=30, ft_cap=5)
+    assert led["available_now"] == 5
+
+
+def test_a_bank_absorbs_a_multi_transfer_week():
+    """Three saved, three spent, no hit."""
+    led = transfer_ledger({5: {1: 2, 3: 4, 6: 7}}, upto_gw=5)
+    wk = [w for w in led["weeks"] if w["gw"] == 5][0]
+    assert wk["available_before"] == 4
+    assert wk["hits"] == 0
+    assert led["points_cost"] == 0
+
+
+def test_spending_past_the_bank_costs_per_extra_transfer():
+    led = transfer_ledger({3: {1: 2, 3: 4, 5: 6, 7: 8}}, upto_gw=3)
+    wk = led["weeks"][-1]
+    assert wk["available_before"] == 2
+    assert wk["hits"] == 2
+    assert led["points_cost"] == 2 * HIT_COST
+
+
+def test_the_bank_cannot_go_negative():
+    led = transfer_ledger({2: {i: i + 100 for i in range(6)}}, upto_gw=3)
+    assert led["available_now"] >= 0
+
+
+def test_empty_swaps_is_free():
+    led = transfer_ledger(None, upto_gw=6)
+    assert led["points_cost"] == 0
+    assert led["hits"] == 0

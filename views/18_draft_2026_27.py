@@ -27,6 +27,7 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+from analytics import squad_rules as SR
 from components import ff_table as T
 from components.animations import inject_global_animations
 from components.pitch_view import render_squad_pitch
@@ -39,12 +40,12 @@ from ui.theme import var as V
 
 inject_global_animations()
 
-POS_ORDER = ["GKP", "DEF", "MID", "FWD"]
+POS_ORDER = SR.POS_ORDER
 CARD = (f"background:{V('card')};border:1px solid {V('line')};"
         f"border-radius:14px;padding:14px 16px;")
 
 SQUAD_LIMITS = {"GKP": 2, "DEF": 5, "MID": 5, "FWD": 3}
-XI_MINIMUMS = {"GKP": 1, "DEF": 3, "MID": 2, "FWD": 1}
+XI_MINIMUMS = SR.XI_MINIMUMS
 MAX_GW = 19
 
 VERDICT_META = {
@@ -332,39 +333,7 @@ def _range_bands(ranked: List[Dict], colour: Dict, window) -> str:
 # a 5-2-3 are all legal and a 2-5-3 is not. Every swap on the pitch is checked
 # against this rather than assumed, which is what lets the bench highlight only
 # the players who can actually come on.
-def _formation_of(codes, pos_by_code: Dict) -> Dict[str, int]:
-    out = {p: 0 for p in POS_ORDER}
-    for c in codes:
-        p = pos_by_code.get(int(c))
-        if p in out:
-            out[p] += 1
-    return out
 
-
-def _is_legal_xi(codes, pos_by_code: Dict) -> bool:
-    if len(codes) != 11:
-        return False
-    f = _formation_of(codes, pos_by_code)
-    return (f["GKP"] == 1 and f["DEF"] >= XI_MINIMUMS["DEF"]
-            and f["MID"] >= XI_MINIMUMS["MID"] and f["FWD"] >= XI_MINIMUMS["FWD"])
-
-
-def _legal_swaps(out_code: int, xi: set, squad_codes: List[int],
-                 pos_by_code: Dict) -> List[int]:
-    """Who could come on for this player without breaking the formation.
-
-    A keeper can only ever be swapped for the other keeper. Outfield swaps are
-    legal whenever the resulting eleven still clears the minimums, which is why
-    taking off a third defender usually only allows another defender in.
-    """
-    out_code = int(out_code)
-    on_bench = [int(c) for c in squad_codes if int(c) not in xi]
-    ok = []
-    for cand in on_bench:
-        trial = (set(xi) - {out_code}) | {cand}
-        if _is_legal_xi(trial, pos_by_code):
-            ok.append(cand)
-    return ok
 
 
 def _click(value, state_key: str) -> Optional[Dict]:
@@ -998,34 +967,10 @@ def _current_squad(gw: Optional[int] = None) -> pd.DataFrame:
 
 
 def _transfer_ledger(upto_gw: int) -> Dict:
-    """Free transfers, hits and what each week's moves cost.
-
-    One free transfer a gameweek from GW2, banked up to FT_CAP, spent oldest
-    first. Anything past the free allowance costs 4 points. GW1 is the draft
-    itself, so it is free by definition and never appears in the ledger.
-
-    Saving transfers early is worth more than it looks: a bank of five in GW6 is
-    the flexibility to react once there is real information, which is a large
-    part of why an early Bench Boost and Wildcard are attractive.
-    """
+    """This draft's free transfers and hits. Rules live in analytics."""
     from analytics.squad_planner import FT_CAP
-    swaps = st.session_state[_sk("draft_swaps")]
-    weeks, avail, total_hits = [], 0, 0
-    for g in range(2, int(upto_gw) + 1):
-        avail = min(FT_CAP, avail + 1)
-        moves = swaps.get(g, {})
-        used = len(moves)
-        free_used = min(used, avail)
-        hits = used - free_used
-        total_hits += hits
-        weeks.append({
-            "gw": g, "moves": moves, "used": used,
-            "free_used": free_used, "hits": hits, "cost": hits * 4,
-            "available_before": avail,
-        })
-        avail = max(0, avail - used)
-    return {"weeks": weeks, "available_now": avail, "hits": total_hits,
-            "points_cost": total_hits * 4, "cap": FT_CAP}
+    return SR.transfer_ledger(st.session_state[_sk("draft_swaps")],
+                              upto_gw, ft_cap=FT_CAP)
 
 
 # ── Player evidence ───────────────────────────────────────────────────────────
@@ -1616,7 +1561,7 @@ def _xi_for(sq: pd.DataFrame, gw: int) -> set:
     manual = st.session_state[_sk("xi_override")].get(int(gw))
     if manual:
         manual = {int(c) for c in manual if int(c) in pos_by}
-        if _is_legal_xi(manual, pos_by):
+        if SR.is_legal_xi(manual, pos_by):
             return manual
     forced = set(st.session_state[_sk("draft_bench")])
     pool = sq[~sq["code"].astype(int).isin(forced)]
@@ -1745,11 +1690,11 @@ def planner() -> None:
     swap_targets = set()
     if sub_from is not None and sub_from in pos_by:
         if sub_from in xi:
-            swap_targets = set(_legal_swaps(sub_from, xi, all_codes, pos_by))
+            swap_targets = set(SR.legal_swaps(sub_from, xi, all_codes, pos_by))
         else:
             # A benched player was tapped: light every starter he could replace.
             swap_targets = {c for c in xi
-                            if _is_legal_xi((set(xi) - {c}) | {sub_from}, pos_by)}
+                            if SR.is_legal_xi((set(xi) - {c}) | {sub_from}, pos_by)}
 
     players = []
     for _, r in sq.iterrows():
@@ -1790,7 +1735,7 @@ def planner() -> None:
                 new_xi = (set(xi) - {sub_from}) | {cid} if sub_from in xi \
                     else (set(xi) - {cid}) | {sub_from}
                 pos_by = {int(r["code"]): str(r["position"]) for _, r in sq.iterrows()}
-                if _is_legal_xi(new_xi, pos_by):
+                if SR.is_legal_xi(new_xi, pos_by):
                     st.session_state[_sk("xi_override")][int(gw)] = new_xi
                 st.session_state[_sk("sub_from")] = None
             else:
