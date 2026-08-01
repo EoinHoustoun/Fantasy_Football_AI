@@ -610,22 +610,61 @@ def _draft_label(name: str) -> str:
     return f"{icon} {squad} {chip}".strip() if chip else f"{icon} {squad}"
 
 
+def _draft_group(name: str) -> str:
+    """Which family a draft belongs to · the same distinction the icon makes."""
+    spec = _SAVED_BY_NAME[name]
+    if DR.has_squad(spec):
+        return "Mine"
+    if name.startswith("Route"):
+        return "Routes"
+    if spec.get("locks"):
+        return "Locked"
+    return "Base"
+
+
 # Your own drafts first · a preset is a starting point, the one you built is the
 # one you came back for.
-_opts = sorted(list(_SAVED_BY_NAME),
-               key=lambda n: (bool(_SAVED_BY_NAME[n].get("preset")),
-                              not DR.has_squad(_SAVED_BY_NAME[n]), n))
-_default = st.session_state.get(
-    "planner_draft",
-    next((n for n in _opts if "BB1 → WC4" in n), _opts[0]))
-if _default not in _opts:
-    _default = _opts[0]
+_all_opts = sorted(list(_SAVED_BY_NAME),
+                   key=lambda n: (bool(_SAVED_BY_NAME[n].get("preset")),
+                                  not DR.has_squad(_SAVED_BY_NAME[n]), n))
 
+# Fourteen pills of near-identical text ("+Fern+Mosq+Haal BB1 → WC4" against
+# "+Fern+Mosq+Haal BB2 → WC4") force you to read every one to find the one you
+# want. Grouping means reading a category first and four pills after it. The
+# groups are derived from the draft data, not a second hardcoded list.
 _hero, _ctrl = st.columns([4, 1])
 with _hero:
     st.markdown(_HERO, unsafe_allow_html=True)
 with _ctrl:
     _open_controls = st.popover(":material/tune: Tune", use_container_width=True)
+
+_GROUP_ORDER = ["Mine", "Locked", "Base", "Routes"]
+_groups = [g for g in _GROUP_ORDER
+           if any(_draft_group(n) == g for n in _all_opts)]
+_counts = {g: sum(1 for n in _all_opts if _draft_group(n) == g) for g in _groups}
+
+_gsel = st.segmented_control(
+    "Draft group", ["All"] + _groups, default="All", key="draft_group",
+    format_func=lambda g: (f"All ({len(_all_opts)})" if g == "All"
+                           else f"{g} ({_counts.get(g, 0)})"),
+    label_visibility="collapsed")
+_opts = ([n for n in _all_opts if _draft_group(n) == _gsel]
+         if _gsel and _gsel != "All" else _all_opts)
+
+# The draft you are looking at stays in the rail whatever the filter says.
+# Otherwise changing group silently swaps the squad under you, which is a
+# worse outcome than one pill sitting outside its category.
+_current = st.session_state.get("planner_draft")
+if _current in _SAVED_BY_NAME and _current not in _opts:
+    _opts = [_current] + _opts
+if not _opts:
+    _opts = _all_opts
+
+_default = st.session_state.get(
+    "planner_draft",
+    next((n for n in _opts if "BB1 → WC4" in n), _opts[0]))
+if _default not in _opts:
+    _default = _opts[0]
 
 _pick = st.pills("Draft", options=_opts, default=_default, key="planner_draft",
                  format_func=_draft_label, label_visibility="collapsed")
@@ -2742,14 +2781,27 @@ def _verdict_card(row: pd.Series) -> str:
 </div>""")
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _lane_html(_df: pd.DataFrame, _codes: tuple, _stamp: str, _light: bool) -> str:
+    """Roughly 150 KB of markup that only changes when the data or theme does.
+
+    Keyed on the codes in the lane rather than the frame, plus the content
+    stamp and the theme, because those are the only three things that can
+    change what a card says.
+    """
+    return ('<div class="fplh-stagger" style="display:grid;'
+            'grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;">'
+            + "".join(_verdict_card(r) for _, r in _df.iterrows()) + "</div>")
+
+
 def _lane(df: pd.DataFrame) -> None:
     if df.empty:
         st.info("No players in this bucket right now.")
         return
-    st.markdown('<div class="fplh-stagger" style="display:grid;'
-                'grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;">'
-                + "".join(_verdict_card(r) for _, r in df.iterrows()) + "</div>",
-                unsafe_allow_html=True)
+    st.markdown(
+        _lane_html(df, tuple(int(c) for c in df["code"]), BOARD_STAMP,
+                   theme.is_light()),
+        unsafe_allow_html=True)
 
 
 with tab_verdict:
