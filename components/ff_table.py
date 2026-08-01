@@ -78,10 +78,14 @@ def col_text(key: str, label: str, align: str = "") -> Dict:
 
 
 def col_num(key: str, label: str, fmt: str = "%.1f", align: str = ALIGN_NUM,
-            color_fn: Optional[Callable] = None) -> Dict:
-    """A number. `color_fn(value)` may return a colour to tint it."""
+            color_fn: Optional[Callable] = None, empty: str = "") -> Dict:
+    """A number. `color_fn(value)` may return a colour to tint it.
+
+    `empty` is what to print when there is no value. A bare dot reads as a bug
+    and tells the reader nothing · say WHY the cell is blank ("no forecast").
+    """
     return {"kind": "num", "key": key, "label": label, "fmt": fmt,
-            "align": align, "color_fn": color_fn}
+            "align": align, "color_fn": color_fn, "empty": empty}
 
 
 def col_bar(key: str, label: str, max_value: float, color: str = "mint",
@@ -139,6 +143,10 @@ def _cell(spec: Dict, row: Dict) -> str:
     if kind == "num":
         f = _num(v)
         if f is None:
+            lab = spec.get("empty") or ""
+            if lab:
+                return (f'<span class="sub" style="font-style:italic;'
+                        f'white-space:nowrap;">{_esc(lab)}</span>')
             return '<span class="sub">·</span>'
         txt = spec["fmt"] % f
         c = spec["color_fn"](f) if spec.get("color_fn") else None

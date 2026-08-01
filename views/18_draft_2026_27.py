@@ -25,6 +25,8 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 
+logger = logging.getLogger(__name__)
+
 from components import ff_table as T
 from components.animations import inject_global_animations
 from components.pitch_view import render_squad_pitch
@@ -393,6 +395,12 @@ HAS_CONSENSUS = "consensus_points" in board.columns
 PTS_COL = "consensus_points" if HAS_CONSENSUS else "projected_points"
 NAMES = sorted(board["web_name"].tolist())
 
+# A model input that fails to load used to die in a log line. The Scout backfill
+# is the one that matters: without it every Coventry, Hull and Ipswich player
+# leaves the pool, and a squad built from what remains looks perfectly normal.
+for _w in (price_bt or {}).get("load_warnings", []):
+    st.warning(_w, icon=":material/warning:")
+
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
 def _club_fixtures() -> Dict:
@@ -433,12 +441,19 @@ _PROJ_VERSION = 2
 
 
 @st.cache_resource(show_spinner=False)
-def _projector(_board: pd.DataFrame, _fix: Dict, _stamp: int, _version: int):
+def _projector(_board: pd.DataFrame, _fix: Dict, _stamp: str, _version: int):
     from analytics import gw_projection
     return gw_projection.build(_board, _fix)
 
 
-PROJ = _projector(board, _FIX, len(board), _PROJ_VERSION)
+# Content stamp, not len(board). Refreshing a snapshot or editing an override
+# almost never changes the row COUNT, so keying on length served the stale
+# projection for the whole TTL after the exact edit meant to change it.
+from analytics import freshness as _freshness
+
+BOARD_STAMP = _freshness.board_stamp(board, PTS_COL)
+
+PROJ = _projector(board, _FIX, BOARD_STAMP, _PROJ_VERSION)
 MATCH_WINDOW = PROJ.window
 
 
@@ -491,6 +506,17 @@ def _last_season_stats() -> pd.DataFrame:
 DEFCON = _defcon_per90()
 
 
+# ── Snapshot freshness ────────────────────────────────────────────────────────
+# Scout and Hub are hand-refreshed one-shot files. A six-week-old Hub export
+# drives the whole per-gameweek view, and until now nothing on screen said so.
+_FRESH = _freshness.sources()
+_FRESH_STATE = _freshness.worst_state(_FRESH)
+_FRESH_TOKEN = {"fresh": "mint", "ageing": "gold",
+                "stale": "orange", "missing": "red"}[_FRESH_STATE]
+_FRESH_TITLE = " · ".join(
+    "%s %s" % (r["name"], _freshness.age_label(r["days"])) for r in _FRESH)
+
+
 # ── Hero ──────────────────────────────────────────────────────────────────────
 # A single compact line rather than a 40px hero. The sidebar already says which
 # page this is, and every pixel above the pitch is a pixel the pitch does not get.
@@ -499,6 +525,11 @@ _HERO = _one_line(f"""
      flex-wrap:wrap;padding:0 0 6px;font-family:'Inter',sans-serif;">
   <div class="ff-display ff-hero-title" style="font-size:24px;font-weight:900;
        color:{V('text')};">{NEXT_SEASON} Draft</div>
+  <span title="{_FRESH_TITLE}" style="background:{V('chip-bg')};
+    border:1px solid {V(_FRESH_TOKEN)};color:{V(_FRESH_TOKEN)};font-size:9.5px;
+    font-weight:800;letter-spacing:0.12em;padding:3px 9px;border-radius:20px;
+    text-transform:uppercase;">Data {_freshness.age_label(
+        max((r['days'] for r in _FRESH if r['days'] is not None), default=None))}</span>
   <span style="background:{V('chip-bg')};border:1px solid {V('mint')};
     color:{V('mint')};font-size:9.5px;font-weight:800;letter-spacing:0.12em;
     padding:3px 9px;border-radius:20px;text-transform:uppercase;">
@@ -1035,7 +1066,7 @@ def _grade_rank(pct: float) -> str:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _position_ranks(_stamp: int) -> Dict:
+def _position_ranks(_stamp: str) -> Dict:
     """Per-position ordered lists for points, points per £m and points per 90.
 
     Restricted to players the models actually rate, so a rank means "of the
@@ -1073,7 +1104,7 @@ def _rank_of(value: float, sorted_vals: List[float]) -> Tuple[int, int, float]:
 def _graded_tiles(code: int, row: pd.Series, p: Dict) -> List:
     """The five headline numbers, each graded and each carrying its rank."""
     pos = str(row.get("position", ""))
-    ranks = _position_ranks(len(board)).get(pos, {})
+    ranks = _position_ranks(BOARD_STAMP).get(pos, {})
     gw = int(st.session_state.get(_sk("draft_gw"), 1))
 
     def rank_tile(icon, label, value, key, fmt="%.0f"):
@@ -1385,7 +1416,10 @@ def _pool_cols(gw: int, with_delta: bool = False) -> List[Dict]:
     cols += [
         T.col_run("run", f"GW{gw}-{gw + 2}"),
         T.col_num("gw_pts", f"GW{gw}", fmt="%.1f"),
-        T.col_num("mins", "Mins", fmt="%.0f",
+        # The match model has no row for 148 players. A bare dot there reads as
+        # a rendering bug rather than the real answer, which is that nobody has
+        # forecast his minutes.
+        T.col_num("mins", "Mins", fmt="%.0f", empty="no forecast",
                   color_fn=lambda v: theme.fill("red") if v < 45 else None),
         T.col_bar("season", "Season", max_value=190),
         T.col_num("per_m", "Per £m", fmt="%.1f"),
@@ -2037,7 +2071,7 @@ with tab_ab:
         # re-solving nine MILPs plus 1500 simulations for a fixture change nobody
         # asked to recompute would make the stepper unusable. Cache the run
         # against what it actually depends on.
-        _ab_key = (tuple(picks), window, int(n_sims), len(board))
+        _ab_key = (tuple(picks), window, int(n_sims), BOARD_STAMP)
         _cached = st.session_state.get("_ab_cache")
         _reuse = bool(_cached and _cached.get("key") == _ab_key and not run_ab)
         entries = _cached["entries"] if _reuse else []
@@ -2768,17 +2802,27 @@ with tab_route:
                     f'<span style="color:{V("mint")};">{", ".join(_i) or "nobody"}</span>. '
                     f'It is rebuilt on the fixtures that FOLLOW it, which is the only '
                     f'thing a Wildcard is for.</div></div>'), unsafe_allow_html=True)
-        except Exception as _exc:
-            st.caption(f"Route walkthrough unavailable ({_exc}).")
+        except Exception:
+            # A Python repr in the middle of the page tells the reader nothing
+            # they can act on. The detail belongs in the log.
+            logger.exception("route walkthrough failed")
+            st.markdown(_one_line(
+                f'<div style="{CARD}margin-top:10px;padding:12px 14px;">'
+                f'<div style="font-size:13px;color:{V("text")};">'
+                f'The week-by-week walkthrough could not be built for this route. '
+                f'The route comparison below is unaffected.</div></div>'),
+                unsafe_allow_html=True)
 
     _sec("The routes, priced against each other", icon="alt_route")
     st.caption("A Bench Boost needs 15 playing assets, which costs XI strength every "
                "week you carry it. The Wildcard is what repairs that.")
     try:
         routes_df, dil = _routes(SOLVE_BOARD, budget, risk, tuple(excluded))
-    except Exception as exc:
+    except Exception:
         routes_df, dil = pd.DataFrame(), None
-        st.caption(f"Route comparison unavailable ({exc}).")
+        logger.exception("route comparison failed")
+        st.caption("The route comparison could not be built. Try a different "
+                   "budget or clear a veto.")
 
     if dil and dil.get("break_even_lo") is not None:
         st.markdown(_one_line(f"""
