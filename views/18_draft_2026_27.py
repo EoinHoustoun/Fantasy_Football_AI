@@ -394,10 +394,10 @@ CONVICTION_FREE = float(DRAFT_UI["conviction_free"])
 CONVICTION_REAL = float(DRAFT_UI["conviction_real"])
 SEASON_MINUTES = float(DRAFT_UI["season_minutes"])
 
-from ui.value_board import (DRAFT_STRATEGIES, SPRINT_STRATEGY, SPRINT_WINDOW,
-                            build_board, solve_draft)
+from ui.value_board import (SPRINT_STRATEGY, SPRINT_WINDOW, build_board,
+                            solve_draft)
 
-board, scout, price_bt, validation = build_board()
+board, scout, price_bt, _validation = build_board()
 if board is None:
     st.error("Archive not built · run `python scripts/build_archive.py` first.")
     st.stop()
@@ -515,6 +515,24 @@ def _last_season_stats() -> pd.DataFrame:
 
 
 DEFCON = _defcon_per90()
+
+
+def _miss_early_codes() -> set:
+    """Players a human has said will miss part of the opening window.
+
+    The overrides file already knows this · surfacing it stops a deliberate
+    zero looking like a data gap.
+    """
+    try:
+        from analytics.projection_overrides import load_overrides
+        return {int(c) for c, adj in load_overrides().items()
+                if adj.get("miss_gws")}
+    except Exception:
+        logger.warning("could not read miss_gws overrides", exc_info=True)
+        return set()
+
+
+MISS_EARLY = _miss_early_codes()
 
 
 # ── Snapshot freshness ────────────────────────────────────────────────────────
@@ -1346,7 +1364,17 @@ def _player_dialog(code: int) -> None:
             f'color:{V("text")};">{r["web_name"]}</div>'
             f'<div style="font-size:13px;color:{V("muted")};margin-top:2px;">'
             f'{r.get("team_name", "")} · {pos} · £{float(r.get("actual_price") or 0):.1f}m '
-            f'· {float(r.get("ownership") or 0):.1f}% owned</div>'),
+            f'· {float(r.get("ownership") or 0):.1f}% owned</div>'
+            + (f'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">'
+               + (f'<span style="background:{V("chip-bg")};color:{V("cyan")};'
+                  f'border-radius:4px;padding:2px 7px;font-size:9.5px;'
+                  f'font-weight:900;">NEW CLUB</span>'
+                  if bool(r.get("changed_club")) else "")
+               + (f'<span style="background:{V("chip-bg")};color:{V("orange")};'
+                  f'border-radius:4px;padding:2px 7px;font-size:9.5px;'
+                  f'font-weight:900;">LATE START</span>'
+                  if int(r.get("code", 0) or 0) in MISS_EARLY else "")
+               + '</div>')),
             unsafe_allow_html=True)
         st.markdown(_set_piece_line(r), unsafe_allow_html=True)
 
@@ -2562,11 +2590,22 @@ def _scout_questions(row: pd.Series) -> list:
                   f"{int(row.get('games_played') or 0)} in 25/26 · nailed now, or rotated?")
     if surp <= -1.0:
         qs.append(f"FPL priced £{-surp:.1f}m over the model · reputation tax, or a bigger role?")
-    if price >= 9.0:
-        qs.append("Premium anchor · does he own the pens or set pieces to justify it?")
+    # Only ask about set pieces where the answer is not already on the card.
+    if price >= 9.0 and not any(_num_safe(row.get(k)) == 1
+                                for k in ("pens_order", "fk_order", "corners_order")):
+        qs.append("Premium anchor with no set-piece duty · what justifies the price?")
     elif price <= 4.5:
         qs.append("Cheap starter? Confirm he starts GW1 before locking him in.")
-    qs.append("Any new signing or backup who could eat his minutes?")
+
+    # The minutes question was printed on every card, which trained the eye to
+    # skip the whole block. Ask it only where it is live.
+    if bool(row.get("changed_club")):
+        qs.append("New club · is he first choice in this system, or a squad signing?")
+    elif str(row.get("position", "")) == "DEF" and pd.notna(row.get("role")) \
+            and str(row.get("role")) == "FB":
+        qs.append("Full-back · attacking returns or a clean-sheet floor?")
+    elif not qs:
+        qs.append("Any new signing or backup who could eat his minutes?")
     return qs[:2]
 
 
@@ -2593,6 +2632,20 @@ def _verdict_card(row: pd.Series) -> str:
                  f'border-radius:4px;padding:1px 6px;font-size:9px;font-weight:900;'
                  f'flex-shrink:0;">{float(nail) * 90:.0f}\'</span>'
                  if pd.notna(nail) and float(nail) < 0.6 else "")
+    # A player showing a club he did not play for last season is correct data
+    # that looks exactly like a bug. Naming it turns a trust-breaker into a
+    # signal, and the same is true of a hand-entered late start.
+    club_html = (f'<span title="Moved club since last season · unproven in this '
+                 f'system" style="background:{V("chip-bg")};color:{V("cyan")};'
+                 f'border-radius:4px;padding:1px 6px;font-size:9px;font-weight:900;'
+                 f'flex-shrink:0;">NEW CLUB</span>'
+                 if bool(row.get("changed_club")) else "")
+    late_html = (f'<span title="Not expected to play the opening gameweeks" '
+                 f'style="background:{V("chip-bg")};color:{V("orange")};'
+                 f'border-radius:4px;padding:1px 6px;font-size:9px;font-weight:900;'
+                 f'flex-shrink:0;">LATE START</span>'
+                 if int(row.get("code", 0) or 0) in MISS_EARLY else "")
+
     ctok = CONF_TOKEN.get(conf, "muted2")
     conf_html = (f'<span style="display:inline-flex;align-items:center;gap:4px;">'
                  f'<span style="width:7px;height:7px;border-radius:50%;'
@@ -2657,7 +2710,7 @@ def _verdict_card(row: pd.Series) -> str:
     {flag_html}
     <span style="background:{theme.pos_color(pos)};color:#000;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:900;flex-shrink:0;">{pos}</span>
   </div>
-  <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-bottom:6px;">{mins_html}{sp}{conf_html}</div>
+  <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">{club_html}{late_html}{mins_html}{sp}{conf_html}</div>
   <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:8px;">{mid}</div>
   {range_html}
   {bar}

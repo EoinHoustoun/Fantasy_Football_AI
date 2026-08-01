@@ -296,20 +296,12 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
         m = board[board["web_name"] == name]
         return int(m.iloc[0]["code"]) if not m.empty else None
 
-    haaland, fernandes = _code("Haaland"), _code("B.Fernandes")
-    is_safe = "Haaland + Fernandes" in strategy
+    # A premium call is a LOCK, not a strategy · the old branches that matched
+    # "Haaland + Fernandes" and "no Haaland" out of the strategy string became
+    # unreachable when those strategies were removed, and hardcoding two player
+    # names into the solver was never going to survive a transfer window.
     force, exclude = (), tuple(c for c in (_code(n) for n in exclude_names) if c)
-    if is_safe:
-        force = tuple(c for c in (haaland, fernandes) if c)
-        bench = 0.2                      # a bench that actually plays
-    elif "no Haaland" in strategy:
-        force = tuple(c for c in (fernandes,) if c)
-        exclude = exclude + tuple(c for c in (haaland,) if c)
-        bench = 0.1
-    elif "Bench Boost" in strategy:
-        bench = 1.0          # covers both BB GW1 and the GW2 sprint route
-    else:
-        bench = 0.1
+    bench = 1.0 if "Bench Boost" in strategy else 0.1
 
     # Explicit locks are added on top of whatever the strategy already forces, and
     # they beat a veto · picking a player and vetoing him is a mistake, not a rule.

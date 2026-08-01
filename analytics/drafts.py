@@ -157,9 +157,6 @@ def load_drafts(seed_presets: bool = True) -> List[Dict[str, Any]]:
     return [v for k, v in raw.items() if k != "_seeded" and isinstance(v, dict)]
 
 
-def get_draft(draft_id: str) -> Optional[Dict[str, Any]]:
-    return _read().get(draft_id)
-
 
 def save_draft(name: str, spec: Dict[str, Any],
                draft_id: Optional[str] = None) -> str:

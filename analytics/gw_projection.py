@@ -187,25 +187,3 @@ def best_xi(squad: pd.DataFrame, proj: GwProjection, gw: int) -> set:
     return xi
 
 
-def bench_boost_value(squad: pd.DataFrame, proj: GwProjection, gw: int) -> Dict:
-    """What a Bench Boost is actually worth in a given gameweek.
-
-    The chip pays the four benched players, so its value is their combined
-    projection · not the squad total, and not an average. Also reports the
-    weakest link, because one non-playing bench slot is what wastes the chip.
-    """
-    xi = best_xi(squad, proj, gw)
-    bench = [int(r["code"]) for _, r in squad.iterrows() if int(r["code"]) not in xi]
-    names = {int(r["code"]): str(r["web_name"]) for _, r in squad.iterrows()}
-    rows = sorted(((c, proj.points(c, gw)) for c in bench), key=lambda t: -t[1])
-    total = float(sum(p for _, p in rows))
-    zero = [names.get(c, "?") for c, p in rows if p < 1.0]
-    return {
-        "gw": gw,
-        "bench_points": round(total, 1),
-        "bench": [{"code": c, "name": names.get(c, "?"), "points": round(p, 1),
-                   "exp_mins": proj.expected_minutes(c, gw)} for c, p in rows],
-        "weakest": rows[-1][0] if rows else None,
-        "dead_slots": zero,
-        "xi_codes": xi,
-    }
