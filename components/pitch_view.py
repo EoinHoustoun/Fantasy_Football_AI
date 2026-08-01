@@ -483,18 +483,27 @@ def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
                 "top:4px;right:4px")
 
     # Swap state, in priority order: the player being subbed, then anyone who
-    # can legally come on for him.
+    # can legally come on for him, then the resting state.
+    #
+    # Every card carries the mint edge · it is what makes the pitch read as a
+    # set of objects rather than shirts floating on grass. The states above it
+    # stay distinguishable by INTENSITY rather than hue: swap-ready gets a
+    # second ring and a pulse, so "you can click me" is still unmistakable next
+    # to fourteen resting cards of the same colour.
     if row.get("is_sub_source"):
         edge = ("border-color:#04F5FF;box-shadow:0 0 0 2px rgba(4,245,255,0.45),"
                 "0 6px 16px rgba(0,0,0,0.4);")
     elif row.get("swap_ok"):
-        edge = ("border-color:#00FF87;box-shadow:0 0 0 2px rgba(0,255,135,0.4),"
-                "0 6px 16px rgba(0,0,0,0.4);"
+        edge = ("border-color:#00FF87;box-shadow:0 0 0 3px rgba(0,255,135,0.45),"
+                "0 0 18px rgba(0,255,135,0.35),0 6px 16px rgba(0,0,0,0.4);"
                 "animation:fplh-swap-ready 1.1s ease-in-out infinite;")
     elif is_axed:
         edge = "border-color:#FF4B4B;border-style:dashed;"
     else:
-        edge = ""
+        edge = ("border-color:rgba(0,255,135,0.55);"
+                "box-shadow:0 0 0 1px rgba(0,255,135,0.14),"
+                "0 0 12px rgba(0,255,135,0.10),0 6px 18px rgba(0,0,0,0.42),"
+                "inset 0 1px 0 rgba(255,255,255,0.16);")
 
     price = _num(row.get("price"))
     stat = _num(row.get("stat"))
