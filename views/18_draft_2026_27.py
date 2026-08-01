@@ -822,12 +822,41 @@ if locked and res is not None:
            if cost is not None else "")
         + '</div>'), unsafe_allow_html=True)
 
-st.session_state.setdefault("draft_swaps", {})
-st.session_state.setdefault("draft_axe", None)
-st.session_state.setdefault("draft_bench", set())
-st.session_state.setdefault("sub_from", None)     # player tapped to be subbed
-st.session_state.setdefault("xi_override", {})    # {gw: set(codes)} manual XI
-st.session_state.setdefault("draft_gw", 1)
+# ── Working state, scoped to the selected draft ───────────────────────────────
+# Transfers, the axed player, manual XI picks and the viewed gameweek all belong
+# to ONE draft. Held under bare keys they leaked across drafts: switching preset
+# carried the previous draft's transfers onto the new fifteen, so the pitch
+# showed a squad that no draft had ever specified. Scoped by draft id the same
+# way the dials are, which also means flipping back to a draft finds your work
+# where you left it.
+_DRAFT_ID = str(_spec["id"])
+
+_DRAFT_STATE_DEFAULTS = {
+    "draft_swaps": dict,      # {gw: {out_code: in_code}}
+    "draft_axe": lambda: None,
+    "draft_bench": set,
+    "sub_from": lambda: None,  # player tapped to be subbed
+    "xi_override": dict,      # {gw: set(codes)} manual XI
+    "draft_gw": lambda: 1,
+}
+
+
+def _sk(name: str) -> str:
+    """Session-state key for `name` under the ACTIVE draft."""
+    return f"{name}::{_DRAFT_ID}"
+
+
+for _n, _factory in _DRAFT_STATE_DEFAULTS.items():
+    st.session_state.setdefault(_sk(_n), _factory())
+
+
+def _reset_draft_state(**overrides) -> None:
+    """Clear this draft's working state. Other drafts keep theirs."""
+    for _name, _make in _DRAFT_STATE_DEFAULTS.items():
+        if _name in overrides:
+            st.session_state[_sk(_name)] = overrides[_name]
+        elif _name != "draft_gw":       # the viewed week survives a squad reset
+            st.session_state[_sk(_name)] = _make()
 
 
 def _squad_from_codes(codes: List[int]) -> pd.DataFrame:
@@ -845,12 +874,12 @@ def _current_squad(gw: Optional[int] = None) -> pd.DataFrame:
     the weeks shows the squad as it was, not as it ends up.
     """
     if gw is None:
-        gw = int(st.session_state.get("draft_gw", 1))
+        gw = int(st.session_state.get(_sk("draft_gw"), 1))
     codes = [int(c) for c in SOLVED["code"]]
-    for g in sorted(int(k) for k in st.session_state["draft_swaps"]):
+    for g in sorted(int(k) for k in st.session_state[_sk("draft_swaps")]):
         if g > int(gw):
             break
-        for out, inn in st.session_state["draft_swaps"][g].items():
+        for out, inn in st.session_state[_sk("draft_swaps")][g].items():
             if int(out) in codes:
                 codes[codes.index(int(out))] = int(inn)
     return _squad_from_codes(codes)
@@ -868,7 +897,7 @@ def _transfer_ledger(upto_gw: int) -> Dict:
     part of why an early Bench Boost and Wildcard are attractive.
     """
     from analytics.squad_planner import FT_CAP
-    swaps = st.session_state["draft_swaps"]
+    swaps = st.session_state[_sk("draft_swaps")]
     weeks, avail, total_hits = [], 0, 0
     for g in range(2, int(upto_gw) + 1):
         avail = min(FT_CAP, avail + 1)
@@ -1045,7 +1074,7 @@ def _graded_tiles(code: int, row: pd.Series, p: Dict) -> List:
     """The five headline numbers, each graded and each carrying its rank."""
     pos = str(row.get("position", ""))
     ranks = _position_ranks(len(board)).get(pos, {})
-    gw = int(st.session_state.get("draft_gw", 1))
+    gw = int(st.session_state.get(_sk("draft_gw"), 1))
 
     def rank_tile(icon, label, value, key, fmt="%.0f"):
         r, n, pct = _rank_of(value, ranks.get(key, []))
@@ -1324,7 +1353,7 @@ def _player_dialog(code: int) -> None:
         if st.button(":material/swap_horiz: Replace him", key=f"dlg_axe_{code}",
                      use_container_width=True, disabled=not in_squad,
                      type="primary" if in_squad else "secondary"):
-            st.session_state["draft_axe"] = int(code)
+            st.session_state[_sk("draft_axe")] = int(code)
             st.rerun()
     with b2:
         if st.button(":material/balance: Compare him", key=f"dlg_cmp_{code}",
@@ -1398,12 +1427,12 @@ def _xi_for(sq: pd.DataFrame, gw: int) -> set:
     """
     from analytics.gw_projection import best_xi
     pos_by = {int(r["code"]): str(r["position"]) for _, r in sq.iterrows()}
-    manual = st.session_state["xi_override"].get(int(gw))
+    manual = st.session_state[_sk("xi_override")].get(int(gw))
     if manual:
         manual = {int(c) for c in manual if int(c) in pos_by}
         if _is_legal_xi(manual, pos_by):
             return manual
-    forced = set(st.session_state["draft_bench"])
+    forced = set(st.session_state[_sk("draft_bench")])
     pool = sq[~sq["code"].astype(int).isin(forced)]
     counts = pool["position"].value_counts().to_dict()
     if forced and len(pool) >= 11 and all(counts.get(p, 0) >= n
@@ -1431,9 +1460,9 @@ def _candidates(sq: pd.DataFrame, out_code: int, bank: float) -> pd.DataFrame:
 
 @st.fragment
 def planner() -> None:
-    gw = int(st.session_state["draft_gw"])
+    gw = int(st.session_state[_sk("draft_gw")])
     sq = _current_squad(gw)
-    axed = st.session_state["draft_axe"]
+    axed = st.session_state[_sk("draft_axe")]
     ledger = _transfer_ledger(gw)
 
     # ── Gameweek stepper ─────────────────────────────────────────────────────
@@ -1441,12 +1470,12 @@ def planner() -> None:
     with nav[0]:
         if st.button("◀", use_container_width=True, disabled=gw <= 1,
                      help="Previous gameweek"):
-            st.session_state["draft_gw"] = max(1, gw - 1)
+            st.session_state[_sk("draft_gw")] = max(1, gw - 1)
             st.rerun(scope="fragment")
     with nav[1]:
         if st.button("▶", use_container_width=True, disabled=gw >= MAX_GW,
                      help="Next gameweek"):
-            st.session_state["draft_gw"] = min(MAX_GW, gw + 1)
+            st.session_state[_sk("draft_gw")] = min(MAX_GW, gw + 1)
             st.rerun(scope="fragment")
     with nav[2]:
         st.markdown(_one_line(
@@ -1459,11 +1488,9 @@ def planner() -> None:
                             help="Shrinks the shirts so the fifteen and the bench "
                                  "fit a laptop screen without scrolling.")
     with nav[4]:
-        if st.session_state["draft_swaps"] or st.session_state["draft_bench"]:
+        if st.session_state[_sk("draft_swaps")] or st.session_state[_sk("draft_bench")]:
             if st.button("↺ Reset squad", use_container_width=True):
-                st.session_state.update(draft_swaps={}, draft_bench=set(),
-                                        draft_axe=None, xi_override={},
-                                        sub_from=None)
+                _reset_draft_state()
                 st.rerun(scope="fragment")
 
     xi = _xi_for(sq, gw)
@@ -1510,7 +1537,7 @@ def planner() -> None:
     # Which bench players could legally come on for the armed player. Only these
     # get lit on the pitch, so the formation rule is visible rather than enforced
     # after the fact.
-    sub_from = st.session_state["sub_from"]
+    sub_from = st.session_state[_sk("sub_from")]
     pos_by = {int(r["code"]): str(r["position"]) for _, r in sq.iterrows()}
     all_codes = [int(c) for c in sq["code"]]
     swap_targets = set()
@@ -1549,23 +1576,23 @@ def planner() -> None:
         if action == "detail":
             _player_dialog(cid)
         elif action in ("axe", "unaxe"):
-            st.session_state["draft_axe"] = cid if action == "axe" else None
+            st.session_state[_sk("draft_axe")] = cid if action == "axe" else None
             st.rerun(scope="fragment")
         elif action == "bench":
             # First tap arms the swap, second tap completes it. Tapping the armed
             # player again cancels, which is the only way out that does not need
             # a separate control.
             if sub_from == cid:
-                st.session_state["sub_from"] = None
+                st.session_state[_sk("sub_from")] = None
             elif sub_from is not None and cid in swap_targets:
                 new_xi = (set(xi) - {sub_from}) | {cid} if sub_from in xi \
                     else (set(xi) - {cid}) | {sub_from}
                 pos_by = {int(r["code"]): str(r["position"]) for _, r in sq.iterrows()}
                 if _is_legal_xi(new_xi, pos_by):
-                    st.session_state["xi_override"][int(gw)] = new_xi
-                st.session_state["sub_from"] = None
+                    st.session_state[_sk("xi_override")][int(gw)] = new_xi
+                st.session_state[_sk("sub_from")] = None
             else:
-                st.session_state["sub_from"] = cid
+                st.session_state[_sk("sub_from")] = cid
             st.rerun(scope="fragment")
 
     if sub_from is not None:
@@ -1601,7 +1628,9 @@ def planner() -> None:
                 "squad": [int(c) for c in sq["code"]],
             })
             st.session_state["planner_draft"] = _save_as.strip()
-            st.session_state.update(draft_swaps={}, draft_axe=None, sub_from=None)
+            # The transfers are now baked into the saved fifteen, so replaying
+            # them on top would apply every move twice.
+            _reset_draft_state()
             st.toast(f"Saved {_save_as.strip()}", icon="✅")
             st.rerun()
     with _s3:
@@ -1686,9 +1715,9 @@ def planner() -> None:
                 with _col:
                     if st.button(f"Bring in {_c['web_name']}", use_container_width=True,
                                  key=f"top3_{int(_c['code'])}"):
-                        st.session_state["draft_swaps"].setdefault(int(gw), {})[
+                        st.session_state[_sk("draft_swaps")].setdefault(int(gw), {})[
                             int(axed)] = int(_c["code"])
-                        st.session_state["draft_axe"] = None
+                        st.session_state[_sk("draft_axe")] = None
                         st.rerun(scope="fragment")
 
             s1, s2 = st.columns([3, 1])
@@ -1698,7 +1727,7 @@ def planner() -> None:
                                    label_visibility="collapsed")
             with s2:
                 if st.button("Cancel", key="cand_cancel", use_container_width=True):
-                    st.session_state["draft_axe"] = None
+                    st.session_state[_sk("draft_axe")] = None
                     st.rerun(scope="fragment")
             if rank_by.startswith("GW"):
                 alt = alt.assign(_k=[PROJ.points(int(c), gw) for c in alt["code"]])
@@ -1712,9 +1741,9 @@ def planner() -> None:
                           "_cand_nonce")
             if pick:
                 if pick.get("action") == "swap":
-                    st.session_state["draft_swaps"].setdefault(int(gw), {})[
+                    st.session_state[_sk("draft_swaps")].setdefault(int(gw), {})[
                         int(axed)] = int(pick["id"])
-                    st.session_state["draft_axe"] = None
+                    st.session_state[_sk("draft_axe")] = None
                     st.rerun(scope="fragment")
     else:
         _sec("The pool", "Everyone you could pick, ranked for this gameweek. "
