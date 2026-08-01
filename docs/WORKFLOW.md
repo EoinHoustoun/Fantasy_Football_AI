@@ -980,3 +980,60 @@ a repeated identity letter is worse than none.
 
 Note the plan predates this session's caching work: P1-1 (cache the Monte Carlo)
 was already done via `_ab_cache`, and the gameweek stepper in P2-3 already exists.
+
+## 2026-08-01 (evening) · Draft-page hardening pass
+
+Worked the improvement plan end to end on branch `draft-page-hardening`.
+Tests went 75 → 184.
+
+**Two football findings that changed the model.**
+
+*DEFCON is a player property, not a manager system.* Tested Eoin's hypothesis
+that Iraola's move to Liverpool makes Van Dijk a DEFCON asset. Variance
+decomposition on 2025-26 defenders: only **16.4% between-club**, 83.6% within.
+Player rate persists year to year at r = 0.79-0.80, club rate at 0.55-0.56.
+Bournemouth's own defenders under one manager ran 11.50 (Senesi) to 5.15
+(Smith). The direct test he asked for cannot be run: the archive has **no
+CBIT data at all for 2019-20 to 2024-25**, because FPL's API only exposed
+defensive actions in the early era and again from 2025-26.
+
+*Promoted clubs DO lift their defenders.* +5.6% defensive actions pooled over
+the three seasons that carry action counts, and 8 of 9 promoted club-seasons
+finished above the league median (binomial p = 0.02). **Midfielders show
+nothing** (p = 0.96). Turning that into points needs the threshold: a
+multiplicative lift on an integer match count changes nothing, since 9 x 1.056
+is still under 10, so the lift goes on the underlying rate. Through a negative
+binomial fitted to the observed overdispersion it is worth about **+2.5 season
+points**, which COV/HUL/IPS defenders now receive. See `analytics/promoted.py`.
+
+**Bugs found and fixed.**
+
+- **Archive 2024-25 had `team_name = ""` on all 27,283 rows.**
+  `master_team_list.csv` stops at 2023-24 and the fallback was an empty map, so
+  the season was invisible to every club-level query. Per-season `teams.csv`
+  covers the gap with identical club naming.
+- **Cross-draft state bleed.** Transfers, axed player, manual XI and viewed
+  gameweek were global, so switching preset carried the previous draft's
+  transfers onto the new fifteen. Now scoped by draft id.
+- **Ties in the Monte Carlo.** Win probability used a strict `>`, but shared
+  draws mean identical squads produce identical totals, so each reported
+  "beats the other 0%" instead of a dead heat. Ties now count as half.
+- **Caches keyed on `len(board)`.** A snapshot refresh changes numbers, not row
+  count, so the stale projection survived the edit meant to change it. Now a
+  content stamp (`analytics/freshness.py`).
+- **Light mode**: the squad header hardcoded white and vanished on the white
+  page background.
+- **Two different "XI GW1" numbers** on one screen · the tile doubled the
+  captain, the pitch summed the cards.
+
+**Claims in the plan that did NOT survive checking.** `draft_bench` is not a
+dead session key (used twice). `solve_draft` and `_routes` were already
+`cache_data` and the planner was already a fragment, so a pool keystroke was
+never rebuilding the route MILPs.
+
+**Not done, deliberately.** FPL-5 price-rise timing and FPL-6 fixture-swing
+view; ENG-2 extracting `planner()` and `tab_ab` into `ui/draft/` (a ~1,200-line
+move that would freeze the layout while the design is still changing weekly);
+DS-4 the calibration harness, which needs real gameweeks to log against.
+Also still open: the light/dark choice resets on hard reload, and the tab
+scroll position resets on tab change.
