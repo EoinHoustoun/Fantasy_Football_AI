@@ -280,14 +280,42 @@ def _identity_row(names: List[str], ids: Dict) -> str:
                      'margin:2px 0 6px;">' + "".join(cards) + "</div>")
 
 
-def _range_bands(ranked: List[Dict], colour: Dict, window) -> str:
-    """Outcome ranges as HTML bands · overlap is the answer.
+def _band_tone(d: Dict, leader: Dict) -> str:
+    """green / amber / red, on the same rule the verdicts already use.
 
-    Drawn by hand rather than in ECharts: a floating bar (lo to hi with a tick at
-    the mean) is awkward to encode in a charting library and easy to get subtly
-    wrong, and here the whole point is that the reader can see at a glance
-    whether two ranges overlap. Absolute positioning makes that exact.
+    `p` is how often the LEADER finishes ahead of this draft, so:
+
+      under 0.65  · a coin flip with the leader · still in contention  · green
+      0.65-0.80   · the leader leans ahead                             · amber
+      0.80+       · the leader is clearly ahead                        · red
+
+    Those are the same cuts `significance()` uses to call a draft comparison,
+    so a band and a verdict can never disagree.
     """
+    if d["name"] == leader["name"]:
+        return "green"
+    p = leader.get("beats", {}).get(d["name"], 0.5)
+    if p >= 0.80:
+        return "red"
+    if p >= 0.65:
+        return "amber"
+    return "green"
+
+
+def _range_bands(ranked: List[Dict], colour: Dict, window,
+                 boost_by: Optional[Dict] = None) -> str:
+    """Outcome ranges as thin rules · overlap is the answer.
+
+    Drawn by hand rather than in ECharts: a floating bar (lo to hi with a tick
+    at the mean) is awkward to encode in a charting library and easy to get
+    subtly wrong, and here the whole point is that the reader can see at a
+    glance whether two ranges overlap. Absolute positioning makes that exact.
+
+    Thin rules rather than thick blocks so fourteen drafts fit on one screen,
+    and three colours rather than fourteen so the picture reads before the
+    labels do.
+    """
+    TONE = {"green": "mint", "amber": "gold", "red": "red"}
     lo_all = min(d["total_lo"] for d in ranked)
     hi_all = max(d["total_hi"] for d in ranked)
     span = (hi_all - lo_all) or 1.0
@@ -298,35 +326,50 @@ def _range_bands(ranked: List[Dict], colour: Dict, window) -> str:
     def pct(v):
         return (v - lo_all) / span * 100.0
 
-    best = ranked[0]["total_mean"]
+    leader = ranked[0]
+    best = leader["total_mean"]
     rows = []
     for d in ranked:
-        c = colour[d["name"]]
+        c = V(TONE[_band_tone(d, leader)])
         left, width = pct(d["total_lo"]), pct(d["total_hi"]) - pct(d["total_lo"])
+        bb = (boost_by or {}).get(d["name"])
+        bb_chip = (f'<span title="Bench Boost played in GW{bb}" '
+                   f'style="background:{V("cyan")};color:#04222B;border-radius:4px;'
+                   f'padding:0 4px;font-size:8.5px;font-weight:900;margin-left:5px;'
+                   f'letter-spacing:0.04em;">BB{bb}</span>' if bb else "")
         rows.append(
-            f'<div style="display:grid;grid-template-columns:190px 1fr 74px;'
-            f'align-items:center;gap:12px;margin-bottom:9px;">'
-            f'<div style="font-size:12px;font-weight:600;color:{V("text")};'
+            f'<div style="display:grid;grid-template-columns:170px 1fr 66px;'
+            f'align-items:center;gap:10px;margin-bottom:5px;">'
+            f'<div style="font-size:11.5px;font-weight:600;color:{V("text")};'
             f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" '
-            f'title="{d["name"]}">{d["name"]}</div>'
-            f'<div style="position:relative;height:22px;border-radius:6px;'
-            f'background:{V("chip-bg")};">'
-            f'<div style="position:absolute;top:0;bottom:0;left:{left:.2f}%;'
-            f'width:{width:.2f}%;background:{c};opacity:0.34;border-radius:6px;'
-            f'border:1px solid {c};"></div>'
-            f'<div style="position:absolute;top:-2px;bottom:-2px;'
-            f'left:{pct(d["total_mean"]):.2f}%;width:3px;background:{c};'
-            f'border-radius:2px;"></div></div>'
-            f'<div class="ff-display" style="font-size:15px;font-weight:800;'
-            f'color:{c};text-align:right;">{d["total_mean"]:.0f}'
-            f'<span style="font-size:10px;font-weight:600;color:{V("muted2")};'
-            f'display:block;">{d["total_mean"] - best:+.0f}</span></div></div>')
+            f'title="{d["name"]}">{d["ident"]["letter"]} {d["short"]}{bb_chip}</div>'
+            f'<div style="position:relative;height:12px;">'
+            f'<div style="position:absolute;top:5px;left:0;right:0;height:2px;'
+            f'background:{V("line")};"></div>'
+            f'<div style="position:absolute;top:5px;left:{left:.2f}%;'
+            f'width:{width:.2f}%;height:2px;background:{c};opacity:0.85;"></div>'
+            f'<div style="position:absolute;top:0;left:{left:.2f}%;width:1px;'
+            f'height:12px;background:{c};opacity:0.55;"></div>'
+            f'<div style="position:absolute;top:0;left:{pct(d["total_hi"]):.2f}%;'
+            f'width:1px;height:12px;background:{c};opacity:0.55;"></div>'
+            f'<div style="position:absolute;top:-1px;'
+            f'left:{pct(d["total_mean"]):.2f}%;width:3px;height:14px;'
+            f'background:{c};border-radius:2px;"></div></div>'
+            f'<div class="ff-display" style="font-size:13px;font-weight:800;'
+            f'color:{c};text-align:right;white-space:nowrap;">'
+            f'{d["total_mean"]:.0f}'
+            f'<span style="font-size:9.5px;font-weight:600;color:{V("muted2")};'
+            f'margin-left:4px;">{d["total_mean"] - best:+.0f}</span></div></div>')
     return _one_line(
-        f'<div style="{CARD}">' + "".join(rows)
+        f'<div style="{CARD}padding:14px 16px;">' + "".join(rows)
         + f'<div style="display:flex;justify-content:space-between;'
-        f'font-size:10px;color:{V("muted2")};margin-top:2px;">'
+        f'font-size:10px;color:{V("muted2")};margin-top:6px;'
+        f'padding-top:6px;border-top:1px solid {V("line")};">'
         f'<span>{lo_all:.0f}</span>'
-        f'<span>points, GW{window[0]} to GW{window[1]}</span>'
+        f'<span>points GW{window[0]}-{window[1]} · '
+        f'<span style="color:{V("mint")};">green in contention</span> · '
+        f'<span style="color:{V("gold")};">amber behind</span> · '
+        f'<span style="color:{V("red")};">red clearly behind</span></span>'
         f'<span>{hi_all:.0f}</span></div></div>')
 
 
@@ -1445,12 +1488,24 @@ def _band_chart(code: int, row: pd.Series, p: Dict, key: str) -> None:
         ("Fixtures", float(row.get("opening_factor") or 1.0) * 100, 100.0),
         ("Agreement", (1 - float(row.get("model_spread") or 0.3)) * 100, 75.0),
     ]
+    # A thin price band (Fernandes at £12.0m has very few peers within ±0.6m)
+    # makes the median NaN, and NaN is not valid JSON · it reached the browser
+    # as a parse error and killed the whole card. Coerce before the arithmetic,
+    # not after: max(x, nan) is already poisoned.
+    def _safe(v, default=0.0):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return default
+        return f if np.isfinite(f) else default
+
     inds, his, theirs = [], [], []
     for name, mine, med in axes:
-        top = max(mine, med) * 1.25 or 1.0
-        inds.append({"name": name, "max": round(top, 1)})
-        his.append(round(float(mine), 1))
-        theirs.append(round(float(med), 1))
+        mine, med = _safe(mine), _safe(med)
+        top = max(mine, med) * 1.25
+        inds.append({"name": name, "max": round(top, 1) if top > 0 else 1.0})
+        his.append(round(mine, 1))
+        theirs.append(round(med, 1))
     charts.render(charts.radar_compare_option(inds, [
         (f"Typical £{price:.1f}m {pos}", theirs, theme.fill("muted2"), 0.10),
         (str(row["web_name"]), his, theme.pos_color(pos), 0.26),
@@ -2633,7 +2688,11 @@ with tab_ab:
                  sub="The bar is the middle 80% of outcomes, the tick is the average. "
                  "Bars that overlap heavily are not meaningfully different, however "
                  "far apart their averages look.")
-            st.markdown(_range_bands(ranked, colour, window), unsafe_allow_html=True)
+            _boost_by = {e["name"]: e.get("bench_boost_gw") for e in entries
+                         if e.get("bench_boost_gw")
+                         and window[0] <= e["bench_boost_gw"] <= window[1]}
+            st.markdown(_range_bands(ranked, colour, window, _boost_by),
+                        unsafe_allow_html=True)
 
             # ── Ranked table ─────────────────────────────────────────────────────
             rows = []
@@ -2869,6 +2928,39 @@ with tab_ab:
                                     T.col_bar("season", "Season",
                                               max_value=_bar_max(_rows, "season", "season")),
                                 ], key=f"ab_side_{_nm}", max_height=430)
+
+                # ── The same two, week by week ───────────────────────────
+                # Two squads listed side by side tell you WHO differs. These
+                # tell you WHEN, which is the part that decides a chip.
+                _two = [d for d in ranked if d["name"] in set(_pair)]
+                if len(_two) == 2:
+                    _sec("Where the gap actually opens", icon="insights",
+                         sub="Weekly points, then the running gap. A line that "
+                             "climbs in one place and flattens elsewhere is a "
+                             "fixture swing, not a better squad.")
+                    _w1, _w2 = st.columns(2)
+                    with _w1:
+                        charts.render(charts.multi_line_option(
+                            [(f'{d["ident"]["letter"]} · {d["short"]}',
+                              [(g, v) for g, v in zip(sim["gws"], d["weekly_mean"])],
+                              colour[d["name"]]) for d in _two],
+                            x_name="Gameweek", y_name="Points that week"),
+                            height="290px", key="ab_pair_weekly")
+                    with _w2:
+                        _ha, _hb = _two
+                        _gap = [(g, round(x - y, 1)) for g, x, y
+                                in zip(sim["gws"], _ha["cum_mean"], _hb["cum_mean"])]
+                        charts.render(charts.multi_line_option(
+                            [(f'{_ha["ident"]["letter"]} minus '
+                              f'{_hb["ident"]["letter"]}', _gap,
+                              theme.fill("mint" if _gap[-1][1] >= 0 else "red"))],
+                            x_name="Gameweek", y_name="Running gap"),
+                            height="290px", key="ab_pair_gap")
+                    st.caption(
+                        f"Above zero means **{_ha['short']}** is ahead. "
+                        f"It ends {abs(_gap[-1][1]):.0f} point"
+                        f"{'' if abs(_gap[-1][1]) == 1 else 's'} "
+                        f"{'ahead' if _gap[-1][1] >= 0 else 'behind'}.")
     else:
         st.caption("Press **Run comparison** to solve each squad and simulate the window.")
 

@@ -10,6 +10,7 @@ Python 3.8: typing.List/Dict/Optional only.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from ui.theme import COLORS
@@ -709,6 +710,30 @@ def _retheme(node: Any) -> Any:
     return node
 
 
+def _json_safe(o):
+    """Replace NaN and infinity with None, recursively.
+
+    `json.dumps` writes bare NaN, which is not valid JSON, and the browser dies
+    on the whole option with "Unexpected token 'N'" · taking the entire card
+    with it. One NaN from an empty median is enough. ECharts treats null as a
+    gap, which is the honest rendering of a missing value anyway.
+    """
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    # numpy scalars arrive here from pandas and are not caught by isinstance
+    if hasattr(o, "item") and not isinstance(o, (str, bytes)):
+        try:
+            v = o.item()
+            return _json_safe(v) if isinstance(v, float) else v
+        except (ValueError, AttributeError):
+            return o
+    return o
+
+
 def render(option: Dict[str, Any], height: str = "260px",
            key: Optional[str] = None) -> None:
     """Render an ECharts option with the app theme. `key` must be unique per chart."""
@@ -719,4 +744,4 @@ def render(option: Dict[str, Any], height: str = "260px",
         # The key has to change with the palette or Streamlit reuses the mounted
         # chart and the old colours stay on screen.
         key = (key + "_lt") if key else None
-    st_echarts(options=option, height=height, key=key)
+    st_echarts(options=_json_safe(option), height=height, key=key)
