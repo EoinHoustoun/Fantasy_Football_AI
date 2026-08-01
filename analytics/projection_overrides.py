@@ -51,8 +51,8 @@ def apply_overrides(uni: pd.DataFrame, season: str = NEXT_SEASON) -> pd.DataFram
     uni = uni.copy()
     if "override_note" not in uni.columns:
         uni["override_note"] = ""
-    if "minutes_overridden" not in uni.columns:
-        uni["minutes_overridden"] = False
+    if "early_nailedness" not in uni.columns:
+        uni["early_nailedness"] = float("nan")
     if not ov:
         return uni
 
@@ -89,12 +89,17 @@ def apply_overrides(uni: pd.DataFrame, season: str = NEXT_SEASON) -> pd.DataFram
             share = round(min(max(new_min / _FULL_SEASON_MIN, 0.0), 1.0), 2)
             uni.at[i, "mins_share"] = share
             uni.at[i, "starts_ratio"] = share   # assert nailed-ness from the call
-            # A hand-entered minutes call has to beat the match model's own
-            # nailedness downstream, the same way `miss_gws` beats a match
-            # forecast. Without this the minutes gate read the Hub first and
-            # Foden was scored on 32 minutes a game despite an explicit 2400.
-            if "minutes_overridden" in uni.columns:
-                uni.at[i, "minutes_overridden"] = True
+        # `early_nailedness` is a SEPARATE call from season minutes, and the two
+        # genuinely differ for the most interesting players. Mosquera starts
+        # while Saliba is injured and loses the place when he returns: nailed in
+        # the opening window, rotation risk over a season. A season-minutes
+        # override cannot say that, and using one to gate EARLY minutes marks
+        # him down in exactly the weeks he is certain to play.
+        #
+        # So: `minutes` drives the season projection, `early_nailedness` drives
+        # the opening-window gate, and only the latter outranks the match model.
+        if "early_nailedness" in adj and "early_nailedness" in uni.columns:
+            uni.at[i, "early_nailedness"] = float(adj["early_nailedness"])
 
         # `points` sets the season projection outright · the bluntest override,
         # for when you simply know better than every model on the board.

@@ -1,14 +1,14 @@
 {
-  "_readme": "Manual 2026/27 projection overrides · the things a last-season model cannot know: fitness, new role, regression, and who is unavailable for specific gameweeks. Keyed by FPL player code. `minutes` = expected 26/27 minutes (points are recomputed from the per-90 rate); `pts_mult` = a regression haircut on projected points; `benched`/`nailed` = shortcuts (config.PROJECTION_OVERRIDE minutes); `miss_gws` = a list of gameweeks the player is not expected to feature in, applied per gameweek rather than to the season total. `note` shows on the board. Edit freely · the Value Board reloads this file.",
+  "_readme": "Manual 2026/27 projection overrides \u00b7 the things a last-season model cannot know: fitness, new role, regression, and who is unavailable for specific gameweeks. Keyed by FPL player code. `minutes` = expected 26/27 minutes (points are recomputed from the per-90 rate); `pts_mult` = a regression haircut on projected points; `benched`/`nailed` = shortcuts (config.PROJECTION_OVERRIDE minutes); `miss_gws` = a list of gameweeks the player is not expected to feature in, applied per gameweek rather than to the season total. `note` shows on the board. Edit freely \u00b7 the Value Board reloads this file.",
   "219168": {
     "name": "Isak",
     "minutes": 2600,
-    "note": "Fit-again assumption · Liverpool starter, but only 694 min last year (low confidence)"
+    "note": "Fit-again assumption \u00b7 Liverpool starter, but only 694 min last year (low confidence)"
   },
   "244851": {
     "name": "Palmer",
     "minutes": 2600,
-    "note": "Chelsea talisman on penalties · minutes trimmed from 3000, he has not managed a full season"
+    "note": "Chelsea talisman on penalties \u00b7 minutes trimmed from 3000, he has not managed a full season"
   },
   "219847": {
     "name": "Havertz",
@@ -19,50 +19,51 @@
   "500040": {
     "name": "Mosquera",
     "minutes": 2000,
-    "note": "Starts while Saliba is out, but loses the place when he returns · minutes trimmed from 2900"
+    "note": "Starts while Saliba is injured (Saliba flagged 'i', match model has him at zero opening minutes), loses the place when he returns. Nailed early, rotation risk over a season \u00b7 season minutes trimmed to 2000, opening window set separately.",
+    "early_nailedness": 0.92
   },
   "67089": {
     "name": "Dubravka",
     "benched": true,
-    "note": "Backup keeper at Spurs · near-zero minutes"
+    "note": "Backup keeper at Spurs \u00b7 near-zero minutes"
   },
   "141746": {
     "name": "B.Fernandes",
     "pts_mult": 0.85,
-    "note": "Regression from a career-high haul, but he plays every week · the question is price, not minutes",
+    "note": "Regression from a career-high haul, but he plays every week \u00b7 the question is price, not minutes",
     "nailed": true
   },
   "502500": {
     "name": "Thiago",
     "pts_mult": 0.82,
-    "note": "Likely overperformed 25/26 · hard to replicate"
+    "note": "Likely overperformed 25/26 \u00b7 hard to replicate"
   },
   "215379": {
     "name": "Anderson",
     "minutes": 1900,
     "pts_mult": 0.7,
-    "note": "Moved Forest to Man City · rotation risk + fewer DEFCON points in a possession side"
+    "note": "Moved Forest to Man City \u00b7 rotation risk + fewer DEFCON points in a possession side"
   },
   "651426": {
     "name": "Canvot",
     "minutes": 2700,
-    "note": "Nailed Palace CB · 5th of 136 defenders on DEFCON per start (10.6, 64% hit rate) once he broke in from GW27"
+    "note": "Nailed Palace CB \u00b7 5th of 136 defenders on DEFCON per start (10.6, 64% hit rate) once he broke in from GW27"
   },
   "610799": {
     "name": "Vuskovic",
     "minutes": 2700,
     "pp90": 4.1,
-    "note": "Brighton CB · 0 PL minutes so no rate to fit. 11.5+ CBIT/90 and 6 goals for HSV in the Bundesliga · rate set from a Senesi-like CB profile (4.73 pts/start), discounted for the league step up"
+    "note": "Brighton CB \u00b7 0 PL minutes so no rate to fit. 11.5+ CBIT/90 and 6 goals for HSV in the Bundesliga \u00b7 rate set from a Senesi-like CB profile (4.73 pts/start), discounted for the league step up"
   },
   "485055": {
     "name": "Kinsky",
     "minutes": 3420,
-    "note": "Spurs No.1 · plays every minute. His per-90 is fitted on 630 minutes (7 starts) in 25/26, which is a thin sample for the rate even though the role is now certain"
+    "note": "Spurs No.1 \u00b7 plays every minute. His per-90 is fitted on 630 minutes (7 starts) in 25/26, which is a thin sample for the rate even though the role is now certain"
   },
   "184254": {
     "name": "Vicario",
     "benched": true,
-    "note": "Displaced by Kinsky as Spurs No.1 · near-zero minutes unless he moves"
+    "note": "Displaced by Kinsky as Spurs No.1 \u00b7 near-zero minutes unless he moves"
   },
   "232928": {
     "name": "Garner",
@@ -70,27 +71,27 @@
       1,
       2
     ],
-    "note": "Back late from the World Cup · no minutes in GW1-2"
+    "note": "Back late from the World Cup \u00b7 no minutes in GW1-2"
   },
   "441164": {
     "name": "Pedro Porro",
     "nailed": true,
-    "note": "The one Spurs defender we are sure of · starts at right back"
+    "note": "The one Spurs defender we are sure of \u00b7 starts at right back"
   },
   "221466": {
     "name": "Senesi",
     "pts_mult": 0.92,
-    "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled · Van Hecke may take the place"
+    "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled \u00b7 Van Hecke may take the place"
   },
   "491279": {
     "name": "Van de Ven",
     "pts_mult": 0.92,
-    "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled · Van Hecke may take the place"
+    "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled \u00b7 Van Hecke may take the place"
   },
   "469142": {
     "name": "Van Hecke",
     "pts_mult": 0.85,
-    "note": "Could start ahead of Senesi or Van de Ven · the pairing is unknown, so no Spurs centre back gets a confident number"
+    "note": "Could start ahead of Senesi or Van de Ven \u00b7 the pairing is unknown, so no Spurs centre back gets a confident number"
   },
   "432422": {
     "name": "Tonali",
@@ -100,16 +101,17 @@
   "172780": {
     "name": "Maddison",
     "minutes": 2400,
-    "note": "Likely starts · minutes lifted from a part-season sample"
+    "note": "Likely starts \u00b7 minutes lifted from a part-season sample"
   },
   "460842": {
     "name": "Kudus",
     "minutes": 2400,
-    "note": "Likely starts · minutes lifted from a part-season sample"
+    "note": "Likely starts \u00b7 minutes lifted from a part-season sample"
   },
   "209244": {
     "name": "Foden",
     "minutes": 2400,
-    "note": "Expected to start the opening weeks under the new City manager · elite rate (5.67 per 90 in 25/26), minutes are the only question"
+    "note": "Expected to start the opening weeks under the new City manager. Elite rate (5.67 per 90 in 25/26). The match model has him at 32 minutes a game, which is a lower opening-minutes call than we believe \u00b7 early_nailedness overrides it, season minutes stay at 2400.",
+    "early_nailedness": 0.78
   }
 }

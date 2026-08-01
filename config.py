@@ -274,3 +274,19 @@ DRAFT_UI = {
 # projections move. Derived from the board at render time where possible; these
 # are the floors so a sparse board cannot produce a meaningless full-width bar.
 DRAFT_BAR_FLOORS = {"season": 120.0, "per_m": 20.0, "gap": 60.0}
+
+# ── Bench Boost ───────────────────────────────────────────────────────────────
+# What a boosted bench should actually return in the week you play it. Eoin's
+# call, and it is a sensible one: a bench is four players, so 15 is roughly
+# every one of them starting and returning a normal score. Below 14 the chip is
+# being spent on fodder; above 18 it is a genuinely strong week to spend it.
+#
+# The caveat matters as much as the target: a bench good enough to boost costs
+# XI strength every week you carry it, so these are read ALONGSIDE what the
+# playing bench costs the starting eleven, never on their own.
+BENCH_BOOST = {
+    "target": 15.0,        # what we are aiming for
+    "acceptable": 14.0,    # will take it
+    "strong": 18.0,        # a good week to play the chip
+    "weak": 11.0,          # below this the chip is close to wasted
+}

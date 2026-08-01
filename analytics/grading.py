@@ -104,3 +104,39 @@ def sample_from_projection(board: pd.DataFrame, proj, gws: List[int],
             if v > 0:
                 out.setdefault(pos, []).append(v)
     return out
+
+
+# ── Bench Boost ──────────────────────────────────────────────────────────────
+
+def bench_boost_grade(points: Optional[float]) -> Dict:
+    """Is this bench worth the chip?
+
+    A bench is four players, so the target is roughly all four starting and
+    returning a normal score. Grading it against a fixed target rather than
+    against other benches is deliberate: the chip is played once, and what
+    matters is whether THIS week clears the bar, not whether it beats a bench
+    you are not going to field.
+    """
+    from config import BENCH_BOOST as B
+    if points is None:
+        return {"call": "unknown", "token": "muted2", "line": "No bench forecast."}
+    p = float(points)
+    if p >= B["strong"]:
+        return {"call": "strong", "token": "mint",
+                "line": "A strong week to spend it · %.1f from the bench, "
+                        "well past the %.0f you want." % (p, B["target"])}
+    if p >= B["target"]:
+        return {"call": "on target", "token": "mint",
+                "line": "On target · %.1f from the bench against the %.0f "
+                        "you want." % (p, B["target"])}
+    if p >= B["acceptable"]:
+        return {"call": "acceptable", "token": "gold",
+                "line": "Acceptable · %.1f from the bench, just under the %.0f "
+                        "target." % (p, B["target"])}
+    if p >= B["weak"]:
+        return {"call": "thin", "token": "orange",
+                "line": "Thin · %.1f from the bench against a %.0f target. "
+                        "Worth waiting for a better week." % (p, B["target"])}
+    return {"call": "wasted", "token": "red",
+            "line": "Close to wasted · %.1f from the bench. The chip is worth "
+                    "more almost any other week." % p}

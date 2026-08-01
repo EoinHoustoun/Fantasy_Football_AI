@@ -610,64 +610,101 @@ with _hero:
 with _ctrl:
     _open_controls = st.popover(":material/tune: Tune", use_container_width=True)
 
+# ── Draft selector ────────────────────────────────────────────────────────────
+# One dropdown, grouped, with the facts about the selection beside it rather
+# than under it. Fifteen pills across the top was a rail you had to read every
+# item of; a grouped list is one glance and a scroll.
+def _draft_group(name: str) -> str:
+    spec = _SAVED_BY_NAME[name]
+    if DR.has_squad(spec):
+        return "Mine"
+    if name.startswith("Route"):
+        return "Routes"
+    if spec.get("locks"):
+        return "Locked"
+    return "Base"
+
+
+def _plain_label(name: str) -> str:
+    """The pill label with its icon markup removed, for plain-text widgets."""
+    import re as _re
+    return _re.sub(r":material/[a-z_]+:\s*", "", _draft_label(name)).strip()
+
+
 _GROUP_ORDER = ["Mine", "Locked", "Base", "Routes"]
-_groups = [g for g in _GROUP_ORDER
-           if any(_draft_group(n) == g for n in _all_opts)]
-_counts = {g: sum(1 for n in _all_opts if _draft_group(n) == g) for g in _groups}
+_GROUP_ICON = {"Mine": "bookmark", "Locked": "lock",
+               "Base": "balance", "Routes": "science"}
+_opts = sorted(_all_opts, key=lambda n: (_GROUP_ORDER.index(_draft_group(n)), n))
 
-_gsel = st.segmented_control(
-    "Draft group", ["All"] + _groups, default="All", key="draft_group",
-    format_func=lambda g: (f"All ({len(_all_opts)})" if g == "All"
-                           else f"{g} ({_counts.get(g, 0)})"),
-    label_visibility="collapsed")
-_opts = ([n for n in _all_opts if _draft_group(n) == _gsel]
-         if _gsel and _gsel != "All" else _all_opts)
-
-# The draft you are looking at stays in the rail whatever the filter says.
-# Otherwise changing group silently swaps the squad under you, which is a
-# worse outcome than one pill sitting outside its category.
-_current = st.session_state.get("planner_draft")
-if _current in _SAVED_BY_NAME and _current not in _opts:
-    _opts = [_current] + _opts
-if not _opts:
-    _opts = _all_opts
-
-_default = st.session_state.get(
-    "planner_draft",
-    next((n for n in _opts if "BB1 → WC4" in n), _opts[0]))
+_default = st.session_state.get("planner_draft")
 if _default not in _opts:
-    _default = _opts[0]
+    _default = next((n for n in _opts if "BB1 → WC4" in n), _opts[0])
 
-_pick = st.pills("Draft", options=_opts, default=_default, key="planner_draft",
-                 format_func=_draft_label, label_visibility="collapsed")
+_sel_col, _act_col = st.columns([5, 2])
+with _sel_col:
+    _pick = st.selectbox(
+        "Draft", _opts, index=_opts.index(_default), key="planner_draft",
+        label_visibility="collapsed",
+        # Plain text · st.selectbox does not render Material icon markup, and a
+        # literal ":material/lock:" in the closed dropdown is worse than none.
+        # The group prefix already says what kind of draft it is.
+        format_func=lambda n: "%s  ·  %s" % (_draft_group(n), _plain_label(n)))
 if _pick is None:
     _pick = _default
 _spec = _SAVED_BY_NAME[_pick]
 
-# One line under the pills saying what the selection actually IS. A selector
-# that only echoes its own label teaches you nothing; this carries the kind of
-# draft, the chip plan and the players you insisted on.
+# The facts about THIS draft, as chips. A selector that only echoes its own
+# label teaches you nothing.
 _kind = ("Your saved fifteen" if DR.has_squad(_spec)
          else "Route experiment" if _spec["name"].startswith("Route")
          else "Preset")
-_facts = []
+_chips = [(_GROUP_ICON[_draft_group(_pick)], _kind, "mint")]
 if _spec.get("locks"):
-    _facts.append("locked: " + ", ".join(_spec["locks"]))
+    _chips.append(("lock", "%d locked" % len(_spec["locks"]), "gold"))
 if _spec.get("bench_boost_gw"):
-    _facts.append(f"Bench Boost GW{_spec['bench_boost_gw']}")
+    _chips.append(("battery_charging_full", "BB GW%d" % _spec["bench_boost_gw"], "cyan"))
 if _spec.get("wildcard_gw"):
-    _facts.append(f"Wildcard GW{_spec['wildcard_gw']}")
-if not _facts:
-    _facts.append("no locks, no chips")
-st.markdown(_one_line(
-    f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
-    f'margin:2px 0 10px;font-size:12.5px;">'
-    f'<span style="background:{V("chip-bg")};color:{V("mint")};border-radius:5px;'
-    f'padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:0.08em;'
-    f'text-transform:uppercase;">{_kind}</span>'
-    f'<span style="color:{V("text")};font-weight:600;">{_spec["name"]}</span>'
-    f'<span style="color:{V("muted")};">{" · ".join(_facts)}</span></div>'),
-    unsafe_allow_html=True)
+    _chips.append(("playing_cards", "WC GW%d" % _spec["wildcard_gw"], "mag"))
+if len(_chips) == 1:
+    _chips.append(("block", "no chips", "muted2"))
+
+with _act_col:
+    _d1, _d2 = st.columns([3, 2])
+    with _d1:
+        st.markdown(_one_line(
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:6px;">'
+            + "".join(
+                f'<span title="{_lab}" style="display:inline-flex;align-items:center;'
+                f'gap:4px;background:{V("chip-bg")};color:{V(_tok)};border-radius:6px;'
+                f'padding:3px 8px;font-size:10px;font-weight:800;'
+                f'letter-spacing:0.05em;text-transform:uppercase;">'
+                f'{theme.icon(_ic, 13, V(_tok))}{_lab}</span>'
+                for _ic, _lab, _tok in _chips)
+            + '</div>'), unsafe_allow_html=True)
+    with _d2:
+        if not _spec.get("preset"):
+            if st.button(":material/delete: Delete", use_container_width=True,
+                         key="del_draft",
+                         help="Remove this draft. Presets cannot be deleted."):
+                st.session_state["confirm_delete"] = _spec["id"]
+
+# Deleting is one click away but never one click · a saved fifteen is work.
+if st.session_state.get("confirm_delete") == _spec["id"]:
+    _w1, _w2, _w3 = st.columns([4, 1, 1])
+    with _w1:
+        st.warning("Delete **%s**? This cannot be undone." % _spec["name"])
+    with _w2:
+        if st.button("Delete", type="primary", use_container_width=True,
+                     key="del_yes"):
+            DR.delete_draft(_spec["id"])
+            st.session_state.pop("confirm_delete", None)
+            st.session_state.pop("planner_draft", None)
+            st.rerun()
+    with _w3:
+        if st.button("Keep", use_container_width=True, key="del_no"):
+            st.session_state.pop("confirm_delete", None)
+            st.rerun()
+
 
 with _open_controls:
     mode = _spec.get("strategy", "⚖️ Optimal value")
@@ -813,13 +850,18 @@ def _tuned_board_impl(gate: float) -> pd.DataFrame:
     if gate > 0 and "ffh_nailedness" in d.columns:
         share = pd.to_numeric(d.get("mins_share"), errors="coerce").clip(0, 1)
         nail = pd.to_numeric(d["ffh_nailedness"], errors="coerce")
-        # A hand-entered minutes call OUTRANKS the match model, the same way a
-        # hand-entered absence does. The Hub had Foden at 32 minutes a game and
-        # the gate was scoring him on that, silently ignoring the explicit 2400
-        # sitting in the overrides file.
-        if "minutes_overridden" in d.columns:
-            hand = d["minutes_overridden"].fillna(False).astype(bool)
-            nail = nail.mask(hand, share)
+        # A hand-entered EARLY-minutes call outranks the match model, the same
+        # way a hand-entered absence does. The Hub had Foden at 32 minutes a
+        # game while an explicit call sat in the overrides file being ignored.
+        #
+        # Only `early_nailedness` does this, never a season-minutes override.
+        # Mosquera starts while Saliba is injured and loses the place when he
+        # returns · his season minutes are deliberately low, and letting that
+        # gate the OPENING window marked him down in the weeks he is certain to
+        # play, which is the opposite of the truth.
+        if "early_nailedness" in d.columns:
+            hand = pd.to_numeric(d["early_nailedness"], errors="coerce")
+            nail = hand.combine_first(nail)
         nail = nail.fillna(share).fillna(0.75)
         factor = (1.0 - gate) + gate * nail.clip(0.0, 1.0)
         for c in ("projected_points", "proj_lo"):
@@ -1797,6 +1839,12 @@ def planner() -> None:
     if boost_on:
         xi_pts += bench_pts
 
+    # Is this bench worth the chip? Graded against a fixed target rather than
+    # against other benches · the chip is played once, so what matters is
+    # whether THIS week clears the bar.
+    from analytics.grading import bench_boost_grade
+    _bb_grade = bench_boost_grade(bench_pts)
+
     # An 80% band, not a Monte Carlo · this tile redraws on every click.
     from analytics.head_to_head import week_band
     _band = week_band([c for c in codes if c in xi], PROJ, board, gw,
@@ -1933,9 +1981,8 @@ def planner() -> None:
          (f"Boost on · +{bench_pts:.1f} from the bench" if boost_on
           else f"p10 {_band['lo']:.0f} · p90 {_band['hi']:.0f}"),
          "mint" if boost_on else "gold"),
-        (f"Bench · GW{gw}", f"{bench_pts:.1f}",
-         "counted this week" if boost_on else "what a Boost adds",
-         "mint" if boost_on else "cyan"),
+        (f"Bench · GW{gw}", f"{bench_pts:.1f}", _bb_grade["call"],
+         _bb_grade["token"]),
         ("Non-starters", str(len(dead)),
          ", ".join(dead)[:30] if dead else "everyone plays", "red" if dead else "muted2"),
         ("Forecast", f"{hit}/{n}", "on match forecasts" if hit else "fixture shape",

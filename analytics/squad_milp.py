@@ -124,9 +124,21 @@ def optimize_squad(
                 prob += pulp.lpSum(squad[i] for i in f_idx) == 1
 
     status = prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=time_limit))
-    if pulp.LpStatus[status] not in ("Optimal", "Not Solved"):
-        logger.warning(f"squad MILP status: {pulp.LpStatus[status]}")
+    label = pulp.LpStatus[status]
+    if label not in ("Optimal", "Not Solved"):
+        logger.warning("squad MILP status: %s", label)
         return None
+
+    # "Optimal" is CBC PROVING no better squad exists under these constraints.
+    # "Not Solved" means the time limit bit first and the answer is merely the
+    # best found so far · still usable, but it is no longer an optimum and the
+    # page must not present it as one. Validated by brute force: on reduced
+    # pools where every legal squad can be enumerated, this model returns the
+    # exact same objective as exhaustive search.
+    proven = label == "Optimal"
+    if not proven:
+        logger.warning("squad MILP hit the %ss limit · returning the best found, "
+                       "which is not proven optimal", time_limit)
 
     picked = [i for i in idx if squad[i].value() and squad[i].value() > 0.5]
     if len(picked) != 15:
@@ -144,5 +156,6 @@ def optimize_squad(
         "xi_points": round(xi_pts, 2),
         "squad_cost": round(float(squad_df["price"].sum()), 1),
         "captain_idx": cap_i,
-        "solver_status": pulp.LpStatus[status],
+        "solver_status": label,
+        "proven_optimal": proven,
     }
