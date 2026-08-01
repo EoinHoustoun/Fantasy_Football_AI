@@ -247,3 +247,30 @@ TEAM_COLORS = {
     "NOR": ("#FFF200", "#00A650"),   # Norwich
     "MID": ("#E21C38", "#FFFFFF"),   # Middlesbrough
 }
+
+# ── 26/27 Draft page ──────────────────────────────────────────────────────────
+# Tunables that were literals scattered through views/18_draft_2026_27.py. The
+# project rule is that every weight, threshold and scoring constant lives here.
+DRAFT_UI = {
+    # Pool table · how many rows at a time, and how deep it will go.
+    "pool_page": 22,
+    # Below this season projection a player is noise in a comparison, not a
+    # candidate. Used to keep the grading baselines honest.
+    "pool_floor_points": 40.0,
+    # Price band either side of a player when building his peer group.
+    "price_band": 0.6,
+    # Percentile cuts for a graded stat · good, then fair, then poor.
+    "grade_good": 0.90,
+    "grade_fair": 0.67,
+    # XI points a set of locks may cost before the conviction reads as
+    # expensive. Negative because it is a cost against the free optimum.
+    "conviction_free": -12.0,
+    "conviction_real": -35.0,
+    # A full season of minutes · 38 x 90.
+    "season_minutes": 3420.0,
+}
+
+# Bar maxima were hardcoded at 190 / 32 / 110 and will drift as prices and
+# projections move. Derived from the board at render time where possible; these
+# are the floors so a sparse board cannot produce a meaningless full-width bar.
+DRAFT_BAR_FLOORS = {"season": 120.0, "per_m": 20.0, "gap": 60.0}

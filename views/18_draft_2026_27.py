@@ -383,6 +383,17 @@ def _click(value, state_key: str) -> Optional[Dict]:
 
 
 # ── Board ─────────────────────────────────────────────────────────────────────
+from config import DRAFT_BAR_FLOORS, DRAFT_UI
+
+POOL_PAGE = int(DRAFT_UI["pool_page"])
+POOL_FLOOR = float(DRAFT_UI["pool_floor_points"])
+PRICE_BAND = float(DRAFT_UI["price_band"])
+GRADE_GOOD = float(DRAFT_UI["grade_good"])
+GRADE_FAIR = float(DRAFT_UI["grade_fair"])
+CONVICTION_FREE = float(DRAFT_UI["conviction_free"])
+CONVICTION_REAL = float(DRAFT_UI["conviction_real"])
+SEASON_MINUTES = float(DRAFT_UI["season_minutes"])
+
 from ui.value_board import (DRAFT_STRATEGIES, SPRINT_STRATEGY, SPRINT_WINDOW,
                             build_board, solve_draft)
 
@@ -732,7 +743,19 @@ def _window_map(lo: int, hi: int) -> tuple:
     return tuple(zip(oe["team_id"].astype(int), oe["ease"].astype(float)))
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _tuned_board_cached(gate: float, _stamp: str) -> pd.DataFrame:
+    return _tuned_board_impl(gate)
+
+
 def _tuned_board(gate: float) -> pd.DataFrame:
+    """Cached wrapper. The body copies the whole board, reads the overrides
+    JSON off disk and maps a lambda over every row · once per rerun was bad
+    enough, and the compare tab did it again per draft being compared."""
+    return _tuned_board_cached(round(float(gate), 4), BOARD_STAMP)
+
+
+def _tuned_board_impl(gate: float) -> pd.DataFrame:
     """The board the solver sees · consensus points, minutes-gated and
     availability-adjusted.
 
@@ -838,10 +861,11 @@ if locked and res is not None:
     lk = board[board["web_name"].isin(locked)]
     spend = float(lk["actual_price"].sum())
     cost = (res["xi_points"] - free["xi_points"]) if free else None
-    _tok = "mint" if (cost is None or cost > -12) else "orange" if cost > -35 else "red"
+    _tok = ("mint" if (cost is None or cost > CONVICTION_FREE)
+            else "orange" if cost > CONVICTION_REAL else "red")
     _verdict = ("" if cost is None else
-                " · essentially free" if cost > -12 else
-                " · a real price" if cost > -35 else " · an expensive conviction")
+                " · essentially free" if cost > CONVICTION_FREE else
+                " · a real price" if cost > CONVICTION_REAL else " · an expensive conviction")
     st.markdown(_one_line(
         f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;'
         f'font-size:12.5px;margin:-4px 0 8px;">'
@@ -1058,9 +1082,9 @@ DEFCON_CLOSE = 0.8          # within 20% of the bar counts as close
 
 def _grade_rank(pct: float) -> str:
     """Percentile within position, where 1.0 is the best player."""
-    if pct >= 0.90:
+    if pct >= GRADE_GOOD:
         return "good"
-    if pct >= 0.67:
+    if pct >= GRADE_FAIR:
         return "ok"
     return "poor"
 
@@ -1075,14 +1099,14 @@ def _position_ranks(_stamp: str) -> Dict:
     out = {}
     for pos in POS_ORDER:
         d = board[(board["position"] == pos)
-                  & (pd.to_numeric(board[PTS_COL], errors="coerce") >= 40)].copy()
+                  & (pd.to_numeric(board[PTS_COL], errors="coerce") >= POOL_FLOOR)].copy()
         if d.empty:
             continue
         price = pd.to_numeric(d["actual_price"], errors="coerce").clip(lower=0.1)
         season = pd.to_numeric(d[PTS_COL], errors="coerce")
         nail = pd.to_numeric(d.get("ffh_nailedness"), errors="coerce")
         mins = (nail.fillna(pd.to_numeric(d["projected_minutes"], errors="coerce")
-                            / 3420.0) * 3420.0).clip(lower=90)
+                            / SEASON_MINUTES) * SEASON_MINUTES).clip(lower=90)
         out[pos] = {
             "season": sorted(season.dropna().tolist()),
             "per_m": sorted((season / price).dropna().tolist()),
@@ -1254,7 +1278,7 @@ def _band_chart(code: int, row: pd.Series, p: Dict, key: str) -> None:
     # start, and every pick looks like a bargain against it.
     band = board[(board["position"] == pos)
                  & (board["actual_price"].between(price - 0.5, price + 0.5))
-                 & (pd.to_numeric(board[PTS_COL], errors="coerce") >= 40)]
+                 & (pd.to_numeric(board[PTS_COL], errors="coerce") >= POOL_FLOOR)]
     if len(band) < 4:
         band = board[(board["position"] == pos)
                      & (board["actual_price"].between(price - 1.0, price + 1.0))
@@ -1402,7 +1426,22 @@ def _conf_color(v):
                       if CONF_TOKEN.get(str(v)) else "chip-bg")
 
 
-def _pool_cols(gw: int, with_delta: bool = False) -> List[Dict]:
+
+def _bar_max(rows, key: str, floor_key: str) -> float:
+    """Bar scale from the data on screen, never a literal.
+
+    The maxima were hardcoded at 190 / 32 / 110 and drift every time prices or
+    projections move · a bar pinned to a stale ceiling stops meaning anything.
+    The floor stops a sparse table rendering one full-width bar and calling it
+    a comparison.
+    """
+    vals = [float(r.get(key) or 0.0) for r in rows] if rows else []
+    return max(max(vals) * 1.05 if vals else 0.0,
+               float(DRAFT_BAR_FLOORS.get(floor_key, 1.0)))
+
+
+def _pool_cols(gw: int, with_delta: bool = False,
+               rows: Optional[List[Dict]] = None) -> List[Dict]:
     cols = [
         T.col_face("code", url_fn=player_photo_url),
         T.col_player("web_name", "Player", sub="team_short", action="inspect"),
@@ -1421,7 +1460,8 @@ def _pool_cols(gw: int, with_delta: bool = False) -> List[Dict]:
         # forecast his minutes.
         T.col_num("mins", "Mins", fmt="%.0f", empty="no forecast",
                   color_fn=lambda v: theme.fill("red") if v < 45 else None),
-        T.col_bar("season", "Season", max_value=190),
+        T.col_bar("season", "Season",
+                  max_value=_bar_max(rows, "season", "season")),
         T.col_num("per_m", "Per £m", fmt="%.1f"),
         T.col_chip("confidence", "Conf.", color_fn=_conf_color),
     ]
@@ -1769,8 +1809,8 @@ def planner() -> None:
                 alt = alt.assign(_k=alt[PTS_COL])
             else:
                 alt = alt.assign(_k=alt[PTS_COL] / alt["actual_price"].clip(lower=0.1))
-            rows = _pool_rows(alt.nlargest(22, "_k"), gw, out_row)
-            pick = _click(T.render(rows, _pool_cols(gw, with_delta=True),
+            rows = _pool_rows(alt.nlargest(POOL_PAGE, "_k"), gw, out_row)
+            pick = _click(T.render(rows, _pool_cols(gw, with_delta=True, rows=rows),
                                    key=f"cand_{axed}", max_height=360),
                           "_cand_nonce")
             if pick:
@@ -1821,11 +1861,24 @@ def planner() -> None:
             pool = pool[pool["web_name"].str.contains(name_q.strip(), case=False,
                                                       na=False, regex=False)]
         _hi_gw = min(38, gw + horizon - 1)
-        pool = pool.assign(_k=[PROJ.run_total(int(c), gw, _hi_gw) for c in pool["code"]])
-        rows = _pool_rows(pool.nlargest(22, "_k"), gw)
+        # One matrix beats a Python sum per player per gameweek on every
+        # keystroke, and it is computed once instead of twice (the survivors
+        # were re-totalled row by row straight afterwards).
+        _run = PROJ.matrix([int(c) for c in pool["code"]],
+                           list(range(gw, _hi_gw + 1))).sum(axis=1)
+        pool = pool.assign(_k=pool["code"].astype(int).map(_run).fillna(0.0))
+
+        # A fixed slice with no count reads as "these are the options". Say how
+        # many matched, and let the list grow when it is not enough.
+        _n_matched = len(pool)
+        _shown_key = _sk("pool_shown")
+        st.session_state.setdefault(_shown_key, POOL_PAGE)
+        _pool_limit = min(int(st.session_state[_shown_key]), _n_matched)
+
+        rows = _pool_rows(pool.nlargest(_pool_limit, "_k"), gw)
         for _r in rows:
-            _r["horizon"] = round(PROJ.run_total(int(_r["code"]), gw, _hi_gw), 1)
-        _cols = _pool_cols(gw)
+            _r["horizon"] = round(float(_run.get(int(_r["code"]), 0.0)), 1)
+        _cols = _pool_cols(gw, rows=rows)
         _cols.insert(-1, T.col_bar(
             "horizon", f"GW{gw}-{_hi_gw}" if horizon > 1 else f"GW{gw}",
             max_value=max([r["horizon"] for r in rows] or [1]) * 1.05, color="gold",
@@ -1838,6 +1891,27 @@ def planner() -> None:
             if pick and pick.get("action") == "inspect":
                 _player_dialog(int(pick["id"]))
 
+            _c1, _c2 = st.columns([3, 1])
+            with _c1:
+                st.markdown(_one_line(
+                    f'<div style="font-size:11.5px;color:{V("muted")};'
+                    f'padding:6px 2px;">Showing <b style="color:{V("text")};">'
+                    f'{_pool_limit}</b> of <b style="color:{V("text")};">'
+                    f'{_n_matched}</b> players who match'
+                    f'{" your filters" if (pos_f or club_f or name_q.strip()) else ""}'
+                    f'.</div>'), unsafe_allow_html=True)
+            with _c2:
+                if _pool_limit < _n_matched:
+                    if st.button(f"Show {min(POOL_PAGE, _n_matched - _pool_limit)} more",
+                                 use_container_width=True, key="pool_more"):
+                        st.session_state[_shown_key] = _pool_limit + POOL_PAGE
+                        st.rerun(scope="fragment")
+                elif _pool_limit > POOL_PAGE:
+                    if st.button("Show fewer", use_container_width=True,
+                                 key="pool_fewer"):
+                        st.session_state[_shown_key] = POOL_PAGE
+                        st.rerun(scope="fragment")
+
 
 planner()
 
@@ -1845,9 +1919,16 @@ planner()
 # ── Analysis ──────────────────────────────────────────────────────────────────
 _sec("The read", "Analysis that informs the draft without crowding it.")
 
+# Material icons throughout · the sidebar and every tile already use them, and
+# mixing emoji into the tab strip was the one place the page changed alphabet.
 tab_cmp, tab_ab, tab_verdict, tab_models, tab_wc, tab_route, tab_all = st.tabs(
-    ["⚖️ Compare players", "🆚 Compare drafts", "🎯 Verdicts",
-     "🤝 Model agreement", "🃏 Wildcard", "🗺️ Chip route", "📋 All players"])
+    [":material/balance: Compare players",
+     ":material/compare_arrows: Compare drafts",
+     ":material/target: Verdicts",
+     ":material/handshake: Model agreement",
+     ":material/playing_cards: Wildcard",
+     ":material/alt_route: Chip route",
+     ":material/table_rows: All players"])
 
 
 # ── Compare players ───────────────────────────────────────────────────────────
@@ -2396,7 +2477,8 @@ with tab_ab:
                                     T.col_num("actual_price", "£m", fmt="%.1f"),
                                     T.col_run("run", "Next 3"),
                                     T.col_num("gw_pts", f"GW{_sq_gw}", fmt="%.1f"),
-                                    T.col_bar("season", "Season", max_value=190),
+                                    T.col_bar("season", "Season",
+                                              max_value=_bar_max(_rows, "season", "season")),
                                 ], key=f"ab_side_{_nm}", max_height=430)
     else:
         st.caption("Press **Run comparison** to solve each squad and simulate the window.")
@@ -2538,10 +2620,10 @@ with tab_verdict:
     st.caption("Each card carries a confidence dot · how much to trust its number. "
                "Green means the models agree, red means they scatter or only one of "
                "them has an opinion.")
-    vt = st.tabs([f"🥇 Necessity ({counts.get(VERDICTS.NECESSITY, 0)})",
-                  f"🟢 Value ({counts.get(VERDICTS.VALUE, 0)})",
-                  f"🔴 Overpriced ({counts.get(VERDICTS.OVERPRICED, 0)})",
-                  f"🔍 Scout · new ({len(scout)})"])
+    vt = st.tabs([f":material/star: Necessity ({counts.get(VERDICTS.NECESSITY, 0)})",
+                  f":material/trending_up: Value ({counts.get(VERDICTS.VALUE, 0)})",
+                  f":material/trending_down: Overpriced ({counts.get(VERDICTS.OVERPRICED, 0)})",
+                  f":material/search: Scout · new ({len(scout)})"])
     with vt[0]:
         _lane(board[board["verdict"] == VERDICTS.NECESSITY]
               .sort_values(PTS_COL, ascending=False).head(18))
@@ -2600,7 +2682,8 @@ with tab_models:
                 T.col_num("scout", "Scout", fmt="%.0f"),
                 T.col_num("hub", "Hub", fmt="%.0f"),
                 T.col_num("blend", "Blend", fmt="%.0f"),
-                T.col_bar("gap", "Gap", max_value=110, color="red"),
+                T.col_bar("gap", "Gap", max_value=_bar_max(rows, "gap", "gap"),
+                          color="red"),
                 T.col_num("nailed", "Nailed", fmt="%.2f"),
             ], key="dis_tbl", max_height=430), "_dis_nonce")
             if _dis_click and _dis_click.get("action") == "inspect":
@@ -2683,11 +2766,13 @@ with tab_wc:
                         f'<div style="font-size:11px;font-weight:800;letter-spacing:0.18em;'
                         f'color:{V(tok)};text-transform:uppercase;margin-bottom:6px;">'
                         f'{lbl} ({len(frame)})</div>'), unsafe_allow_html=True)
-                    T.render(_pool_rows(frame, wc_gw), [
+                    _wc_rows = _pool_rows(frame, wc_gw)
+                    T.render(_wc_rows, [
                         T.col_face("code", url_fn=player_photo_url),
                         T.col_player("web_name", "Player", sub="team_short"),
                         T.col_num("actual_price", "£m", fmt="%.1f"),
-                        T.col_bar("season", "Season", max_value=190),
+                        T.col_bar("season", "Season",
+                                  max_value=_bar_max(_wc_rows, "season", "season")),
                     ], key=f"wc_{lbl}", max_height=300, empty="Nobody.")
 
 
@@ -2909,8 +2994,9 @@ with tab_all:
         T.col_num("actual_price", "£m", fmt="%.1f"),
         T.col_num("surprise", "vs model", fmt="%+.1f",
                   color_fn=lambda v: theme.fill("mint") if v > 0 else theme.fill("red")),
-        T.col_bar("season", "Season", max_value=190),
-        T.col_bar("per_m", "Per £m", max_value=32, color="gold"),
+        T.col_bar("season", "Season", max_value=_bar_max(rows, "season", "season")),
+        T.col_bar("per_m", "Per £m", max_value=_bar_max(rows, "per_m", "per_m"),
+                  color="gold"),
         T.col_num("nailed", "Nailed", fmt="%.2f"),
         T.col_num("own", "Owned %", fmt="%.1f"),
         T.col_chip("confidence", "Conf.", color_fn=_conf_color),
