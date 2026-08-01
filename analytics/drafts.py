@@ -41,7 +41,7 @@ BASE = {
     "risk": 0.3,
     "opening": 0.35,
     "minutes_gate": 0.5,
-    "two_attackers": False,
+    "cap_attackers": False,   # 1 attacker per club · off by default
     "bench_boost_gw": None,
     "wildcard_gw": None,
     # An explicit fifteen, saved as player codes. When present the planner uses

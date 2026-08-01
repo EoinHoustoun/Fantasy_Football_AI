@@ -784,11 +784,19 @@ with _open_controls:
                  "choices. At 0 the optimiser will happily draft a man who is not "
                  "playing.")
     with m2:
-        two_att = st.checkbox(
-            "Allow 2 attackers from the same club",
-            value=bool(_spec.get("two_attackers", False)), key=f"twoatt_{_k}",
-            help="The standing rule is one attack-correlated player per club, so a "
-                 "bad week for that club does not sink two picks.")
+        # Off by default. It was costing real points without earning them: the
+        # unconstrained optimum already spreads across clubs on its own, so the
+        # cap only ever bit when a deliberate pick ran into it (two Man Utd
+        # midfielders on the softest opening run in the league). Kept as a
+        # toggle because the diversification argument is still sound when you
+        # are picking a whole season rather than a three-week sprint.
+        cap_attackers = st.checkbox(
+            "Limit to 1 attacker per club",
+            value=bool(_spec.get("cap_attackers", False)), key=f"capatt_{_k}",
+            help="Off by default. When on, at most one midfielder or forward per "
+                 "club, so a bad week for that club cannot sink two picks. It "
+                 "costs points whenever you deliberately want two.")
+        two_att = not cap_attackers
     l1, l2 = st.columns(2)
     with l1:
         locked = st.multiselect(
@@ -834,7 +842,7 @@ with _open_controls:
         DR.save_draft(_new_name.strip(), {
             "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
             "budget": float(budget), "risk": float(risk), "opening": float(opening),
-            "minutes_gate": float(minutes_gate), "two_attackers": bool(two_att),
+            "minutes_gate": float(minutes_gate), "cap_attackers": bool(cap_attackers),
             "bench_boost_gw": None if _new_bb == "None" else int(_new_bb[2:]),
             "wildcard_gw": None if _new_wc == "None" else int(_new_wc[2:]),
         })
@@ -997,7 +1005,7 @@ res = None
 if _SAVED_SQUAD is None:
     res = solve_draft(SOLVE_BOARD, mode, budget, risk, tuple(excluded), _oweight,
                       force_names=tuple(locked), opening_map=_omap,
-                      max_attackers_per_club=2 if two_att else 1)
+                      max_attackers_per_club=None if two_att else 1)
 if _SAVED_SQUAD is None and res is None:
     why = ""
     if locked:
@@ -1027,7 +1035,7 @@ if _SAVED_SQUAD is None and res is None:
                              board[board["web_name"].isin(locked)]["code"]],
                 exclude_codes=[int(c) for c in
                                board[board["web_name"].isin(excluded)]["code"]],
-                max_attackers_per_club=2 if two_att else 1)
+                max_attackers_per_club=None if two_att else 1)
             if _cause:
                 why = " The binding constraint is %s." % _cause
         except Exception:
@@ -1051,7 +1059,7 @@ if locked and res is not None:
     # is the whole Fernandes question: owning him is only wrong if spreading his
     # money returns more.
     free = solve_draft(SOLVE_BOARD, mode, budget, risk, tuple(excluded), _oweight,
-                       opening_map=_omap, max_attackers_per_club=2 if two_att else 1)
+                       opening_map=_omap, max_attackers_per_club=None if two_att else 1)
     lk = board[board["web_name"].isin(locked)]
     spend = float(lk["actual_price"].sum())
     cost = (res["xi_points"] - free["xi_points"]) if free else None
@@ -2092,7 +2100,7 @@ def planner() -> None:
                 "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
                 "budget": float(budget), "risk": float(risk),
                 "opening": float(opening), "minutes_gate": float(minutes_gate),
-                "two_attackers": bool(two_att),
+                "cap_attackers": bool(cap_attackers),
                 "bench_boost_gw": _spec.get("bench_boost_gw"),
                 "wildcard_gw": _spec.get("wildcard_gw"),
                 "squad": [int(c) for c in sq["code"]],
@@ -2582,7 +2590,7 @@ with tab_ab:
                 "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
                 "budget": float(budget), "risk": float(risk),
                 "opening": float(opening), "minutes_gate": float(minutes_gate),
-                "two_attackers": bool(two_att),
+                "cap_attackers": bool(cap_attackers),
                 "bench_boost_gw": None if save_bb == "None" else int(save_bb[2:]),
                 "wildcard_gw": None if save_wc == "None" else int(save_wc[2:]),
             })
@@ -2696,7 +2704,7 @@ with tab_ab:
                             strategy or "⚖️ Optimal value", float(_s.get("budget", 100.0)),
                             float(_s.get("risk", 0.3)), tuple(_s.get("vetoes", [])), ow,
                             force_names=tuple(_s.get("locks", [])), opening_map=omap,
-                            max_attackers_per_club=2 if _s.get("two_attackers") else 1)
+                            max_attackers_per_club=None if not _s.get("cap_attackers") else 1)
 
                     phases = build_phases(spec, _solve, _window_map, window[0], window[1],
                                           board=board)
@@ -3337,7 +3345,7 @@ with tab_wc:
         wc = solve_draft(SOLVE_BOARD, "⚖️ Optimal value", budget, risk, tuple(excluded),
                          1.0, force_names=tuple(locked),
                          opening_map=_window_map(wc_gw, wc_hi),
-                         max_attackers_per_club=2 if two_att else 1)
+                         max_attackers_per_club=None if two_att else 1)
         if wc is None:
             st.error("No feasible Wildcard squad · widen the budget or drop a lock.")
         else:
@@ -3418,7 +3426,7 @@ with tab_route:
                 return solve_draft(SOLVE_BOARD, strategy or "⚖️ Optimal value",
                                    budget, risk, tuple(excluded), ow,
                                    force_names=tuple(locked), opening_map=omap,
-                                   max_attackers_per_club=2 if two_att else 1)
+                                   max_attackers_per_club=None if two_att else 1)
 
             _ph = build_phases(_spec, _rsolve, _window_map, 1, 10, board=board)
             _ph = [(g, s.merge(board[["code", "actual_price"]], on="code", how="left"))
