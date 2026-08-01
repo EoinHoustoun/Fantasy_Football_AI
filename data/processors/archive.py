@@ -34,6 +34,7 @@ from data.fetchers.vaastav import (
     fetch_gw_history,
     fetch_master_team_list,
     fetch_players_raw,
+    fetch_teams,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,11 +94,25 @@ def _element_lookup(season: str) -> Optional[pd.DataFrame]:
 
 
 def _team_names(season: str) -> Dict[int, str]:
+    """Map team_id -> club name for a season.
+
+    master_team_list.csv stops at 2023-24. Before this fell back to an empty
+    map, which silently wrote team_name="" for every row of 2024-25 and made
+    the season invisible to any club-level query. Per-season teams.csv covers
+    the gap and uses the same naming, so prefer the master list (it covers the
+    2016-19 seasons that ship no teams.csv) and fall back per season.
+    """
     master = fetch_master_team_list()
-    if master is None:
+    if master is not None:
+        rows = master[master["season"] == season]
+        if not rows.empty:
+            return dict(zip(rows["team"].astype(int), rows["team_name"]))
+
+    teams = fetch_teams(season)
+    if teams is None or "id" not in teams.columns or "name" not in teams.columns:
+        logger.error(f"Archive: no team-name source for {season}")
         return {}
-    rows = master[master["season"] == season]
-    return dict(zip(rows["team"].astype(int), rows["team_name"]))
+    return dict(zip(teams["id"].astype(int), teams["name"]))
 
 
 def _normalize_vaastav_season(season: str) -> Optional[pd.DataFrame]:

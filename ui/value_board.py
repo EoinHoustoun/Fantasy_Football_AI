@@ -5,7 +5,7 @@ runs the verdict engine. Cached once so both the 26/27 Draft (full board) and th
 Playbook (a compact read) share the same computation.
 """
 import logging
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import pandas as pd
 import streamlit as st
@@ -98,17 +98,37 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     # Coventry, Hull and Ipswich player, including the £4.0m defenders that make
     # a squad affordable. Backfill them from the Scout snapshot when one exists.
     verdicts["projection_source"] = "model"
+    load_warnings: List[str] = []
+    k = 1.0
+    snap = None
     try:
         from analytics.scout_projections import (backfill_projections, load_snapshot,
                                                  match_to_board, model_scale,
                                                  override_no_evidence)
         snap = load_snapshot()
-        if snap is not None:
+    except Exception as exc:
+        logger.warning("Scout snapshot unavailable: %s", exc)
+        load_warnings.append("Scout snapshot did not load. Promoted-club players "
+                             "may be missing from the pool.")
+
+    if snap is not None:
+        try:
             k = model_scale(match_to_board(snap, verdicts)["matched"])
             # A zero-minutes 25/26 row is an EMPTY sample, not a low forecast, and
             # it is worse than no row at all because the backfill below skips it.
             verdicts = override_no_evidence(verdicts, snap, scale=k)
-        if snap is not None and scout is not None and not scout.empty:
+        except Exception as exc:
+            logger.warning("Scout scale/override failed: %s", exc)
+            load_warnings.append("Scout scaling failed. Second-opinion "
+                                 "projections are not in the blend.")
+
+    # Promoted-club players have no Premier League record, so without this every
+    # Coventry, Hull and Ipswich player · including the £4.0m defenders that make
+    # a squad affordable · is silently absent from the optimiser. A broad
+    # `except` here used to swallow that into a log line nobody reads, so the
+    # failure is now narrow and surfaced in the UI.
+    if snap is not None and scout is not None and not scout.empty:
+        try:
             extra = backfill_projections(scout, snap, scale=k)
             if not extra.empty:
                 extra = extra[~extra["code"].isin(set(verdicts["code"]))]
@@ -123,8 +143,13 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
                 scout = scout[~scout["code"].isin(set(extra["code"]))]
                 logger.info("backfilled %d no-history players from the Scout snapshot",
                             len(extra))
-    except Exception as exc:                      # never let it break the board
-        logger.warning("Scout backfill skipped: %s", exc)
+            else:
+                load_warnings.append("No promoted-club players were backfilled. "
+                                     "Check the Scout snapshot covers them.")
+        except Exception as exc:
+            logger.warning("Scout backfill failed: %s", exc)
+            load_warnings.append("Promoted-club backfill failed. Coventry, Hull "
+                                 "and Ipswich players are missing from the pool.")
 
     # ── Consensus · blend our carryover model with Scout and FFH ──────────────
     # Three independent reads beat one, and where they disagree is exactly where
@@ -132,8 +157,27 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     # board · the only stated "will he start" signal in the stack.
     verdicts = _add_consensus(verdicts, live_bs)
 
+    # Promoted sides defend more, so their DEFENDERS bank more DEFCON than any
+    # carryover model expects · they have no Premier League record to carry over.
+    # Derivation, evidence strength and why midfielders get nothing: see
+    # analytics/promoted.py. Applied to the consensus because that is the number
+    # the page ranks and optimises on, and recorded per row so it is auditable.
+    try:
+        from analytics.promoted import apply_defcon_bonus, promoted_clubs
+        _pc = promoted_clubs(pd.DataFrame(live_bs.get("teams", [])))
+        if _pc:
+            _col = "consensus_points" if "consensus_points" in verdicts.columns \
+                else "projected_points"
+            verdicts = apply_defcon_bonus(verdicts, _pc, points_col=_col)
+    except Exception as exc:
+        logger.warning("promoted DEFCON bonus skipped: %s", exc)
+        load_warnings.append("Promoted-club DEFCON adjustment did not apply.")
+
     bt = dict(trained["backtest"][trained["winner"]])
     bt["model"] = trained["winner"]
+    # Threaded through `bt` so a model input failing loudly reaches the page
+    # instead of dying in a log line. Callers that ignore it are unaffected.
+    bt["load_warnings"] = load_warnings
     return verdicts, scout, bt, validation
 
 

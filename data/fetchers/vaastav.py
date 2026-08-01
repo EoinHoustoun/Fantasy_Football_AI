@@ -130,10 +130,32 @@ def fetch_players_raw(season: str) -> Optional[pd.DataFrame]:
     return df
 
 
+def fetch_teams(season: str) -> Optional[pd.DataFrame]:
+    """
+    Fetch a season's teams.csv (columns include `id` and `name`).
+
+    The repo-level master_team_list.csv stops at 2023-24, so it is NOT a
+    complete source. Every season from 2019-20 on ships this per-season file
+    and uses the same club naming ("Spurs", "Man Utd", "Nott'm Forest"), which
+    makes it a drop-in fallback rather than a second convention to reconcile.
+    """
+    key = f"teams_{season.replace('-', '_')}"
+    if _is_fresh(key, season):
+        return pd.read_parquet(_cache_path(key))
+
+    df = _fetch_csv(f"{VAASTAV_BASE}/data/{season}/teams.csv")
+    if df is None:
+        return None
+
+    df.to_parquet(_cache_path(key))
+    return df
+
+
 def fetch_master_team_list() -> Optional[pd.DataFrame]:
     """
     Fetch the repo-level master team list (columns: season, team, team_name).
-    Needed for 2016-19 seasons which ship no per-season teams.csv.
+
+    Covers 2016-17 to 2023-24 only. Later seasons come from `fetch_teams`.
     """
     key = "master_team_list"
     if _is_fresh(key, season="2016-17"):  # static file · never expires
