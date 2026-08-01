@@ -664,3 +664,38 @@ def compare_drafts(a: Dict, b: Dict, label_a: str = "A", label_b: str = "B") -> 
         "shared": shared, "differs": 15 - shared,
         "per_week": per_week,
     }
+
+
+def week_band(codes: List[int], proj, board: pd.DataFrame, gw: int,
+              captain: Optional[int] = None,
+              z: float = 1.2816) -> Dict:
+    """An 80% interval for one gameweek's points, without a Monte Carlo.
+
+    "52.7 expected points" is false precision next to a model that validates at
+    Spearman 0.4, and a decimal invites a decision the number cannot support.
+    This gives the same two uncertainty sources the simulator uses, closed form,
+    so it is cheap enough to sit on a tile that redraws on every click:
+
+      rate uncertainty · how far the three models disagree about this player
+      match uncertainty · week-to-week variance around his own rate
+
+    Independence across players is an approximation. Real squads share fixtures
+    and correlate, so a true interval is a little wider than this one · it is
+    reported as an 80% band rather than anything stronger for that reason.
+    """
+    mu = {int(c): max(0.0, float(proj.points(int(c), gw))) for c in codes}
+    cv = _player_uncertainty(board, [int(c) for c in codes])
+
+    mean = 0.0
+    var = 0.0
+    for c, m in mu.items():
+        w = 2.0 if (captain is not None and int(c) == int(captain)) else 1.0
+        mean += w * m
+        var += (w ** 2) * ((m * cv.get(c, 0.25)) ** 2
+                           + max(m, 0.4) * MATCH_OVERDISPERSION)
+
+    sd = float(np.sqrt(var))
+    return {"mean": round(mean, 1),
+            "lo": round(max(0.0, mean - z * sd), 1),
+            "hi": round(mean + z * sd, 1),
+            "sd": round(sd, 1)}

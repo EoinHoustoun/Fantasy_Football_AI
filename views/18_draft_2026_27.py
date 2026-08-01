@@ -1460,9 +1460,18 @@ def _pool_cols(gw: int, with_delta: bool = False,
         # forecast his minutes.
         T.col_num("mins", "Mins", fmt="%.0f", empty="no forecast",
                   color_fn=lambda v: theme.fill("red") if v < 45 else None),
+        # A threshold stat, so show how often it converts and grade it against
+        # the bar rather than printing a mean nobody can price.
+        T.col_num("dc_hit", "DEFCON", fmt="%.0f%%", empty="-",
+                  color_fn=lambda v: theme.fill("mint") if v >= 50
+                  else theme.fill("gold") if v >= 30 else theme.fill("muted2")),
+        T.col_html("setp", ""),
         T.col_bar("season", "Season",
                   max_value=_bar_max(rows, "season", "season")),
         T.col_num("per_m", "Per £m", fmt="%.1f"),
+        T.col_num("spread", "±", fmt="%.0f%%", empty="-",
+                  color_fn=lambda v: theme.fill("mint") if v <= 12
+                  else theme.fill("gold") if v <= 25 else theme.fill("red")),
         T.col_chip("confidence", "Conf.", color_fn=_conf_color),
     ]
     if with_delta:
@@ -1488,8 +1497,44 @@ def _pool_rows(frame: pd.DataFrame, gw: int,
             "season": season,
             "per_m": season / price if price else 0,
             "confidence": a.get("consensus_confidence", a.get("confidence", "")),
+            # How far the three models are apart, where the decision is made
+            # rather than three tabs away. A point estimate the models fight
+            # over is the one worth a second look.
+            "spread": (round(float(a["model_spread"]) * 100, 0)
+                       if pd.notna(a.get("model_spread")) else None),
+            # DEFCON pays at a THRESHOLD, so the hit rate is what converts.
+            # A mean of 9.9 and a mean of 9.9 can be worth very different
+            # points depending on how often the player actually clears 10.
+            "dc_hit": _dc_hit(code, str(a["position"])),
+            "setp": _setpiece_glyphs(a),
         })
     return rows
+
+
+def _dc_hit(code: int, pos: str) -> Optional[float]:
+    """Share of last season's starts clearing the DEFCON threshold."""
+    if pos not in ("DEF", "MID") or DEFCON.empty or code not in DEFCON.index:
+        return None
+    v = DEFCON.loc[code].get("dc_hit_rate")
+    return round(float(v) * 100, 0) if pd.notna(v) else None
+
+
+def _setpiece_glyphs(row) -> str:
+    """Penalties and set pieces as tiny glyphs. These are official ORDERS, not
+    forecasts, so they belong next to the player rather than behind a card."""
+    out = []
+    if _num_safe(row.get("pens_order")) == 1:
+        out.append(f'<span title="First-choice penalties" style="background:'
+                   f'{theme.fill("gold-v")};color:#000;border-radius:4px;'
+                   f'padding:1px 4px;font-size:9px;font-weight:900;">P</span>')
+    for key, label, tip in (("corners_order", "C", "Takes corners"),
+                            ("fk_order", "F", "Takes free kicks")):
+        if _num_safe(row.get(key)) == 1:
+            out.append(f'<span title="{tip}" style="background:{V("chip-bg")};'
+                       f'color:{V("cyan")};border-radius:4px;padding:1px 4px;'
+                       f'font-size:9px;font-weight:800;">{label}</span>')
+    return ('<span style="display:inline-flex;gap:3px;">' + "".join(out) + "</span>"
+            if out else "")
 
 
 # ── The planner ───────────────────────────────────────────────────────────────
@@ -1602,8 +1647,24 @@ def planner() -> None:
          f"-{ledger['points_cost']}" if ledger["points_cost"] else "0",
          "on hits so far", "red" if ledger["points_cost"] else "muted"),
     ]), unsafe_allow_html=True)
+    # The armband is worth more than most transfers, so the XI total has to
+    # count it. Highest projected starter, gated on actually being expected to
+    # play · a captain who does not start scores you nothing twice.
+    _cap_pool = [c for c in codes if c in xi
+                 and (PROJ.expected_minutes(c, gw) is None
+                      or (PROJ.expected_minutes(c, gw) or 0) >= 45)]
+    captain = max(_cap_pool or [c for c in codes if c in xi],
+                  key=lambda c: PROJ.points(c, gw), default=None)
+
     xi_pts = sum(PROJ.points(c, gw) for c in codes if c in xi)
+    cap_bonus = PROJ.points(captain, gw) if captain is not None else 0.0
+    xi_pts += cap_bonus
     bench_pts = sum(PROJ.points(c, gw) for c in codes if c not in xi)
+
+    # An 80% band, not a Monte Carlo · this tile redraws on every click.
+    from analytics.head_to_head import week_band
+    _band = week_band([c for c in codes if c in xi], PROJ, board, gw,
+                      captain=captain)
     dead = [r["web_name"] for _, r in sq.iterrows()
             if int(r["code"]) in xi and PROJ.points(int(r["code"]), gw) < 1.5]
     hit, n = PROJ.coverage(codes, gw)
@@ -1631,7 +1692,7 @@ def planner() -> None:
             "team_code": int(r.get("team_code", 1) or 1),
             "team_short": r.get("team_short"),
             "on_bench": code not in xi,
-            "is_captain": bool(r.get("is_captain", False)),
+            "is_captain": code == captain,
             "price": float(r["actual_price"]),
             "fixtures": _fixtures_for(int(r.get("team_id", 0) or 0), gw, 3),
             "fpl_id": code, "stat": round(PROJ.points(code, gw), 1), "stat_dp": 1,
@@ -1715,7 +1776,8 @@ def planner() -> None:
 
     _tiles([
         ("Spend", f"£{cost:.1f}m", f"£{bank:.1f}m banked", "mint"),
-        (f"XI · GW{gw}", f"{xi_pts:.1f}", "expected points", "gold"),
+        (f"XI · GW{gw}", f"{xi_pts:.0f}", f"p10 {_band['lo']:.0f} · p90 {_band['hi']:.0f}",
+         "gold"),
         (f"Bench · GW{gw}", f"{bench_pts:.1f}", "what a Boost adds", "cyan"),
         ("Non-starters", str(len(dead)),
          ", ".join(dead)[:30] if dead else "everyone plays", "red" if dead else "muted2"),
