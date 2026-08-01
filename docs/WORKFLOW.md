@@ -1037,3 +1037,56 @@ move that would freeze the layout while the design is still changing weekly);
 DS-4 the calibration harness, which needs real gameweeks to log against.
 Also still open: the light/dark choice resets on hard reload, and the tab
 scroll position resets on tab change.
+
+## 2026-08-01 (late) · Player comparison, data corrections, squad editing
+
+**Two systematic data bugs, both behind "O'Shea seems rated too highly".**
+
+*One projection was counting as two models.* A promoted-club or new-signing
+player has no Premier League record, so "our" projection for him IS the Scout
+backfill. The blend treated that as two independent reads: Scout got 0.85 of
+the weight instead of 0.45, and confidence was computed off three sources when
+there was one opinion. **14 promoted-club punts were reading as High
+confidence.** All 82 backfilled players now correctly report one model and Low.
+
+*The Hub was extrapolating a month into a season.* Its number is a
+four-gameweek match forecast multiplied to 38. Measured against Scout it runs
+**1.37x on promoted-club players against 0.96x on established ones** · 43%
+high. Opening-fixture ease does not explain it (0.968 vs 0.992); the
+extrapolation itself assumes an opening month holds for a season, when
+promoted sides fade and rotate. The Hub now keeps the per-gameweek view and the
+minutes signal but stops voting on a season it cannot see. O'Shea 67.7 → 63.3.
+
+**A hand minutes call now outranks the match model.** The Hub had Foden at 32
+minutes a game and the minutes gate was scoring him on that while an explicit
+2400 sat in the overrides file. `minutes_overridden` now wins, the same way
+`miss_gws` already beat a match forecast. **Foden rank 100 → 33.** It cuts both
+ways: Mosquera and Maddison, whose overrides say FEWER minutes than the Hub
+assumes, move down.
+
+**M.Fernandes needed nothing.** His 2025-26 record is fully intact · 36
+appearances, 3017 minutes, DEFCON **11.07 per 90, 43% hit rate, rank 12 of 138
+midfielders**. West Ham being relegated cost us nothing; only Scout and Hub
+have no row for him, which is correctly reported as one model, Low confidence.
+
+**Vuskovic** already carried a hand `pp90: 4.1` override encoding his
+Bundesliga rate. Checked against real defenders it sits around the 85th
+percentile (Gabriel is 5.08), so it stands. Our model has him at 123 and the
+other two at 61-68, which is a genuine disagreement and shows as Low
+confidence rather than being averaged away quietly.
+
+**Comparison rebuilt around the decision.** Judged over a window you choose,
+not a season. Shows points over the run, points a week, per £m and expected
+minutes per game. The verdict says better / worse / the same, and when it is
+the same it names the cheaper player AND the saving · a player three points
+better over six gameweeks and three million dearer correctly reads as "take the
+cheaper one". Week-by-week bars are red/amber/green on cuts fitted per position
+(keepers sd 0.65, forwards sd 1.82, so a flat cut is quietly wrong); for
+defenders they land at green 4.1+, amber 3.5-4.1, red under 3.5.
+
+**Squad editing.** Bench Boost now adds the bench in its week (BB1 GW1: 60.6 →
+74.1). Several players can be marked out at once and a signing fills the first
+open slot. Transfers count NET within a gameweek, so selling and re-buying is
+free. The replacement table paginates 172 candidates, filters by position,
+price and name, sorts by this gameweek or the next four, and shows unaffordable
+players dimmed with a dead "Too dear" button rather than hiding them.
