@@ -129,6 +129,29 @@ def ffh_season_equivalent(matched: pd.DataFrame,
     return season.round(1)
 
 
+def _is_echo(board: pd.DataFrame, ours: pd.Series, scout: pd.Series,
+             tol: float = 0.15) -> pd.Series:
+    """Rows where "our" projection is really the Scout number coming back.
+
+    Two independent signals, either of which is enough:
+
+      * `projection_source == "scout"` · the board says outright that this row
+        was backfilled, which is the reliable case.
+      * the two numbers are within `tol` points after rescaling · a fallback
+        for boards built before that column existed.
+    """
+    both = ours.notna() & scout.notna()
+
+    # Prefer the column. Scout is rescaled onto our scale before blending, so
+    # two genuinely independent projections can land within a rounding step of
+    # each other by coincidence · using the numeric test when we have the real
+    # answer would throw away a real second opinion.
+    if "projection_source" in board.columns:
+        return (board["projection_source"].astype(str) == "scout") & both
+
+    return ((ours - scout).abs() <= tol).fillna(False) & both
+
+
 def _spread_to_confidence(spread: float, n_sources: int) -> str:
     """Confidence from how far the models are apart, not from how many there are.
 
@@ -215,6 +238,42 @@ def build_consensus(board: pd.DataFrame,
 
     src_names = [n for n in ("ours", "scout", "ffh") if n in cols]
     frame = pd.DataFrame({n: cols[n] for n in src_names})
+
+    # ── One number is not two models ──────────────────────────────────────────
+    # A promoted-club or new-signing player has no Premier League record, so
+    # "our" projection for him IS the Scout backfill · the same figure arriving
+    # twice. Blending it as two independent reads gave Scout 0.85 of the weight
+    # instead of 0.45 AND reported three-model confidence off two, so 14
+    # promoted-club punts were being shown as "High" on the strength of a single
+    # opinion. That is the mechanism behind O'Shea reading too strong.
+    #
+    # Blank OURS rather than Scout: Scout is the actual source, and keeping the
+    # column that is really his own keeps the diagnostics honest.
+    if "ours" in frame.columns and "scout" in frame.columns:
+        dup = _is_echo(out, frame["ours"], frame["scout"])
+        if dup.any():
+            frame.loc[dup, "ours"] = np.nan
+            out["consensus_echoed_scout"] = dup
+            logger.info("consensus: %d players had ours == scout (backfill), "
+                        "dropped the duplicate read", int(dup.sum()))
+
+            # And the Hub does not get a SEASON vote on these players either.
+            # Its number is a four-gameweek match forecast multiplied out to 38.
+            # For someone with no Premier League record that extrapolation is
+            # the least reliable figure in the stack, and it shows: measured
+            # against Scout, the Hub runs 1.37x on promoted-club players against
+            # 0.96x on established ones · 43% high. Nothing about the opening
+            # fixtures explains it (ease 0.968 against 0.992); it is the
+            # extrapolation itself assuming an opening month holds for a season,
+            # when promoted sides fade and rotate.
+            #
+            # Same principle as the zero-sample rule above: the Hub keeps the
+            # per-gameweek view, where it IS a real forecast, and keeps supplying
+            # the minutes signal. It just stops voting on a season it cannot see.
+            if "ffh" in frame.columns:
+                frame.loc[dup, "ffh"] = np.nan
+    if "consensus_echoed_scout" not in out.columns:
+        out["consensus_echoed_scout"] = False
 
     # Weighted mean over whatever each row actually has, weights renormalised
     # per row. A player only our model can see keeps our number rather than

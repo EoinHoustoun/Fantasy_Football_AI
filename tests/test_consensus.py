@@ -160,3 +160,75 @@ def test_board_is_not_mutated():
     before = board["projected_points"].tolist()
     build_consensus(board)
     assert board["projected_points"].tolist() == before
+
+
+# ── one number is not two models ─────────────────────────────────────────────
+
+def _backfilled_board(n=40):
+    """A board where the promoted-club rows were filled FROM Scout, so our
+    projection is Scout's number arriving a second time."""
+    b = _board(n)
+    b["projection_source"] = ["model"] * (n - 10) + ["scout"] * 10
+    return b
+
+
+def test_a_backfilled_row_does_not_count_scout_twice():
+    """This is the O'Shea bug: a promoted-club player has no Premier League
+    record, so "ours" IS the Scout backfill. Blending both gave Scout 0.85 of
+    the weight instead of 0.45."""
+    b = _backfilled_board()
+    scout = pd.DataFrame({"code": b["code"], "scout_pts": b["projected_points"]})
+    out, _ = build_consensus(b, scout_matched=scout)
+    back = out[out["projection_source"] == "scout"]
+    assert back["consensus_echoed_scout"].all()
+    assert (back["n_models"] == 1).all()
+
+
+def test_an_ordinary_row_still_counts_both_models():
+    b = _backfilled_board()
+    scout = pd.DataFrame({"code": b["code"],
+                          "scout_pts": b["projected_points"] * 1.3})
+    out, _ = build_consensus(b, scout_matched=scout)
+    normal = out[out["projection_source"] == "model"]
+    assert not normal["consensus_echoed_scout"].any()
+    assert (normal["n_models"] >= 2).all()
+
+
+def test_a_backfilled_row_cannot_report_high_confidence():
+    """Three-model confidence off one opinion counted twice was telling us a
+    promoted-club punt was a safe pick."""
+    b = _backfilled_board()
+    scout = pd.DataFrame({"code": b["code"], "scout_pts": b["projected_points"]})
+    ffh = pd.DataFrame({"code": b["code"],
+                        "ffh_pts_per_start": [5.0] * len(b),
+                        "nailedness": [0.9] * len(b)})
+    out, _ = build_consensus(b, scout_matched=scout, ffh_matched=ffh)
+    back = out[out["projection_source"] == "scout"]
+    assert "High" not in set(back["consensus_confidence"])
+
+
+def test_the_hub_does_not_vote_on_a_season_it_cannot_see():
+    """Measured at 1.37x Scout on promoted-club players against 0.96x on
+    established ones. A four-gameweek window multiplied to 38 is the least
+    reliable number in the stack for someone with no Premier League record."""
+    b = _backfilled_board()
+    scout = pd.DataFrame({"code": b["code"], "scout_pts": b["projected_points"]})
+    ffh = pd.DataFrame({"code": b["code"],
+                        "ffh_pts_per_start": [9.0] * len(b),   # wildly high
+                        "nailedness": [0.95] * len(b)})
+    out, _ = build_consensus(b, scout_matched=scout, ffh_matched=ffh)
+    back = out[out["projection_source"] == "scout"]
+    # consensus must equal the Scout number, untouched by the inflated Hub read
+    assert (back["consensus_points"] - back["src_scout"]).abs().max() < 0.11
+
+
+def test_the_hub_still_supplies_minutes_for_backfilled_players():
+    """It stops voting on a season · it does not stop being useful."""
+    b = _backfilled_board()
+    scout = pd.DataFrame({"code": b["code"], "scout_pts": b["projected_points"]})
+    ffh = pd.DataFrame({"code": b["code"],
+                        "ffh_pts_per_start": [5.0] * len(b),
+                        "nailedness": [0.9] * len(b)})
+    out, _ = build_consensus(b, scout_matched=scout, ffh_matched=ffh)
+    back = out[out["projection_source"] == "scout"]
+    assert back["ffh_nailedness"].notna().all()

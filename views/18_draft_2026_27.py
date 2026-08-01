@@ -810,6 +810,13 @@ def _tuned_board_impl(gate: float) -> pd.DataFrame:
     if gate > 0 and "ffh_nailedness" in d.columns:
         share = pd.to_numeric(d.get("mins_share"), errors="coerce").clip(0, 1)
         nail = pd.to_numeric(d["ffh_nailedness"], errors="coerce")
+        # A hand-entered minutes call OUTRANKS the match model, the same way a
+        # hand-entered absence does. The Hub had Foden at 32 minutes a game and
+        # the gate was scoring him on that, silently ignoring the explicit 2400
+        # sitting in the overrides file.
+        if "minutes_overridden" in d.columns:
+            hand = d["minutes_overridden"].fillna(False).astype(bool)
+            nail = nail.mask(hand, share)
         nail = nail.fillna(share).fillna(0.75)
         factor = (1.0 - gate) + gate * nail.clip(0.0, 1.0)
         for c in ("projected_points", "proj_lo"):

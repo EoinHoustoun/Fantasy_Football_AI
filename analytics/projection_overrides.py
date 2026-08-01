@@ -51,6 +51,8 @@ def apply_overrides(uni: pd.DataFrame, season: str = NEXT_SEASON) -> pd.DataFram
     uni = uni.copy()
     if "override_note" not in uni.columns:
         uni["override_note"] = ""
+    if "minutes_overridden" not in uni.columns:
+        uni["minutes_overridden"] = False
     if not ov:
         return uni
 
@@ -87,6 +89,12 @@ def apply_overrides(uni: pd.DataFrame, season: str = NEXT_SEASON) -> pd.DataFram
             share = round(min(max(new_min / _FULL_SEASON_MIN, 0.0), 1.0), 2)
             uni.at[i, "mins_share"] = share
             uni.at[i, "starts_ratio"] = share   # assert nailed-ness from the call
+            # A hand-entered minutes call has to beat the match model's own
+            # nailedness downstream, the same way `miss_gws` beats a match
+            # forecast. Without this the minutes gate read the Hub first and
+            # Foden was scored on 32 minutes a game despite an explicit 2400.
+            if "minutes_overridden" in uni.columns:
+                uni.at[i, "minutes_overridden"] = True
 
         # `points` sets the season projection outright · the bluntest override,
         # for when you simply know better than every model on the board.
