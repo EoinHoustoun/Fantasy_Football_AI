@@ -376,6 +376,65 @@ button[data-baseweb="tab"][aria-selected="true"] {{
 .st-key-planner_draft [data-testid^="stBaseButton-pills"] {{ flex: 0 0 auto !important; }}
 .st-key-planner_draft [role="radiogroup"]::-webkit-scrollbar {{ height: 6px; }}
 
+/* A rail holding fourteen drafts in 647px of screen scrolls, and a scroll with
+   no edge is a scroll nobody finds. These are scroll shadows: the two `local`
+   gradients ride the content and sit ON TOP of the two `scroll` shadows, so a
+   shadow only becomes visible on a side that actually has more to reveal. That
+   self-detection is the point · with "Just mine" selected the rail can hold two
+   pills, and a permanent fade there would be a lie. Nothing is masked, so no
+   pill label is ever dimmed. */
+.st-key-planner_draft [role="radiogroup"] {{
+  scroll-snap-type: x proximity;
+  background:
+    linear-gradient(to right, var(--ff-bg) 40%, transparent) left center /
+      44px 100% no-repeat local,
+    linear-gradient(to left, var(--ff-bg) 40%, transparent) right center /
+      44px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,0.30), transparent)
+      left center / 15px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,0.30), transparent)
+      right center / 15px 100% no-repeat scroll;
+}}
+.st-key-planner_draft [data-testid^="stBaseButton-pills"] {{ scroll-snap-align: start; }}
+
+/* ── Narrow viewport ──
+   The sidebar is a fixed 336px. On a 900px window that leaves ~560px for a page
+   whose job is to show a pitch, so the content column has to actually shrink
+   rather than spill. Flex children default to min-width:auto, which REFUSES to
+   go below their content and pushes the overflow outside the box · that is what
+   put 652px of card inside a 400px column. Everything below is that one fix
+   plus the type and image rules that follow from it. */
+[data-testid="stMainBlockContainer"], .block-container,
+[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"],
+[data-testid="stColumn"], [data-testid="stElementContainer"],
+[data-testid="stVerticalBlockBorderWrapper"] {{ min-width: 0 !important; }}
+
+[data-testid="stMainBlockContainer"] img,
+[data-testid="stMainBlockContainer"] svg {{ max-width: 100%; }}
+
+/* Hero type scales with the column instead of clipping at the first breakpoint.
+   The page hero is deliberately small already · this only lets it shrink. */
+.ff-hero-title {{
+  font-size: clamp(1.05rem, 2.4vw, 1.5rem) !important;
+  line-height: 1.1; overflow-wrap: break-word;
+}}
+
+/* Any hand-built row of tiles wraps before it scrolls · a wrapped tile is
+   readable, a clipped one is not. */
+.ff-wrap-row {{ flex-wrap: wrap !important; }}
+
+@media (max-width: 1100px) {{
+  /* Reclaim the sidebar. It is navigation, not content. */
+  [data-testid="stSidebar"] {{ min-width: 232px !important; max-width: 262px !important; }}
+  [data-testid="stSidebar"] .stButton > button {{ padding-left: 10px !important; }}
+}}
+@media (max-width: 820px) {{
+  [data-testid="stSidebar"] {{ min-width: 200px !important; max-width: 216px !important; }}
+  .stMainBlockContainer, [data-testid="stMainBlockContainer"], .block-container {{
+    padding-left: 1.1rem !important; padding-right: 1.1rem !important;
+  }}
+}}
+
 /* ── Controls ── */
 .stButton > button {{
   background: var(--ff-s2) !important; color: {ink} !important;

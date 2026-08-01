@@ -568,7 +568,11 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
     bench_total = sum((p.get("stat") or 0) for p in bench) if show_total else None
 
     pad = "3px 5px" if compact else "7px 7px"
+    # Five defenders of fixed-width card do not fit 560px of content column, and
+    # a clipped card hides the very numbers the card exists to show. Wrapping
+    # costs a little height and keeps every player readable.
     row_style = ("display:flex;justify-content:center;align-items:flex-start;"
+                 "flex-wrap:wrap;"
                  f"gap:{6 if compact else 9}px;padding:{pad};"
                  "position:relative;z-index:2;")
 

@@ -497,8 +497,8 @@ DEFCON = _defcon_per90()
 _HERO = _one_line(f"""
 <div class="fplh-animate-in" style="display:flex;align-items:center;gap:12px;
      flex-wrap:wrap;padding:0 0 6px;font-family:'Inter',sans-serif;">
-  <div class="ff-display" style="font-size:24px;font-weight:900;color:{V('text')};">
-    {NEXT_SEASON} Draft</div>
+  <div class="ff-display ff-hero-title" style="font-size:24px;font-weight:900;
+       color:{V('text')};">{NEXT_SEASON} Draft</div>
   <span style="background:{V('chip-bg')};border:1px solid {V('mint')};
     color:{V('mint')};font-size:9.5px;font-weight:800;letter-spacing:0.12em;
     padding:3px 9px;border-radius:20px;text-transform:uppercase;">
