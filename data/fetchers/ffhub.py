@@ -46,7 +46,9 @@ TEAM_ALIASES: Dict[str, str] = {}
 POS_ALIASES = {"Goalkeeper": "GKP", "Defender": "DEF",
                "Midfielder": "MID", "Forward": "FWD"}
 
-_FIXTURE_RE = re.compile(r"^([A-Z]{3})\((H|A)\)$")
+# The snapshot writes "BOU(H)". Whitespace is tolerated so a formatting change
+# upstream degrades to a parsed fixture rather than a silently blank run.
+_FIXTURE_RE = re.compile(r"^([A-Za-z]{3})\s*\(\s*(H|A)\s*\)$", re.IGNORECASE)
 
 
 def window_gws(df: pd.DataFrame) -> List[int]:
@@ -108,7 +110,7 @@ def parse_fixture(label) -> Optional[Dict]:
     m = _FIXTURE_RE.match(label.strip())
     if not m:
         return None
-    return {"opp": m.group(1), "home": m.group(2) == "H"}
+    return {"opp": m.group(1).upper(), "home": m.group(2).upper() == "H"}
 
 
 def per_gw_frame(df: pd.DataFrame) -> pd.DataFrame:

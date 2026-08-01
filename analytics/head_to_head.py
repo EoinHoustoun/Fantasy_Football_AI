@@ -432,12 +432,22 @@ def simulate_drafts(entries: List[Dict], proj, board: pd.DataFrame,
         })
 
     # Pairwise and overall win probabilities, on the same draws.
+    #
+    # Ties count as half, and that is not a nicety. Shared draws mean two drafts
+    # holding the same fifteen produce byte-identical totals, so a strict `>`
+    # scores each of them "beats the other 0% of the time" · which reads as
+    # "both lose" instead of "dead heat". Splitting ties gives 0.5, which is
+    # what `significance` already interprets correctly as a coin flip.
     totals = np.vstack([d["_totals"] for d in out])
-    best = np.argmax(totals, axis=0)
+    top = totals.max(axis=0)
+    leaders = (totals == top)                    # ties share the credit
+    share = leaders / leaders.sum(axis=0, keepdims=True)
     for i, d in enumerate(out):
-        d["p_best"] = float((best == i).mean().round(3))
-        d["beats"] = {out[j]["name"]: float((totals[i] > totals[j]).mean().round(3))
-                      for j in range(len(out)) if j != i}
+        d["p_best"] = float(share[i].mean().round(3))
+        d["beats"] = {
+            out[j]["name"]: float(((totals[i] > totals[j]).mean()
+                                   + 0.5 * (totals[i] == totals[j]).mean()).round(3))
+            for j in range(len(out)) if j != i}
         del d["_totals"]
 
     return {"gws": gws, "drafts": out, "n_sims": S}
