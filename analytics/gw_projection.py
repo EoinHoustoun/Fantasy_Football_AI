@@ -145,18 +145,57 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
     except Exception as exc:
         logger.warning("per-gameweek match forecasts unavailable: %s", exc)
 
-    miss = {}
+    miss, early = {}, {}
     try:
         from analytics.projection_overrides import load_overrides
         for code, adj in load_overrides().items():
             gws = adj.get("miss_gws")
             if gws:
                 miss[int(code)] = [int(g) for g in gws]
+            if adj.get("early_nailedness") is not None:
+                early[int(code)] = float(adj["early_nailedness"])
         if miss:
             logger.info("per-gameweek unavailability for %d players", len(miss))
     except Exception as exc:
         logger.warning("miss_gws overrides skipped: %s", exc)
+
+    # A hand minutes call has to reach the PER-GAMEWEEK numbers, not just the
+    # season gate. The match model had Foden at 70 minutes in GW1 then 20, 20,
+    # 20 · a substitute · so any objective scored over an opening window read
+    # him as a sub however emphatically the overrides file said otherwise.
+    #
+    # Points are scaled by the minutes ratio. That is an approximation: two of
+    # a player's points are an appearance bonus that does not scale, so this
+    # slightly over-rewards a big uplift. It is far closer than ignoring the
+    # call entirely, and it is capped so a 10-minute cameo cannot be multiplied
+    # into a haul.
+    if early and long is not None and not long.empty:
+        long = _apply_early_minutes(long, early)
+
     return GwProjection(board, fixtures_by_gw, long, miss_gws=miss)
+
+
+# A hand call can lift a player's minutes by at most this multiple. Beyond it
+# we are no longer adjusting a forecast, we are inventing one.
+EARLY_MINUTES_CAP = 3.0
+
+
+def _apply_early_minutes(long: pd.DataFrame, early: Dict[int, float]) -> pd.DataFrame:
+    """Rescale match forecasts where a human has overruled the expected minutes."""
+    out = long.copy()
+    want = out["code"].astype(int).map(early) * 90.0
+    have = pd.to_numeric(out.get("exp_mins"), errors="coerce")
+
+    usable = want.notna() & have.notna() & (have > 0) & (want > have)
+    if not usable.any():
+        return out
+
+    ratio = (want / have).clip(upper=EARLY_MINUTES_CAP)
+    out.loc[usable, "pts"] = (pd.to_numeric(out.loc[usable, "pts"], errors="coerce")
+                              * ratio[usable]).round(2)
+    out.loc[usable, "exp_mins"] = want[usable].round(0)
+    logger.info("early-minutes override rescaled %d match cells", int(usable.sum()))
+    return out
 
 
 def best_xi(squad: pd.DataFrame, proj: GwProjection, gw: int) -> set:

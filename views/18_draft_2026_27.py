@@ -20,6 +20,7 @@ the light/dark switch without knowing which theme is on.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -928,10 +929,57 @@ def _tuned_board_impl(gate: float) -> pd.DataFrame:
     return d
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _window_board(_base: pd.DataFrame, lo: int, hi: int, _stamp: str) -> pd.DataFrame:
+    """The board scored on the WINDOW you will actually own this squad for.
+
+    If you wildcard at GW4 then the opening fifteen only has to be good for
+    GW1-3, and a season total is the wrong objective for it. This is not the
+    same as scaling season points by fixture ease: a player nailed for the
+    opening weeks but rotated later (Mosquera starts while Saliba is injured)
+    has a LOW season number, so ease-scaling cannot rescue him. Only summing
+    his actual expected points across GW1-3 can.
+
+    The confidence floor is rescaled by each player's own ratio so the risk
+    dial keeps meaning the same thing.
+    """
+    d = _base.copy()
+    codes = [int(c) for c in d["code"]]
+    run = PROJ.matrix(codes, list(range(int(lo), int(hi) + 1))).sum(axis=1)
+    run = d["code"].astype(int).map(run).fillna(0.0)
+
+    season = pd.to_numeric(d[PTS_COL], errors="coerce").replace(0, pd.NA)
+    ratio = (run / season).astype(float).fillna(0.0)
+    for c in ("proj_lo", "projected_points"):
+        if c in d.columns:
+            d[c] = (pd.to_numeric(d[c], errors="coerce") * ratio).round(2)
+    d[PTS_COL] = run.round(2)
+    return d
+
+
 SOLVE_BOARD = _tuned_board(minutes_gate)
 _omap, _oweight = (), opening
-if mode == SPRINT_STRATEGY:
+
+# An early Wildcard changes what "optimal" MEANS. Score the opening squad over
+# the weeks you will actually own it, not over a season you are going to tear up.
+_wc = _spec.get("wildcard_gw")
+OPT_WINDOW = (1, int(_wc) - 1) if _wc and int(_wc) > 1 else None
+if OPT_WINDOW:
+    SOLVE_BOARD = _window_board(SOLVE_BOARD, OPT_WINDOW[0], OPT_WINDOW[1],
+                                BOARD_STAMP)
+elif mode == SPRINT_STRATEGY:
     _omap, _oweight = _window_map(*SPRINT_WINDOW), 1.0
+
+if OPT_WINDOW:
+    st.markdown(_one_line(
+        f'<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;'
+        f'margin:-2px 0 8px;">{theme.icon("target", 15, V("cyan"))}'
+        f'<span style="color:{V("text")};">Built for '
+        f'<b>GW{OPT_WINDOW[0]}-{OPT_WINDOW[1]}</b> only, because you wildcard at '
+        f'GW{_wc}. <span style="color:{V("muted")};">A player who fades later '
+        f'costs you nothing here, so form and nailed minutes in the opening '
+        f'weeks are worth more than a season total.</span></span></div>'),
+        unsafe_allow_html=True)
 
 _SAVED_SQUAD = None
 if DR.has_squad(_spec):
@@ -984,19 +1032,31 @@ if locked and res is not None:
     cost = (res["xi_points"] - free["xi_points"]) if free else None
     _tok = ("mint" if (cost is None or cost > CONVICTION_FREE)
             else "orange" if cost > CONVICTION_REAL else "red")
-    _verdict = ("" if cost is None else
-                " · essentially free" if cost > CONVICTION_FREE else
-                " · a real price" if cost > CONVICTION_REAL else " · an expensive conviction")
+    # Say what it MEANS, not what it measures. "-36 XI pts vs the free optimum ·
+    # an expensive conviction" is a description of an arithmetic operation; the
+    # reader wants to know whether insisting on these players is costing them.
+    _names = ", ".join(locked)
+    _pts = (lambda n: "%.0f point%s" % (abs(n), "" if abs(round(n)) == 1 else "s"))
+    if cost is None:
+        _line = f"You have insisted on {_names}."
+    elif cost > CONVICTION_FREE:
+        _line = (f"Insisting on {_names} costs you almost nothing · about "
+                 f"{_pts(cost)} over the window. Keep them.")
+    elif cost > CONVICTION_REAL:
+        _line = (f"Insisting on {_names} costs about {_pts(cost)}. "
+                 f"Worth it if you believe in them more than the model does.")
+    else:
+        _line = (f"Insisting on {_names} costs about {_pts(cost)}. "
+                 f"That is a lot · the money would do more spread around.")
     st.markdown(_one_line(
-        f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;'
+        f'<div style="display:flex;align-items:flex-start;gap:8px;'
         f'font-size:12.5px;margin:-4px 0 8px;">'
         f'{theme.icon("lock", 15, V(_tok))}'
-        f'<span style="color:{V("muted")};">£{spend:.1f}m committed, '
-        f'£{budget - spend:.1f}m for the other {15 - len(locked)}</span>'
-        + (f'<span style="color:{V(_tok)};font-weight:700;">'
-           f'{cost:+.0f} XI pts vs the free optimum{_verdict}</span>'
-           if cost is not None else "")
-        + '</div>'), unsafe_allow_html=True)
+        f'<span style="color:{V("text")};">{_line} '
+        f'<span style="color:{V("muted")};">They take £{spend:.1f}m of your '
+        f'£{budget:.0f}m, leaving £{budget - spend:.1f}m for the other '
+        f'{15 - len(locked)} players.</span></span></div>'),
+        unsafe_allow_html=True)
 
 # ── Working state, scoped to the selected draft ───────────────────────────────
 # Transfers, the axed player, manual XI picks and the viewed gameweek all belong
@@ -1497,7 +1557,7 @@ def _band_chart(code: int, row: pd.Series, p: Dict, key: str) -> None:
             f = float(v)
         except (TypeError, ValueError):
             return default
-        return f if np.isfinite(f) else default
+        return f if math.isfinite(f) else default
 
     inds, his, theirs = [], [], []
     for name, mine, med in axes:
