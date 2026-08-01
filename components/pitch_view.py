@@ -247,24 +247,29 @@ def _formation_bar(formation: str, title_right: str = "",
     The total lives here rather than in a tile below the pitch, because it is
     the number you want while you are looking at the team.
     """
-    left = (f'<div style="color:rgba(255,255,255,0.75);font-size:13px;font-weight:600;">'
+    # This bar sits ABOVE the pitch, on the page background rather than on
+    # grass, so it cannot use the white the cards use · in light mode that was
+    # white-on-white and the squad total simply vanished. Theme variables reach
+    # here because the component is handed theme.component_css().
+    left = (f'<div style="color:var(--ff-muted);font-size:13px;font-weight:600;">'
             f'{title_right}</div>') if title_right else '<div></div>'
     mid = ""
     if total is not None:
         bench = (f'<span style="font-size:11px;font-weight:600;'
-                 f'color:rgba(255,255,255,0.6);margin-left:8px;">'
+                 f'color:var(--ff-muted);margin-left:8px;">'
                  f'bench {bench_total:.1f}</span>' if bench_total is not None else "")
         mid = (f'<div style="display:flex;align-items:baseline;gap:7px;">'
                f'<span style="font-size:10px;font-weight:800;letter-spacing:0.16em;'
-               f'text-transform:uppercase;color:rgba(255,255,255,0.65);">'
+               f'text-transform:uppercase;color:var(--ff-muted);">'
                f'{total_label}</span>'
                f'<span style="font-family:{_DISPLAY};font-size:22px;font-weight:900;'
-               f'color:#00FF87;line-height:1;">{total:.1f}</span>{bench}</div>')
+               f'color:var(--ff-mint);line-height:1;">{total:.1f}</span>{bench}</div>')
     return (
         f'<div style="display:flex;justify-content:space-between;align-items:center;'
-        f'gap:12px;margin-bottom:8px;">{left}{mid}'
-        f'<div style="font-family:{_DISPLAY};color:#fff;font-size:13px;font-weight:800;'
-        f'letter-spacing:0.02em;">Formation <span style="color:#00FF87;">{formation}</span></div>'
+        f'gap:12px;flex-wrap:wrap;margin-bottom:8px;">{left}{mid}'
+        f'<div style="font-family:{_DISPLAY};color:var(--ff-text);font-size:13px;'
+        f'font-weight:800;letter-spacing:0.02em;">Formation '
+        f'<span style="color:var(--ff-mint);">{formation}</span></div>'
         f'</div>'
     )
 
@@ -542,6 +547,7 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
                        interactive: bool = False,
                        compact: bool = False,
                        show_total: bool = True,
+                       xi_total_override: Optional[float] = None,
                        key: str = "ff_pitch_replay"):
     """Generic pitch for Season Lab squads (GK→DEF→MID→FWD, top to bottom).
 
@@ -564,7 +570,13 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
     bench = sorted(bench, key=lambda p: (bench_order.get(p.get("position"), 4),
                                          -(p.get("stat") or 0)))
     formation = f"{len(by_pos['DEF'])}-{len(by_pos['MID'])}-{len(by_pos['FWD'])}"
-    xi_total = sum((p.get("stat") or 0) for p in xi) if show_total else None
+    # The caller may already have a truer total than the sum of the cards ·
+    # the XI tile doubles the captain, and two different numbers both labelled
+    # "XI GW1" on the same screen is worse than either being slightly off.
+    xi_total = (xi_total_override if xi_total_override is not None
+                else (sum((p.get("stat") or 0) for p in xi) if show_total else None))
+    if not show_total:
+        xi_total = None
     bench_total = sum((p.get("stat") or 0) for p in bench) if show_total else None
 
     pad = "3px 5px" if compact else "7px 7px"

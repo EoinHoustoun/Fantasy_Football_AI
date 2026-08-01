@@ -155,7 +155,20 @@ Call `inject_global_animations()` at the top of every page. Provides:
    reopens whenever an unrelated control moves (a slider, a radio). Store the
    nonce in `session_state` and act only when it changes. Bit us on the 26/27
    Draft: "the player popup comes up randomly".
-5. **Never call `st.rerun()` in a button handler.** Streamlit already reruns on click. Double-rerun caused a race with the animation overlay SVG mount (TypeError).
+5. **Do not call `st.rerun()` in a plain button handler.** Streamlit already
+   reruns on click, and the double-rerun raced the animation overlay SVG mount
+   (TypeError). **Three exceptions are sanctioned**, because in each the default
+   rerun does not do the job:
+   - **Inside `st.dialog`** · a dialog does not close on its own. Set the state,
+     then `st.rerun()` (app scope · a fragment-scoped rerun leaves it open).
+   - **After writing to disk** (saving or deleting a draft) · the widget that
+     lists the options was constructed before the write, so without a rerun the
+     picker does not show what you just saved.
+   - **Inside `@st.fragment`** · use `st.rerun(scope="fragment")` so an in-page
+     action (a swap, a bench, a gameweek step) redraws the fragment without
+     rebuilding the whole page. This is the normal case on the Draft page.
+
+   Anything outside those three is the bug the rule was written for.
 6. **Streamlit strips `style` attributes that contain only CSS custom properties.** `<span style="--x:5">` arrives with no style attribute at all. Carry custom-property values in a per-instance `<style>` rule instead (see `animations.count_up`).
 6b. **`st.markdown` escapes HTML when a line is whitespace-only.** A multi-line HTML card with an interpolated placeholder (`{flag_html}`) that is empty leaves a blank/whitespace line, which makes the markdown parser stop passing raw HTML through and render the rest as literal `<span>` text. **Always collapse card HTML to one line:** `return "".join(seg.strip() for seg in html.splitlines())`. (Bit us on the Value Board cards; see `views/18_draft_2026_27.py`.)
 7. **No em dashes anywhere.** UI copy, comments, commit messages. Use the mid-dot `·`, a comma, or a full stop.

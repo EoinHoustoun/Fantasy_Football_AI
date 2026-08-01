@@ -1717,7 +1717,10 @@ def planner() -> None:
 
     click = _click(render_squad_pitch(
         players, stat_label=f"GW{gw}", title_right=f"{NEXT_SEASON} · GW{gw}",
-        interactive=True, compact=compact, key="draft_pitch"), "_pitch_nonce")
+        interactive=True, compact=compact,
+        # Same number as the XI tile · the pitch would otherwise sum the cards
+        # and quietly drop the captain's double.
+        xi_total_override=round(xi_pts, 1), key="draft_pitch"), "_pitch_nonce")
     if click:
         action, cid = click.get("action"), int(click.get("id") or 0)
         if action == "detail":
