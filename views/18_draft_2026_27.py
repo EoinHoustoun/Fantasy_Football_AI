@@ -1802,6 +1802,12 @@ def planner() -> None:
     if show_changes:
         st.markdown(_changes_summary(ledger), unsafe_allow_html=True)
 
+    # Rank is relative, so the players you SKIPPED are half the position.
+    from analytics.template import punt_meter, verdict_line as _punt_line
+    _punt = punt_meter(board, [int(c) for c in codes])
+    _punt_tok = {"maverick": "red", "differential": "gold",
+                 "template": "cyan"}.get(_punt["level"], "muted")
+
     _tiles([
         ("Spend", f"£{cost:.1f}m", f"£{bank:.1f}m banked", "mint"),
         (f"XI · GW{gw}", f"{xi_pts:.0f}", f"p10 {_band['lo']:.0f} · p90 {_band['hi']:.0f}",
@@ -1811,7 +1817,23 @@ def planner() -> None:
          ", ".join(dead)[:30] if dead else "everyone plays", "red" if dead else "muted2"),
         ("Forecast", f"{hit}/{n}", "on match forecasts" if hit else "fixture shape",
          "mint" if hit >= n * 0.8 else "orange"),
+        ("Template risk", _punt["level"].title(),
+         f"{_punt['n']} skipped · -{_punt['downside']:.0f} if they haul", _punt_tok),
     ])
+
+    # The bet, spelled out. A template skip pays small and often and loses big
+    # and rarely, which is a fine way to win a mini-league and a terrible thing
+    # to do by accident.
+    if _punt["n"]:
+        _worst = " · ".join(f"{w['name']} {w['own']:.0f}% (-{w['cost']:.0f})"
+                            for w in _punt["worst"][:4])
+        st.markdown(_one_line(
+            f'<div style="{CARD}border-left:3px solid {V(_punt_tok)};'
+            f'padding:11px 14px;margin:0 0 12px;">'
+            f'<div style="font-size:12.5px;color:{V("text")};line-height:1.55;">'
+            f'{_punt_line(_punt)}</div>'
+            f'<div style="font-size:11px;color:{V("muted")};margin-top:5px;">'
+            f'Biggest exposures · {_worst}</div></div>'), unsafe_allow_html=True)
 
 
     # ── One table: replacements when someone is marked, otherwise the pool ───
