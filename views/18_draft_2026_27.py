@@ -1398,17 +1398,30 @@ def _rank_of(value: float, sorted_vals: List[float]) -> Tuple[int, int, float]:
     return n - below, n, below / n
 
 
+# A forecast and a fact should never look alike on screen.
+PROJ_MARK = " ~"      # projected · a model's opinion
+STAT_MARK = " ●"      # measured · what actually happened last season
+
+
 def _graded_tiles(code: int, row: pd.Series, p: Dict) -> List:
-    """The five headline numbers, each graded and each carrying its rank."""
+    """The five headline numbers, each graded and each carrying its rank.
+
+    Every label is marked: `~` for a projection, `●` for a measured stat.
+    """
     pos = str(row.get("position", ""))
     ranks = _position_ranks(BOARD_STAMP).get(pos, {})
     gw = int(st.session_state.get(_sk("draft_gw"), 1))
 
-    def rank_tile(icon, label, value, key, fmt="%.0f"):
+    # A projection and a measured stat are different kinds of number and should
+    # never look alike. DEFCON per 90 is what a player DID; 109 season points is
+    # what a model GUESSES he will do. Reading the second with the confidence of
+    # the first is how you end up trusting a punt.
+    def rank_tile(icon, label, value, key, fmt="%.0f", kind="proj"):
         r, n, pct = _rank_of(value, ranks.get(key, []))
+        mark = PROJ_MARK if kind == "proj" else STAT_MARK
         if not n:
-            return (icon, label, fmt % (value or 0), "no comparison set", "muted2")
-        return (icon, label, fmt % value,
+            return (icon, label + mark, fmt % (value or 0), "no comparison set", "muted2")
+        return (icon, label + mark, fmt % value,
                 f"{_ordinal(r)} of {n} {pos}", GRADE_TOKENS[_grade_rank(pct)])
 
     tiles = [
@@ -1422,25 +1435,25 @@ def _graded_tiles(code: int, row: pd.Series, p: Dict) -> List:
     gw_tok = "good" if gw_pts >= 5 else "ok" if gw_pts >= 3.2 else "poor"
     gw_sub = ("not expected to play" if PROJ.misses(code, gw)
               else "expected this week")
-    tiles.append(("sports_soccer", f"GW{gw}", f"{gw_pts:.1f}", gw_sub,
+    tiles.append(("sports_soccer", f"GW{gw}" + PROJ_MARK, f"{gw_pts:.1f}", gw_sub,
                   GRADE_TOKENS["none" if PROJ.misses(code, gw) else gw_tok]))
 
     # DEFCON against the bar the rules set, not against other players.
     thr = DEFCON_THRESHOLD.get(pos)
     dc = DEFCON.loc[code] if (not DEFCON.empty and code in DEFCON.index) else None
     if thr is None:
-        tiles.append(("shield", "DEFCON", "n/a", f"no route to it as a {pos}",
+        tiles.append(("shield", "DEFCON" + STAT_MARK, "n/a", f"no route to it as a {pos}",
                       GRADE_TOKENS["none"]))
     elif dc is None:
-        tiles.append(("shield", "DEFCON / 90", "n/a", "no 25/26 record",
+        tiles.append(("shield", "DEFCON / 90" + STAT_MARK, "n/a", "no 25/26 record",
                       GRADE_TOKENS["none"]))
     else:
         per90 = float(dc.get("dc_per90") or 0)
         tok = ("good" if per90 >= thr else
                "ok" if per90 >= thr * DEFCON_CLOSE else "poor")
         hit = float(dc.get("dc_hit_rate") or 0) * 100
-        tiles.append(("shield", "DEFCON / 90", f"{per90:.1f}",
-                      f"bar {thr:.0f} for 2 pts · clears it {hit:.0f}% of starts",
+        tiles.append(("shield", "DEFCON / 90" + STAT_MARK, f"{per90:.1f}",
+                      f"25/26 · bar {thr:.0f} for 2 pts · cleared it {hit:.0f}% of starts",
                       GRADE_TOKENS[tok]))
     return tiles
 
@@ -1695,6 +1708,15 @@ def _player_dialog(code: int) -> None:
                    f"not a read on the opening weeks.")
 
     st.markdown(_strip(_graded_tiles(code, r, p)), unsafe_allow_html=True)
+    # Say which numbers are forecasts and which are facts. Reading a projection
+    # with the confidence of a measured stat is how a punt starts to look safe.
+    st.markdown(_one_line(
+        f'<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:10.5px;'
+        f'color:{V("muted")};margin:-6px 0 10px;">'
+        f'<span><b style="color:{V("text")};">~</b> projected · a model\'s '
+        f'opinion about this season</span>'
+        f'<span><b style="color:{V("text")};">●</b> measured · what actually '
+        f'happened in 2025-26</span></div>'), unsafe_allow_html=True)
     st.markdown(_one_line(
         f'<div style="font-size:11.5px;color:{V("muted2")};margin:-6px 0 10px;">'
         f'Green beats most players in his position, amber is mid-table, red is '
