@@ -200,6 +200,18 @@ def _vars_block(p: Dict[str, str]) -> str:
 # ── Global CSS ────────────────────────────────────────────────────────────────
 def _css(p: Dict[str, str], light: bool) -> str:
     ink = p["text"]
+    # Constellation palette. The rail is a bright cyan in BOTH themes, so the
+    # sky is drawn in white and deep teal rather than in the usual ink tokens ·
+    # a mint star on cyan is invisible, and a dark star reads as dirt.
+    star_a = "rgba(255,255,255,0.90)"
+    star_b = "rgba(255,255,255,0.65)"
+    star_c = "rgba(5,34,43,0.30)"          # a few dark ones for depth
+    glow = "rgba(255,255,255,0.42)"
+    pitch_line = "rgba(255,255,255,0.30)"
+    pitch_line_soft = "rgba(255,255,255,0.14)"
+    star_opacity = "0.85" if light else "0.95"
+    pitch_opacity = "0.28" if light else "0.34"
+    pitch_opacity_hi = "0.40" if light else "0.48"
     # Streamlit's own chrome is configured dark in config.toml, and config cannot
     # switch at runtime, so light mode has to override it here.
     return f"""
@@ -250,6 +262,67 @@ h1, h2, h3, h4 {{ color: {ink} !important; }}
   border-right: 1px solid var(--ff-side-line) !important;
   box-shadow: inset -1px 0 0 rgba(255,255,255,0.5),
               4px 0 24px rgba(12,32,57,0.14) !important;
+  position: relative !important;
+}}
+/* ── The constellation ──
+   A floodlit night sky over the rail: a slow drift of stars, a faint pitch
+   centre-circle and halfway line ghosted behind them, and two arcs that read as
+   a stadium's light spill. Everything is a gradient or a keyframe · no images,
+   no canvas, nothing to load, and it sits in a ::before so no Streamlit element
+   has to know it exists.
+
+   `pointer-events:none` matters: the layer covers the whole rail, and without
+   it every nav link underneath would stop taking clicks. */
+[data-testid="stSidebar"]::before {{
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  opacity: {star_opacity};
+  background-image:
+    /* stars, three sizes, three parallax layers */
+    radial-gradient(1.6px 1.6px at 18% 12%, {star_a} 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 72% 8%,  {star_a} 50%, transparent 51%),
+    radial-gradient(2.1px 2.1px at 44% 22%, {star_b} 50%, transparent 51%),
+    radial-gradient(1.1px 1.1px at 86% 31%, {star_a} 50%, transparent 51%),
+    radial-gradient(1.7px 1.7px at 12% 44%, {star_b} 50%, transparent 51%),
+    radial-gradient(1.3px 1.3px at 62% 52%, {star_a} 50%, transparent 51%),
+    radial-gradient(2.3px 2.3px at 30% 64%, {star_c} 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 78% 71%, {star_a} 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 22% 83%, {star_b} 50%, transparent 51%),
+    radial-gradient(1.1px 1.1px at 68% 92%, {star_a} 50%, transparent 51%),
+    radial-gradient(1.9px 1.9px at 50% 37%, {star_c} 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 90% 58%, {star_a} 50%, transparent 51%),
+    /* floodlight spill from the top corners */
+    radial-gradient(120% 42% at 8% -6%,  {glow} 0%, transparent 60%),
+    radial-gradient(120% 38% at 96% -4%, {glow} 0%, transparent 58%);
+  background-repeat: no-repeat;
+  animation: ffDrift 42s ease-in-out infinite alternate;
+}}
+/* The pitch, ghosted · a centre circle and a halfway line, nothing more. It is
+   the one shape that says football without a single word or emoji. */
+[data-testid="stSidebar"]::after {{
+  content: ""; position: absolute; pointer-events: none; z-index: 0;
+  left: 50%; top: 34%; width: 190px; height: 190px; margin-left: -95px;
+  border: 1.5px solid {pitch_line}; border-radius: 50%;
+  box-shadow: 0 0 0 1px {pitch_line_soft} inset;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 0.75px),
+                    {pitch_line} calc(50% - 0.75px),
+                    {pitch_line} calc(50% + 0.75px), transparent calc(50% + 0.75px));
+  opacity: {pitch_opacity};
+  animation: ffBreathe 16s ease-in-out infinite;
+}}
+@keyframes ffDrift {{
+  from {{ transform: translate3d(0, 0, 0) scale(1); }}
+  to   {{ transform: translate3d(-6px, 10px, 0) scale(1.03); }}
+}}
+@keyframes ffBreathe {{
+  0%, 100% {{ opacity: {pitch_opacity}; transform: scale(1); }}
+  50%      {{ opacity: {pitch_opacity_hi}; transform: scale(1.04); }}
+}}
+/* Content sits above the sky. */
+[data-testid="stSidebar"] > div {{ position: relative; z-index: 1; }}
+@media (prefers-reduced-motion: reduce) {{
+  [data-testid="stSidebar"]::before,
+  [data-testid="stSidebar"]::after {{ animation: none !important; }}
 }}
 [data-testid="stSidebar"] * {{ color: var(--ff-side-ink) !important; }}
 [data-testid="stSidebar"] hr {{ border-color: var(--ff-side-line) !important; }}
