@@ -181,6 +181,16 @@ def build_value_verdicts(
     df = proj.merge(live, on="code", how="inner").copy()
     # Live position wins too (rare, but a player can be re-classified).
     df["position"] = df["live_position"].fillna(df.get("position"))
+    # And the live NAME. FPL disambiguates a clash with an initial and drops it
+    # again when the clash resolves: Mateus Fernandes was "M.Fernandes" at West
+    # Ham alongside another Fernandes, and is plain "Fernandes" at Spurs. Carry
+    # last season's spelling and every join on name breaks · Scout and the Hub
+    # both use the current one, so he silently lost BOTH second opinions and his
+    # number came from our carryover model alone while still being labelled a
+    # three-model blend. Four names on the current board were stale this way.
+    if "live_web_name" in df.columns:
+        _live_nm = df["live_web_name"].replace("", pd.NA)
+        df["web_name"] = _live_nm.fillna(df.get("web_name"))
     df["value_score"] = (df["projected_points"] / df["actual_price"]).round(2)
     df["pricing_surprise"] = (df["predicted_start_price"] - df["actual_price"]).round(1)
     df = _assign_verdicts(df, cfg)
