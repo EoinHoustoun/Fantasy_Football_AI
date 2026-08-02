@@ -231,9 +231,9 @@ def _changes_summary(ledger: Dict) -> str:
 #
 # The shape matters as much as the colour · it is what keeps the comparison
 # readable for a colour-blind reader and in a greyscale screenshot.
-# Enough letters to label every saved draft · "compare all" can pass
-# thirteen, and a repeated letter is worse than no letter at all.
-_ID_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+# V1, V2, V3 rather than A, B, C. A version number is what these actually are ·
+# successive attempts at the same squad · and it reads as an id you can say out
+# loud without having to remember which letter was which.
 _ID_TOKENS = ["mint", "gold", "cyan", "mag", "orange", "red"]
 _ID_SHAPES = ["circle", "square", "change_history", "diamond", "hexagon", "star"]
 
@@ -241,7 +241,7 @@ _ID_SHAPES = ["circle", "square", "change_history", "diamond", "hexagon", "star"
 def _draft_identities(names: List[str]) -> Dict[str, Dict]:
     out = {}
     for i, nm in enumerate(names):
-        out[nm] = {"letter": _ID_LETTERS[i % len(_ID_LETTERS)],
+        out[nm] = {"letter": "V%d" % (i + 1),
                    "token": _ID_TOKENS[i % len(_ID_TOKENS)],
                    "shape": _ID_SHAPES[i % len(_ID_SHAPES)],
                    "colour": theme.fill(_ID_TOKENS[i % len(_ID_TOKENS)])}
@@ -249,12 +249,17 @@ def _draft_identities(names: List[str]) -> Dict[str, Dict]:
 
 
 def _badge(ident: Dict, size: int = 22) -> str:
-    """The lettered chip that stands in for a draft anywhere it is referenced."""
+    """The version chip that stands in for a draft anywhere it is referenced.
+
+    Sized for TWO characters now that it reads V1 rather than A · a square built
+    for one glyph crops the digit off the second.
+    """
     return (f'<span style="display:inline-grid;place-items:center;'
-            f'width:{size}px;height:{size}px;border-radius:7px;flex-shrink:0;'
+            f'min-width:{int(size * 1.35)}px;height:{size}px;padding:0 4px;'
+            f'border-radius:7px;flex-shrink:0;'
             f'background:{ident["colour"]};color:#06251A;'
-            f'font-family:var(--ff-display);font-size:{int(size * 0.55)}px;'
-            f'font-weight:900;line-height:1;'
+            f'font-family:var(--ff-display);font-size:{int(size * 0.5)}px;'
+            f'font-weight:900;line-height:1;letter-spacing:-0.02em;'
             f'box-shadow:0 2px 6px rgba(0,0,0,0.25);">{ident["letter"]}</span>')
 
 
@@ -801,8 +806,7 @@ with _sel_col:
         # Plain text · st.selectbox does not render Material icon markup, and a
         # literal ":material/lock:" in the closed dropdown is worse than none.
         # The group prefix already says what kind of draft it is.
-        format_func=lambda n: ("%s  ·  %s" % (_draft_group(n), _plain_label(n))
-                               if len(_opts) > 4 else _plain_label(n)))
+        format_func=_plain_label)
 with _new_col:
     # No name box here. You do not know what a draft IS until you have tuned it
     # and looked at the fifteen, so being made to name it first is a question
@@ -1515,6 +1519,27 @@ def _current_squad(gw: Optional[int] = None) -> pd.DataFrame:
     return _squad_from_codes(codes)
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _perfect_week(gw: int, budget: float, _stamp: str) -> float:
+    """The most any legal £100m squad could score in this one gameweek.
+
+    A Free Hit with perfect foresight, in other words: build a fresh fifteen
+    knowing only this week's projections, play the best eleven, captain the
+    best of them. It is the ceiling a real squad is measured against, and it
+    moves week to week with the fixtures · which is the point. 60 points in a
+    week where the ceiling is 70 is a good squad; 60 where the ceiling is 110
+    means you own the wrong players for those fixtures.
+    """
+    from analytics.squad_milp import optimize_squad
+    d = board.rename(columns={"actual_price": "price"}).copy()
+    d["pts"] = [round(PROJ.points(int(c), int(gw)), 2) for c in d["code"]]
+    # bench_weight 0 · a Free Hit bench scores nothing, and letting it count
+    # would raise the ceiling with points nobody can actually take.
+    res = optimize_squad(d, budget=float(budget), pts_col="pts",
+                         bench_weight=0.0, time_limit=25)
+    return float(res["xi_points"]) if res else 0.0
+
+
 def _transfer_ledger(upto_gw: int) -> Dict:
     """This draft's free transfers and hits. Rules live in analytics.
 
@@ -1594,11 +1619,16 @@ def _week_bars(prof: Dict, cuts: Dict) -> str:
         return f'<div style="{CARD}padding:11px;color:{V("muted2")};">No forecast.</div>'
     top = max(max(weeks), 1.0) * 1.12
     rows = []
+    from analytics.gw_projection import SRC_MANUAL
     for i, v in enumerate(weeks):
         gw = prof["gw_from"] + i
         band = grading.band_of(v, prof["position"], cuts)
         col = V(grading.BAND_TOKENS[band])
         pct = max(2.0, min(100.0, v / top * 100))
+        # A week you set by hand is not a forecast and must never be read as
+        # one · Foden's GW2 and GW3 are a minutes call, not the match model.
+        _hand = (prof.get("code") is not None
+                 and PROJ.source(int(prof["code"]), gw) == SRC_MANUAL)
         rows.append(
             f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">'
             f'<span style="font-size:9.5px;font-weight:700;color:{V("muted2")};'
@@ -1607,7 +1637,9 @@ def _week_bars(prof: Dict, cuts: Dict) -> str:
             f'border-radius:4px;overflow:hidden;">'
             f'<div style="width:{pct:.0f}%;height:100%;background:{col};'
             f'opacity:0.82;border-radius:4px;"></div></div>'
-            f'<span class="ff-display" style="font-size:12px;font-weight:800;'
+            + (f'<span title="Set by hand, not modelled" style="font-size:10px;'
+               f'color:{V("gold")};flex-shrink:0;">✎</span>' if _hand else "")
+            + f'<span class="ff-display" style="font-size:12px;font-weight:800;'
             f'color:{col};width:32px;text-align:right;flex-shrink:0;">'
             f'{v:.1f}</span></div>')
     return (f'<div style="{CARD}padding:11px 12px;">'
@@ -2567,7 +2599,8 @@ def planner() -> None:
         "wildcard_gw": _spec.get("wildcard_gw"),
         "squad": [int(c) for c in sq["code"]],
     }
-    _s1, _s2, _s3, _s4 = st.columns([3, 2, 2, 2])
+    # Wider save columns · "Name and save" broke over two lines at 2/9.
+    _s1, _s2, _s3, _s4 = st.columns([3, 3, 2, 2])
     with _s1:
         _save_as = st.text_input(
             "Draft name", value="" if (_untitled or not _is_mine) else _spec["name"],
@@ -2613,7 +2646,7 @@ def planner() -> None:
         # that works, and then put the two side by side. The New draft button
         # copies the RECIPE; this copies the fifteen you are looking at, swaps
         # and all, which is a different and more useful thing at this point.
-        _copy_hit = st.button(":material/content_copy: Save as a copy",
+        _copy_hit = st.button(":material/content_copy: Copy",
                               use_container_width=True, key="planner_copy_go",
                               help="Keeps this draft as it is and stores what is "
                                    "on the pitch under the name you typed, as a "
@@ -2641,12 +2674,29 @@ def planner() -> None:
     _punt_tok = {"maverick": "red", "differential": "gold",
                  "template": "cyan"}.get(_punt["level"], "muted")
 
+    # ── Squad score · your week against the best week available ──────────────
+    # A raw total tells you nothing on its own: 60 is excellent in a hard week
+    # and poor in an easy one. This is what you scored as a share of what a
+    # perfect £100m Free Hit would have scored on the same fixtures, so it says
+    # "wrong players for these games" in a way a total cannot. A Bench Boost can
+    # push it past 100, and should · the ceiling is an eleven and you played
+    # fifteen.
+    _perfect = _perfect_week(int(gw), float(budget), BOARD_STAMP)
+    _score = (100.0 * xi_pts / _perfect) if _perfect > 0 else 0.0
+    _score_tok = ("mint" if _score >= 88 else "gold" if _score >= 78
+                  else "orange" if _score >= 68 else "red")
+    _score_sub = ("best possible was %.0f" % _perfect if _perfect else
+                  "no ceiling available")
+    if boost_on and _score > 100:
+        _score_sub = "over the eleven-man ceiling · Boost"
+
     _tiles([
         ("Spend", f"£{cost:.1f}m", f"£{bank:.1f}m banked", "mint"),
         (f"{'Squad' if boost_on else 'XI'} · GW{gw}", f"{xi_pts:.0f}",
          (f"Boost on · +{bench_pts:.1f} from the bench" if boost_on
           else f"p10 {_band['lo']:.0f} · p90 {_band['hi']:.0f}"),
          "mint" if boost_on else "gold"),
+        ("Squad score", f"{_score:.0f}%", _score_sub, _score_tok),
         (f"Bench · GW{gw}", f"{bench_pts:.1f}", _bb_grade["call"],
          _bb_grade["token"]),
         ("Non-starters", str(len(dead)),
