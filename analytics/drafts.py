@@ -24,7 +24,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from config import CACHE_DIR
 
@@ -159,7 +159,8 @@ def load_drafts(seed_presets: bool = True) -> List[Dict[str, Any]]:
 
 
 def save_draft(name: str, spec: Dict[str, Any],
-               draft_id: Optional[str] = None) -> str:
+               draft_id: Optional[str] = None,
+               allow_clear: Tuple[str, ...] = ()) -> str:
     """Create or overwrite a draft. Returns its id.
 
     Saving the same name twice UPDATES that draft rather than making a second
@@ -175,6 +176,12 @@ def save_draft(name: str, spec: Dict[str, Any],
     # a stored one.
     entry.update({k: v for k, v in existing.items() if k in BASE})
     entry.update({k: v for k, v in spec.items() if k in BASE and v is not None})
+    # Ignoring None protects a stored fifteen from a recipe-only save, but it
+    # also makes some fields impossible to CLEAR. `allow_clear` names the ones
+    # where None is a real instruction · taking a chip off a plan, for one.
+    for k in allow_clear:
+        if k in BASE and k in spec:
+            entry[k] = spec[k]
     entry.update({"id": did, "name": name, "preset": False})
     raw[did] = entry
     _write(raw)

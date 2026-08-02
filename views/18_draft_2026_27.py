@@ -1108,6 +1108,17 @@ if locked and res is not None:
 # where you left it.
 _DRAFT_ID = str(_spec["id"])
 
+# A preset cannot be written to, but you should still be able to TRY a chip
+# week on one. The override lives in session state, scoped to the draft, and a
+# custom draft also persists it so "whatever it is left as is what it saves".
+_BB_UNSET = "unset"
+
+
+def _effective_boost_gw():
+    v = st.session_state.get(_sk("bb_override"), _BB_UNSET)
+    return _spec.get("bench_boost_gw") if v == _BB_UNSET else v
+
+
 _DRAFT_STATE_DEFAULTS = {
     "draft_swaps": dict,      # {gw: {out_code: in_code}}
     "draft_axe": list,   # ORDERED codes marked out · fills slots first-in-first-out
@@ -1971,7 +1982,7 @@ def planner() -> None:
     ledger = _transfer_ledger(gw)
 
     # ── Gameweek stepper ─────────────────────────────────────────────────────
-    nav = st.columns([1, 1, 4, 3, 3])
+    nav = st.columns([1, 1, 3, 3, 2, 2])
     with nav[0]:
         if st.button("◀", use_container_width=True, disabled=gw <= 1,
                      help="Previous gameweek"):
@@ -1989,10 +2000,38 @@ def planner() -> None:
             f'<span style="font-size:12px;font-weight:600;color:{V("muted2")};'
             f'margin-left:8px;">of {MAX_GW}</span></div>'), unsafe_allow_html=True)
     with nav[3]:
+        # Set the Bench Boost on the week you are looking at, and press again to
+        # take it off. Whatever it is left as is what the draft saves, so the
+        # chip is planned where you can see its effect rather than in a menu.
+        _bb_set = _effective_boost_gw()
+        _bb_here = _bb_set is not None and int(_bb_set) == int(gw)
+        _bb_label = (f":material/bolt: Boost on GW{gw}" if _bb_here
+                     else f":material/bolt: Boost GW{gw}")
+        if st.button(_bb_label, use_container_width=True,
+                     type="primary" if _bb_here else "secondary",
+                     key=f"bb_{_DRAFT_ID}_{gw}",
+                     help=("Playing the Bench Boost this week · press again to "
+                           "take it off." if _bb_here else
+                           f"Play the Bench Boost in GW{gw}. All fifteen score, "
+                           f"so the squad total jumps by whatever the bench is "
+                           f"worth that week.")):
+            _new_bb = None if _bb_here else int(gw)
+            st.session_state[_sk("bb_override")] = _new_bb
+            _spec["bench_boost_gw"] = _new_bb
+            if not _spec.get("preset"):
+                # The whole spec, because save_draft ignores None values (so a
+                # partial save cannot null a field) · turning the chip OFF has
+                # to survive, so send everything and let it overwrite.
+                _sp = {k: _spec.get(k) for k in DR.BASE}
+                _sp["bench_boost_gw"] = _new_bb
+                DR.save_draft(_spec["name"], _sp, draft_id=_spec["id"],
+                              allow_clear=("bench_boost_gw",))
+            st.rerun()
+    with nav[4]:
         compact = st.toggle("Compact", value=True, key="pitch_compact",
                             help="Shrinks the shirts so the fifteen and the bench "
                                  "fit a laptop screen without scrolling.")
-    with nav[4]:
+    with nav[5]:
         if st.session_state[_sk("draft_swaps")] or st.session_state[_sk("draft_bench")]:
             if st.button("↺ Reset squad", use_container_width=True):
                 _reset_draft_state()
@@ -2052,7 +2091,7 @@ def planner() -> None:
     # draft plays it the fifteen all count. Without this a draft that spends a
     # chip read exactly the same as one that did not, which is the opposite of
     # the point: the whole reason to carry a playing bench is the week it pays.
-    boost_gw = _spec.get("bench_boost_gw")
+    boost_gw = _effective_boost_gw()
     boost_on = boost_gw is not None and int(boost_gw) == int(gw)
     if boost_on:
         xi_pts += bench_pts
