@@ -90,20 +90,21 @@ _ROUTES = [
 
 
 def preset_drafts() -> List[Dict[str, Any]]:
-    """Three squads across three chip plans, plus four route experiments."""
-    out = []
-    for squad_name, locks in _SQUADS:
-        for chip_name, bb, wc, strategy in _CHIPS:
-            name = f"{squad_name} · {chip_name}" if chip_name else squad_name
-            out.append(dict(BASE, id=_slug(name), name=name, locks=list(locks),
-                            strategy=strategy, bench_boost_gw=bb, wildcard_gw=wc,
-                            preset=True))
-    for name, bb, wc, strategy in _ROUTES:
-        out.append(dict(BASE, id=_slug(name), name=name, locks=[],
-                        strategy=strategy, bench_boost_gw=bb, wildcard_gw=wc,
-                        preset=True))
-    return out
+    """The one draft a new install starts from.
 
+    There used to be thirteen · three squads across three chip plans plus four
+    route experiments · and they were noise. A preset is a STARTING POINT, and
+    thirteen starting points is none: you cannot tell which is yours, the picker
+    needs a scroll, and every comparison is against a squad nobody chose.
+
+    So: one draft, one constraint (the two players Eoin will always own), no
+    chips and no vetoes. Everything else is something the user decides and
+    saves as their own draft, which is the workflow the page is built around.
+    """
+    return [dict(BASE, id="optimal", name="Optimal",
+                 locks=["Haaland", "Mosquera"],
+                 strategy="\u2696\ufe0f Optimal value",
+                 bench_boost_gw=None, wildcard_gw=None, preset=True)]
 
 def _slug(name: str) -> str:
     keep = [c.lower() if c.isalnum() else "-" for c in name]

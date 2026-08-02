@@ -627,10 +627,11 @@ def _draft_label(name: str) -> str:
         icon = ":material/lock:"              # a premium call
     else:
         icon = ":material/balance:"           # the plain optimum
-    squad = (head.replace("Optimal + ", "+")
-                 .replace("Optimal", "Base")
-                 .replace("Fernandes", "Fern").replace("Mosquera", "Mosq")
-                 .replace("Haaland", "Haal").replace(" + ", "+"))
+    # The abbreviations existed to squeeze thirteen near-identical preset names
+    # onto pills ("Optimal + Fernandes + Mosquera + Haaland"). With one preset
+    # and user-named drafts, a name is just a name · mangling "Optimal" into
+    # "Base" made the only draft on the page unrecognisable.
+    squad = head
     return f"{icon} {squad} {chip}".strip() if chip else f"{icon} {squad}"
 
 
@@ -660,7 +661,49 @@ _hero, _ctrl = st.columns([4, 1])
 with _hero:
     st.markdown(_HERO, unsafe_allow_html=True)
 with _ctrl:
-    _open_controls = st.popover(":material/tune: Tune", use_container_width=True)
+    _open_controls = st.popover(":material/tune: 2 · Tune", use_container_width=True)
+
+
+# ── The workflow, stated ──────────────────────────────────────────────────────
+# A page with a dropdown, a popover, a pitch, a table and seven tabs gives no
+# clue what order to do things in. The steps are numbered here and the same
+# numbers appear on the controls themselves, so the page reads as a sequence
+# rather than a wall of options. It marks where you ARE rather than pretending
+# to be a wizard · everything stays reachable at any time.
+def _workflow_rail(step: int) -> None:
+    steps = [
+        ("Pick a draft", "playlist_add_check", "or start a new one"),
+        ("Tune it", "tune", "budget, risk, locks, vetoes"),
+        ("Plan the chips", "bolt", "Boost and Wildcard weeks"),
+        ("Read the squad", "sports_soccer", "swap, sub, step the weeks"),
+        ("Compare", "compare_arrows", "against your other drafts"),
+    ]
+    cells = []
+    for i, (label, icon, sub) in enumerate(steps, start=1):
+        on = i == step
+        done = i < step
+        tok = "mint" if on else ("cyan" if done else "muted2")
+        cells.append(
+            f'<div style="display:flex;align-items:center;gap:8px;flex:1;'
+            f'min-width:104px;padding:6px 8px;border-radius:8px;'
+            f'background:{V("chip-bg") if on else "transparent"};'
+            f'border:1px solid {V("mint") if on else V("line")};">'
+            f'<span style="display:inline-grid;place-items:center;width:20px;'
+            f'height:20px;border-radius:6px;flex-shrink:0;'
+            f'background:{V(tok)};color:#06251A;font-family:var(--ff-display);'
+            f'font-size:11px;font-weight:900;">{i}</span>'
+            f'<div style="min-width:0;">'
+            f'<div style="font-size:11px;font-weight:700;color:'
+            f'{V("text") if on else V("muted")};white-space:nowrap;">{label}</div>'
+            + (f'<div style="font-size:9px;color:{V("muted2")};white-space:nowrap;'
+               f'overflow:hidden;text-overflow:ellipsis;">{sub}</div>' if on else "")
+            + '</div></div>')
+    st.markdown(_one_line(
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;">'
+        + "".join(cells) + '</div>'), unsafe_allow_html=True)
+
+
+_workflow_rail(1)
 
 # ── Draft selector ────────────────────────────────────────────────────────────
 # One dropdown, grouped, with the facts about the selection beside it rather
@@ -692,18 +735,57 @@ _default = st.session_state.get("planner_draft")
 if _default not in _opts:
     _default = next((n for n in _opts if "BB1 → WC4" in n), _opts[0])
 
-_sel_col, _act_col = st.columns([5, 2])
+_sel_col, _new_col, _act_col = st.columns([4, 2, 2])
 with _sel_col:
     _pick = st.selectbox(
-        "Draft", _opts, index=_opts.index(_default), key="planner_draft",
-        label_visibility="collapsed",
+        "1 · Which draft", _opts, index=_opts.index(_default), key="planner_draft",
+        help="Start from Optimal, tune it, then save it under your own name.",
         # Plain text · st.selectbox does not render Material icon markup, and a
         # literal ":material/lock:" in the closed dropdown is worse than none.
         # The group prefix already says what kind of draft it is.
-        format_func=lambda n: "%s  ·  %s" % (_draft_group(n), _plain_label(n)))
+        format_func=lambda n: ("%s  ·  %s" % (_draft_group(n), _plain_label(n))
+                               if len(_opts) > 4 else _plain_label(n)))
+with _new_col:
+    # Making a draft was buried in the Tune popover, which is the one place a
+    # first-time user will not look. Step one needs a visible action.
+    st.markdown('<div style="height:26px;"></div>', unsafe_allow_html=True)
+    if st.button(":material/add: New draft", use_container_width=True,
+                 key="new_draft_top",
+                 help="Copies the draft you are on, so you tune from where you "
+                      "are rather than from scratch."):
+        st.session_state["show_new_draft"] = True
 if _pick is None:
     _pick = _default
 _spec = _SAVED_BY_NAME[_pick]
+
+# The naming step, inline. It copies the CURRENT draft so tuning starts from
+# where you are, which is how anyone actually builds a variant.
+if st.session_state.get("show_new_draft"):
+    with st.container(border=True):
+        st.markdown(_one_line(
+            f'<div style="font-size:12.5px;color:{V("text")};margin-bottom:2px;">'
+            f'<b>New draft</b> <span style="color:{V("muted")};">copies '
+            f'<b>{_pick}</b> · locks, dials and chips come with it. '
+            f'Tune it, then it saves as you go.</span></div>'),
+            unsafe_allow_html=True)
+        _n1, _n2, _n3 = st.columns([4, 1, 1])
+        with _n1:
+            _nd = st.text_input("Name", key="new_draft_name",
+                                placeholder="e.g. Opening 15, no Newcastle",
+                                label_visibility="collapsed")
+        with _n2:
+            if st.button("Create", type="primary", use_container_width=True,
+                         disabled=not _nd.strip(), key="new_draft_go"):
+                DR.save_draft(_nd.strip(),
+                              {k: _spec.get(k) for k in DR.BASE},
+                              allow_clear=("bench_boost_gw", "wildcard_gw"))
+                st.session_state["planner_draft"] = _nd.strip()
+                st.session_state["show_new_draft"] = False
+                st.rerun()
+        with _n3:
+            if st.button("Cancel", use_container_width=True, key="new_draft_no"):
+                st.session_state["show_new_draft"] = False
+                st.rerun()
 
 # The facts about THIS draft, as chips. A selector that only echoes its own
 # label teaches you nothing.
@@ -1982,7 +2064,7 @@ def planner() -> None:
     ledger = _transfer_ledger(gw)
 
     # ── Gameweek stepper ─────────────────────────────────────────────────────
-    nav = st.columns([1, 1, 3, 3, 2, 2])
+    nav = st.columns([1, 1, 4, 3, 2, 2])
     with nav[0]:
         if st.button("◀", use_container_width=True, disabled=gw <= 1,
                      help="Previous gameweek"):
@@ -1995,10 +2077,10 @@ def planner() -> None:
             st.rerun(scope="fragment")
     with nav[2]:
         st.markdown(_one_line(
-            f'<div class="ff-display" style="font-size:22px;font-weight:900;'
-            f'color:{V("text")};line-height:38px;">Gameweek {gw}'
-            f'<span style="font-size:12px;font-weight:600;color:{V("muted2")};'
-            f'margin-left:8px;">of {MAX_GW}</span></div>'), unsafe_allow_html=True)
+            f'<div class="ff-display" style="font-size:20px;font-weight:900;'
+            f'color:{V("text")};line-height:38px;white-space:nowrap;">GW {gw}'
+            f'<span style="font-size:11px;font-weight:600;color:{V("muted2")};'
+            f'margin-left:6px;">of {MAX_GW}</span></div>'), unsafe_allow_html=True)
     with nav[3]:
         # Set the Bench Boost on the week you are looking at, and press again to
         # take it off. Whatever it is left as is what the draft saves, so the
@@ -2006,7 +2088,7 @@ def planner() -> None:
         _bb_set = _effective_boost_gw()
         _bb_here = _bb_set is not None and int(_bb_set) == int(gw)
         _bb_label = (f":material/bolt: Boost on GW{gw}" if _bb_here
-                     else f":material/bolt: Boost GW{gw}")
+                     else f":material/bolt: 3 · Boost GW{gw}")
         if st.button(_bb_label, use_container_width=True,
                      type="primary" if _bb_here else "secondary",
                      key=f"bb_{_DRAFT_ID}_{gw}",
@@ -2271,7 +2353,7 @@ def planner() -> None:
         _budget = _freed + bank
         _slots = [str(r["position"]) for r in _out_rows]
 
-        _sec(f"Replacing {len(_open)} player{'' if len(_open) == 1 else 's'}",
+        _sec(f"4 · Replacing {len(_open)} player{'' if len(_open) == 1 else 's'}",
              f"£{_freed:.1f}m freed · £{_budget:.1f}m to spend. A signing fills "
              f"the first open slot of his position. Unaffordable players stay "
              f"visible but greyed out.", icon="swap_horiz")
@@ -2397,7 +2479,7 @@ def planner() -> None:
                     st.session_state[_sk("draft_axe")] = []
                     st.rerun(scope="fragment")
     else:
-        _sec("The pool", "Everyone you could pick, ranked for this gameweek. "
+        _sec("4 · The pool", "Everyone you could pick, ranked for this gameweek. "
                          "Mark a player with × on the pitch to see only his replacements.")
         # Position as buttons, not a typed multiselect · four options should
         # never need typing. The horizon slider is the important one: "best next
@@ -2494,7 +2576,9 @@ planner()
 
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
-_sec("The read", "Analysis that informs the draft without crowding it.")
+_workflow_rail(5)
+_sec("5 · Compare and read", "Everything that informs the draft, without "
+                             "crowding the squad above.", icon="insights")
 
 # Material icons throughout · the sidebar and every tile already use them, and
 # mixing emoji into the tab strip was the one place the page changed alphabet.
