@@ -811,3 +811,71 @@ def defcon_by_role(gw_archive: pd.DataFrame, season: str = LAST_COMPLETE_SEASON,
                  defcon_pts_per_start=("defcon_pts_per_start", "mean"),
                  pts_per_start=("pts_per_start", "mean"))
             .round(2).sort_values("hit_rate", ascending=False).reset_index(drop=True))
+
+
+def defcon_by_position(gw_archive: pd.DataFrame,
+                       season: str = LAST_COMPLETE_SEASON) -> pd.DataFrame:
+    """Hit rate and points per start for every position, forwards included.
+
+    `defcon_beasts` looks only at defenders and midfielders, which quietly
+    assumes the answer for forwards. Measuring them is what justifies exempting
+    attackers from the diversification rules: if a forward almost never clears
+    the bar, DEFCON is not a reason to own one, and a DEFCON-heavy midfielder is
+    a genuinely different asset from a forward at the same price.
+    """
+    a = gw_archive[(gw_archive["season"] == season) & (gw_archive["starts"] == 1)]
+    if a.empty:
+        return pd.DataFrame()
+    # Forwards have no published threshold of their own · they are scored on the
+    # outfield-non-defender bar, the same 12 a midfielder needs.
+    thr = a["position"].map(DEFCON_THRESHOLD).fillna(12)
+    a = a.assign(_hit=(a["defensive_contribution"] >= thr).astype(float))
+    out = (a.groupby("position", as_index=False)
+           .agg(starts=("starts", "sum"),
+                hit_rate=("_hit", "mean"),
+                dc_per_start=("defensive_contribution", "mean"),
+                pts_per_start=("total_points", "mean")))
+    out["defcon_pts_per_start"] = (out["hit_rate"] * 2.0).round(2)
+    out["defcon_pts_per_season"] = (out["hit_rate"] * 2.0 * 38).round(0)
+    out["share_of_points"] = (out["defcon_pts_per_start"]
+                              / out["pts_per_start"].clip(lower=0.1)).round(3)
+    order = {"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    out = out.assign(_o=out["position"].map(order)).sort_values("_o")
+    return out.drop(columns=["_o"]).round(3).reset_index(drop=True)
+
+
+def weekly_variance(gw_archive: pd.DataFrame,
+                    season: str = LAST_COMPLETE_SEASON,
+                    min_starts: int = 15) -> pd.DataFrame:
+    """How much a player's score swings week to week, by scoring level.
+
+    The reason this is in the Playbook rather than buried in the model: it sets
+    how big a gap has to be before it means anything. A squad of eleven players
+    whose individual coefficient of variation is about 0.78 has a weekly spread
+    of roughly a dozen points, so two draft plans four points apart over three
+    gameweeks are the same plan wearing different shirts.
+
+    It also kills a tempting intuition. Premiums are NOT steadier than cheap
+    players in relative terms · the spread scales with the mean rather than
+    flattening, so paying up buys you a higher average, not a safer one.
+    """
+    a = gw_archive[(gw_archive["season"] == season) & (gw_archive["starts"] == 1)]
+    if a.empty:
+        return pd.DataFrame()
+    g = a.groupby("code")["total_points"].agg(["count", "mean", "std"])
+    g = g[(g["count"] >= min_starts) & (g["mean"] > 0)]
+    if g.empty:
+        return pd.DataFrame()
+    g["cv"] = g["std"] / g["mean"]
+
+    bands = [(1.5, 2.5), (2.5, 3.5), (3.5, 4.5), (4.5, 6.0), (6.0, 12.0)]
+    rows = []
+    for lo, hi in bands:
+        b = g[(g["mean"] >= lo) & (g["mean"] < hi)]
+        if len(b) < 5:
+            continue
+        rows.append({"band": "%.1f-%.1f a game" % (lo, hi), "players": len(b),
+                     "mean_pts": round(float(b["mean"].mean()), 2),
+                     "sd": round(float(b["std"].mean()), 2),
+                     "cv": round(float(b["cv"].mean()), 2)})
+    return pd.DataFrame(rows)

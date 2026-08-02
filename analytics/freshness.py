@@ -47,6 +47,14 @@ def _paths() -> Dict[str, object]:
     except Exception:
         pass
     try:
+        # Scout's per-gameweek table · the heaviest voice in the per-gameweek
+        # blend. Left out of this list it would refresh on disk and change
+        # nothing on screen, because the projector is cached on this stamp.
+        from analytics.scout_rmt import SNAPSHOT_PATH as RMT
+        out["Scout GW"] = RMT
+    except Exception:
+        pass
+    try:
         from analytics.projection_overrides import overrides_path
         out["Overrides"] = overrides_path()
     except Exception:

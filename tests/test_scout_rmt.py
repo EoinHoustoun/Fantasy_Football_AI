@@ -96,3 +96,27 @@ def test_a_small_overlap_does_not_rescale():
     hub = pd.DataFrame({"code": [1], "gw": [1], "pts": [4.0], "exp_mins": [80.0]})
     out = _blend_match_sources(hub, _rmt(4.0))
     assert abs(float(out.iloc[0]["pts"]) - 4.0) < 1e-6
+
+
+# ── an empty sample is not a forecast ────────────────────────────────────────
+
+def test_a_hub_cell_with_no_minutes_is_dropped_not_averaged():
+    """The Hub had Saka at 0.8 points on 15 expected minutes in GW1 while Scout
+    had 6.17. That is the Hub saying "I have no minutes for him", not a forecast
+    that he will blank, and blending it dragged an obvious starter down to 4.26."""
+    out = _blend_match_sources(_hub(0.8, mins=15.0), _rmt(6.17))
+    assert abs(float(out.iloc[0]["pts"]) - 6.17) < 1e-6
+
+
+def test_a_real_low_score_with_real_minutes_still_counts():
+    """A player the Hub expects to PLAY and score little is a genuine
+    disagreement and must still pull the blend."""
+    out = _blend_match_sources(_hub(1.0, mins=80.0), _rmt(6.0))
+    assert float(out.iloc[0]["pts"]) < 6.0
+
+
+def test_the_hub_survives_when_scout_has_no_view():
+    """Dropping the Hub for a thin cell must not delete the only number there."""
+    empty = pd.DataFrame(columns=["code", "gw", "pts"])
+    out = _blend_match_sources(_hub(0.8, mins=15.0), empty)
+    assert float(out.iloc[0]["pts"]) == 0.8

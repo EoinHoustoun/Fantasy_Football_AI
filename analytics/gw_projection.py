@@ -244,6 +244,13 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
 # rather than a tie-breaker, so it keeps a meaningful share.
 RMT_WEIGHT, HUB_WEIGHT = 0.65, 0.35
 
+# Below this many expected minutes, a Hub cell is an EMPTY SAMPLE and not a
+# forecast · the same rule the season blend already applies. It matters more
+# here than anywhere: the Hub had Saka at 0.8 points on 15 minutes in GW1 while
+# Scout had 6.17, and blending those dragged an obvious starter down to 4.26.
+# The Hub not knowing a player's minutes is not evidence that he will blank.
+HUB_MIN_MINUTES = 20.0
+
 
 def _blend_match_sources(hub: Optional[pd.DataFrame],
                          rmt: pd.DataFrame) -> pd.DataFrame:
@@ -263,6 +270,20 @@ def _blend_match_sources(hub: Optional[pd.DataFrame],
         return out
 
     m = hub.merge(rmt, on=["code", "gw"], how="outer")
+
+    # A Hub cell with (almost) no expected minutes carries no information about
+    # scoring · it is the Hub saying "I have no minutes for him this week". Where
+    # Scout does have a view, the Hub leg is dropped for that cell rather than
+    # averaged in as a near-zero forecast.
+    if "exp_mins" in m.columns:
+        empty = (pd.to_numeric(m["exp_mins"], errors="coerce") < HUB_MIN_MINUTES)
+        drop = empty.fillna(False) & m["pts_rmt"].notna()
+        if int(drop.sum()):
+            m.loc[drop, "pts"] = np.nan
+            logger.info("dropped %d Hub cells with under %.0f expected minutes "
+                        "· Scout has a view and an empty sample is not a forecast",
+                        int(drop.sum()), HUB_MIN_MINUTES)
+
     both = m["pts"].notna() & m["pts_rmt"].notna() & (m["pts"] > 0.2)
     scale = 1.0
     if int(both.sum()) >= 50:
