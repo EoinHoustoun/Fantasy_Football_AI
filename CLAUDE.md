@@ -410,6 +410,23 @@ the tables size themselves from their container, so at 300px they wrap into a
 tall cramped column and report that height back. The CSS fix is in `ui/theme.py`
 under "Custom components" · keep it.
 
+**Gotcha: an underscore-prefixed argument is NOT a cache key.** Streamlit skips
+hashing any `@st.cache_data` / `@st.cache_resource` parameter whose name starts
+with `_`. Naming a content stamp `_stamp` therefore makes the cache invalidate
+on nothing but TTL and code edits. `_projector` had all five parameters
+underscored, so one projector was built per process and reused forever · the
+pitch showed the Spurs Fernandes at 4.8 in GW1 against a correct 2.99. Keep the
+underscore ONLY on a large frame that an adjacent hashed `stamp` fully
+describes (`_board`, `_fix`, `_base`, `_df`), never on the stamp itself, and
+never on a scalar the result actually depends on. `views/00_my_team.py`
+`_scored_universe(_players)` still has this shape and is unfixed.
+
+**Gotcha: a cached function taking NO arguments has a constant key.** Same
+outcome, different cause. `build_board()` cached for six hours regardless of
+which snapshot had just been refreshed, and every Draft cache keys off the
+board, so one stale function froze the page. It now takes
+`freshness.inputs_stamp()`.
+
 **Gotcha when debugging layout in a browser: `getBoundingClientRect` is wrong
 while `document.body.style.zoom` is set.** Reset zoom to 1 before measuring, or
 you will chase a width bug that does not exist.
