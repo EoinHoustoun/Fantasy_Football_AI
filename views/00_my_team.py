@@ -20,6 +20,8 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
+from analytics import freshness as _freshness
+
 from components.loading import LINES_GENERIC, LINES_SOLVER, LINES_SQUAD, fpl_loader
 
 from ui import charts
@@ -442,14 +444,19 @@ sell_candidates.sort(key=lambda x: len(x[1]), reverse=True)
 
 # ── Opportunity: top non-owned transfer target by transfer_score ─────────────
 @st.cache_data(ttl=900, show_spinner=False)
-def _scored_universe(_players):
+def _scored_universe(_players, stamp: str):
+    # `stamp` is the cache key. Streamlit refuses to hash `_players` because
+    # of the underscore, so without it this ran once per process and a price
+    # or form refresh never reached the opportunity card.
     from analytics.transfer_engine import score_players, estimate_ceiling
     d = estimate_ceiling(score_players(_players))
     return d[d["status"] == "a"].sort_values("transfer_score", ascending=False)
 
 try:
     owned_names = set(squad_df["web_name"].tolist())
-    opp_df = _scored_universe(players_df_all)
+    opp_df = _scored_universe(
+        players_df_all,
+        _freshness.frame_stamp(players_df_all, "total_points", "now_cost", "form"))
     opp_df = opp_df[~opp_df["web_name"].isin(owned_names)]
     opp = opp_df.iloc[0] if not opp_df.empty else None
 except Exception:
@@ -973,7 +980,8 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _xp_horizon_cached(first_gw: int, horizon: int, _players, _bootstrap):
+def _xp_horizon_cached(first_gw: int, horizon: int, _players, _bootstrap,
+                       stamp: str):
     """Shared multi-GW xP surface (analytics/xp_engine) · df indexed by fpl_id
     with one column per GW. Fixtures are rebuilt with the sim weeks appended
     (the session copy holds only real fixtures)."""
@@ -996,7 +1004,10 @@ def _xp_horizon():
         return None
     horizon = SIM_HORIZON if first > 38 else max(1, min(SIM_HORIZON, 39 - first))
     try:
-        return (_xp_horizon_cached(first, horizon, players_df_all, bs),
+        return (_xp_horizon_cached(
+                    first, horizon, players_df_all, bs,
+                    _freshness.frame_stamp(players_df_all, "total_points",
+                                           "now_cost", "form")),
                 first, horizon)
     except Exception:  # noqa: BLE001 · projections are an enhancement, not a dependency
         return None

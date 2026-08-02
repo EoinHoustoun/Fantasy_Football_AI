@@ -116,6 +116,27 @@ def board_stamp(board: Optional[pd.DataFrame] = None,
     return h.hexdigest()
 
 
+def frame_stamp(df: Optional[pd.DataFrame], *cols: str) -> str:
+    """A content stamp for any frame handed to a cached function.
+
+    `board_stamp` knows about the 26/27 board's projection columns. This is the
+    general case: pass the columns whose values decide the result, and the
+    stamp moves when they do. Use it wherever a DataFrame argument carries a
+    leading underscore, so the thing Streamlit refuses to hash is described by
+    something it will.
+    """
+    h = hashlib.blake2b(digest_size=8)
+    if df is None or getattr(df, "empty", True):
+        return h.hexdigest()
+    h.update(str(len(df)).encode())
+    for c in cols:
+        if c in df.columns:
+            h.update(c.encode())
+            vals = pd.to_numeric(df[c], errors="coerce").round(3)
+            h.update(pd.util.hash_pandas_object(vals, index=False).values.tobytes())
+    return h.hexdigest()
+
+
 def sources(now: Optional[float] = None) -> List[Dict]:
     """Each manual input with its age, newest first.
 
