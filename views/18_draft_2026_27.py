@@ -528,8 +528,20 @@ def _module_stamp(*mods) -> str:
 
 
 @st.cache_resource(show_spinner=False)
-def _projector(_board: pd.DataFrame, _fix: Dict, _stamp: str, _version: int,
-               _code: str):
+def _projector(_board: pd.DataFrame, _fix: Dict, stamp: str, version: int,
+               code_stamp: str):
+    """The per-gameweek projector.
+
+    **A leading underscore tells Streamlit not to hash that argument.** Every
+    parameter here used to carry one, so the cache key was EMPTY: one projector
+    was built per process and reused for the life of it, whatever changed
+    underneath. That is how a refreshed Scout snapshot could sit on disk while
+    the pitch kept showing the numbers it was started with.
+
+    `_board` and `_fix` keep their underscores deliberately · they are large and
+    are fully described by `stamp`. The other three must not have one, because
+    they ARE the key.
+    """
     from analytics import gw_projection
     return gw_projection.build(_board, _fix)
 
@@ -1180,7 +1192,7 @@ def _window_map(lo: int, hi: int) -> tuple:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _tuned_board_cached(gate: float, _stamp: str) -> pd.DataFrame:
+def _tuned_board_cached(gate: float, stamp: str) -> pd.DataFrame:
     return _tuned_board_impl(gate)
 
 
@@ -1256,7 +1268,7 @@ def _tuned_board_impl(gate: float) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _window_board(_base: pd.DataFrame, lo: int, hi: int, _stamp: str) -> pd.DataFrame:
+def _window_board(_base: pd.DataFrame, lo: int, hi: int, stamp: str) -> pd.DataFrame:
     """The board scored on the WINDOW you will actually own this squad for.
 
     If you wildcard at GW4 then the opening fifteen only has to be good for
@@ -1456,9 +1468,9 @@ else:
 # GW2 one, and each is then scored the same honest way over the window. Nothing
 # after the Wildcard counts, because that squad is torn up.
 @st.cache_data(ttl=3600, show_spinner=False)
-def _search_boost_week(_spec_json: str, cands: tuple, _stamp: str) -> Dict:
+def _search_boost_week(spec_json: str, cands: tuple, stamp: str) -> Dict:
     import json as _json
-    spec = _json.loads(_spec_json)
+    spec = _json.loads(spec_json)
     gws = list(range(1, int(spec["wildcard_gw"])))
 
     def _arm(frame, bench_col):
@@ -1471,7 +1483,7 @@ def _search_boost_week(_spec_json: str, cands: tuple, _stamp: str) -> Dict:
                            bench_pts_col=bench_col)
 
     base = _window_board(_tuned_board(float(spec["minutes_gate"])),
-                         1, gws[-1], _stamp)
+                         1, gws[-1], stamp)
     out = OPLAN.best_boost_week(base, PROJ, gws, _arm, candidates=list(cands))
     # The squads are DataFrames and do not survive the cache usefully · the
     # ranking and the weekly totals are what the page draws.
@@ -1650,7 +1662,7 @@ def _current_squad(gw: Optional[int] = None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _perfect_week(gw: int, budget: float, _stamp: str) -> float:
+def _perfect_week(gw: int, budget: float, stamp: str) -> float:
     """The most any legal £100m squad could score in this one gameweek.
 
     A Free Hit with perfect foresight, in other words: build a fresh fifteen
@@ -1704,7 +1716,7 @@ def _profile_window(code: int, from_gw: int, horizon: int) -> Dict:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _points_cuts(horizon: int, _stamp: str = "") -> Dict:
+def _points_cuts(horizon: int, stamp: str = "") -> Dict:
     """Per-position red/amber/green cut points, fitted to this board.
 
     Derived rather than hardcoded so the colours stay meaningful as prices and
@@ -1887,7 +1899,7 @@ def _grade_rank(pct: float) -> str:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _position_ranks(_stamp: str) -> Dict:
+def _position_ranks(stamp: str) -> Dict:
     """Per-position ordered lists for points, points per £m and points per 90.
 
     Restricted to players the models actually rate, so a rank means "of the
@@ -3237,7 +3249,7 @@ with tab_cmp:
             + '</div>'), unsafe_allow_html=True)
 
         # ── The numbers that decide it, per player ───────────────────────────
-        _cuts = _points_cuts(cmp_h)
+        _cuts = _points_cuts(cmp_h, BOARD_STAMP)
         head = st.columns(len(profs))
         for col, p in zip(head, profs):
             with col:
@@ -3996,7 +4008,7 @@ def _verdict_card(row: pd.Series) -> str:
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _lane_html(_df: pd.DataFrame, _codes: tuple, _stamp: str, _light: bool) -> str:
+def _lane_html(_df: pd.DataFrame, codes: tuple, stamp: str, light: bool) -> str:
     """Roughly 150 KB of markup that only changes when the data or theme does.
 
     Keyed on the codes in the lane rather than the frame, plus the content
@@ -4181,7 +4193,8 @@ with tab_wc:
 
 # ── Chip route ────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=6 * 3600, show_spinner="Scoring chip routes over GW1-19…")
-def _routes(_board: pd.DataFrame, _budget: float, _risk: float, _excl: tuple):
+def _routes(_board: pd.DataFrame, budget: float, risk: float, excl: tuple,
+            stamp: str):
     from analytics.season_opener import bb_dilution, compare_routes, opening_ease
     from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, get_fixtures_df
     fx = get_fixtures_df(fetch_fixtures(), fetch_bootstrap())
@@ -4192,7 +4205,7 @@ def _routes(_board: pd.DataFrame, _budget: float, _risk: float, _excl: tuple):
         if opening_window:
             oe = opening_ease(fx, opening_window[0], opening_window[1])
             omap = tuple(zip(oe["team_id"].astype(int), oe["ease"].astype(float)))
-        return solve_draft(b, strategy, _budget, _risk, _excl, 0.0, opening_map=omap,
+        return solve_draft(b, strategy, budget, risk, excl, 0.0, opening_map=omap,
                            bench_budget=(bench_price_cap * 4) if bench_price_cap else None)
 
     return compare_routes(_board, fx, _solve), bb_dilution(_board, _solve)
@@ -4305,7 +4318,8 @@ with tab_route:
     st.caption("A Bench Boost needs 15 playing assets, which costs XI strength every "
                "week you carry it. The Wildcard is what repairs that.")
     try:
-        routes_df, dil = _routes(SOLVE_BOARD, budget, risk, tuple(excluded))
+        routes_df, dil = _routes(SOLVE_BOARD, budget, risk, tuple(excluded),
+                                 _freshness.board_stamp(SOLVE_BOARD, PTS_COL))
     except Exception:
         routes_df, dil = pd.DataFrame(), None
         logger.exception("route comparison failed")

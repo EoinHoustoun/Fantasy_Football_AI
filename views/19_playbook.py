@@ -48,7 +48,10 @@ def _tab_lead(text: str) -> None:
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Crunching 10 seasons of data…")
-def _answers(_v: int = 5):   # bump _v to bust the cache when analyses change
+def _answers(v: int = 5):
+    # Bump `v` to bust the cache when an analysis changes. It must NOT start
+    # with an underscore: Streamlit skips hashing those, so the bump would
+    # be silently ignored and only the code edit beside it would do the work.
     from data.processors.archive import (build_optimizer_input, load_gw_archive,
                                          load_season_summary)
     from analytics import playbook as pb
