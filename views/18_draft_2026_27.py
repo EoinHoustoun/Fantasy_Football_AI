@@ -561,6 +561,15 @@ _FRESH_TOKEN = {"fresh": "mint", "ageing": "gold",
 _FRESH_TITLE = " · ".join(
     "%s %s" % (r["name"], _freshness.age_label(r["days"])) for r in _FRESH)
 
+# Name the file that is oldest. An unlabelled "5d ago" reads as "all the data
+# is five days old" when it meant the Scout snapshot only · the Hub was eight
+# hours old at the time. That mis-read sent us chasing a refresh that was not
+# needed, so the chip now says WHICH source it is reporting.
+_OLDEST = max((r for r in _FRESH if r["days"] is not None),
+              key=lambda r: r["days"], default=None)
+_FRESH_LABEL = ("%s %s" % (_OLDEST["name"], _freshness.age_label(_OLDEST["days"]))
+                if _OLDEST else "no snapshots")
+
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 # A single compact line rather than a 40px hero. The sidebar already says which
@@ -573,8 +582,7 @@ _HERO = _one_line(f"""
   <span title="{_FRESH_TITLE}" style="background:{V('chip-bg')};
     border:1px solid {V(_FRESH_TOKEN)};color:{V(_FRESH_TOKEN)};font-size:9.5px;
     font-weight:800;letter-spacing:0.12em;padding:3px 9px;border-radius:20px;
-    text-transform:uppercase;">Data {_freshness.age_label(
-        max((r['days'] for r in _FRESH if r['days'] is not None), default=None))}</span>
+    text-transform:uppercase;">{_FRESH_LABEL}</span>
   <span style="background:{V('chip-bg')};border:1px solid {V('mint')};
     color:{V('mint')};font-size:9.5px;font-weight:800;letter-spacing:0.12em;
     padding:3px 9px;border-radius:20px;text-transform:uppercase;">

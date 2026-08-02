@@ -1090,3 +1090,48 @@ open slot. Transfers count NET within a gameweek, so selling and re-buying is
 free. The replacement table paginates 172 candidates, filters by position,
 price and name, sorts by this gameweek or the next four, and shows unaffordable
 players dimmed with a dead "Too dear" button rather than hiding them.
+
+## 2026-08-02 (early) · Plan-level optimisation and model-integrity fixes
+
+Driven by Eoin catching three numbers that felt wrong. All three were real.
+
+**Optimise the plan, not a proxy.** `bench_weight` said a benched player is
+worth some fraction of a starter, which is true of nothing. With a known Bench
+Boost the truth is exact: a starter is worth his points across every week, a
+benched player is worth his boost-week score and nothing else. Both fit the
+existing MILP because it already carries separate squad and lineup variables.
+`analytics/opening_plan.py`. **Boost GW2 scores 210.0, GW1 209.4, no Boost
+196.4** · the chip is worth 13.6 points. The bench landed at 15.8 WITHOUT being
+targeted, which is the argument: a bench points target is a constraint, and
+optimising against it builds a worse fifteen. A Boost must BEAT carrying the
+chip, not merely match it.
+
+**Hub weight 0.15 → 0.25** (ours 0.35, Scout 0.40) at his request. But it does
+NOT gain weight where it cannot see · players with no PL record still have it
+excluded from the season blend and their match cells damped by 0.81 (measured:
+23% hot on them, median ratio 0.90 against 0.73 for established players).
+
+**Wright at 3.3 away to Arsenal** was the tell. The earlier fix removed the
+Hub's SEASON vote for those players but left the bias in the per-gameweek
+layer, which is exactly what a GW1-3 objective reads.
+
+**"Infeasible" with £59m spare.** Two forced Man Utd midfielders against the
+one-attacker-per-club rule. The solver was right and the REPORTING was wrong ·
+it had a heuristic ending "it is likely a club limit", a guess dressed as a
+diagnosis. `squad_milp.diagnose_infeasible` now relaxes one rule at a time and
+names the one that actually unblocks the solve. **The rule is now off by
+default**; it cost points without earning them.
+
+**Projections marked apart from measured stats** · `~` and `●` with a legend.
+DEFCON per 90 is what a player DID; a season total is what a model guesses.
+
+**Freshness chip names its source.** An unlabelled "5d ago" was the Scout file
+while the Hub was 8 hours old, and reading it as "everything is stale" produced
+a wrong recommendation to re-pull.
+
+**Hub snapshot verified current** against the live page · three spot-checks
+identical, 8 hours old.
+
+There is NO median of the models · the blend is a weighted mean. Median is used
+only for scale calibration (one odd ratio must not move everyone) and for the
+radar's price-band peer baseline.
