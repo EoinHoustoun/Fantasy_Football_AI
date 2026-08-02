@@ -44,15 +44,22 @@
   tbody tr.clickable { cursor:pointer; }
   tbody tr.hl td { background: rgba(0,255,135,0.10) !important; }
 
-  /* Pinned identity columns survive horizontal scroll */
+  /* Pinned identity columns survive horizontal scroll · and so does the action
+     column, which is the whole reason anyone opened the table. */
   .pin1 { position:sticky; left:0; z-index:2; }
   .pin2 { position:sticky; z-index:2; }
-  thead .pin1, thead .pin2 { z-index:4; }
-  tbody .pin1, tbody .pin2 { background: var(--ff-card-solid, #161A22); }
-  tbody tr:nth-child(even) .pin1, tbody tr:nth-child(even) .pin2 {
+  .pinR { position:sticky; right:0; z-index:2; }
+  thead .pin1, thead .pin2, thead .pinR { z-index:4; }
+  tbody .pin1, tbody .pin2, tbody .pinR { background: var(--ff-card-solid, #161A22); }
+  tbody tr:nth-child(even) .pin1, tbody tr:nth-child(even) .pin2,
+  tbody tr:nth-child(even) .pinR {
     background: var(--ff-s1, #151922);
   }
-  tbody tr:hover .pin1, tbody tr:hover .pin2 { background: var(--ff-s2, #1B2130); }
+  tbody tr:hover .pin1, tbody tr:hover .pin2,
+  tbody tr:hover .pinR { background: var(--ff-s2, #1B2130); }
+  /* A hairline so the pinned action reads as a separate rail, not a cell that
+     happens to be floating over the one behind it. */
+  .pinR { box-shadow: -6px 0 8px -6px rgba(0,0,0,0.45); }
 
   /* FPL portraits are 110x140 with the head near the top and a lot of shirt
      below it. object-fit:cover centres by default, which takes equal bites off

@@ -736,7 +736,17 @@ def _json_safe(o):
 
 def render(option: Dict[str, Any], height: str = "260px",
            key: Optional[str] = None) -> None:
-    """Render an ECharts option with the app theme. `key` must be unique per chart."""
+    """Render an ECharts option with the app theme. `key` must be unique per chart.
+
+    The height is PINNED in CSS as well as passed to the component, because a
+    custom component measures itself on mount and Streamlit then fixes its
+    iframe at whatever it reported. Inside a tab that is not the open one,
+    Streamlit has already set `display:none`, so the component measures zero and
+    the iframe is pinned at zero forever · the chart draws perfectly well inside
+    it and is simply invisible, on the tab and after you switch to it. It cost
+    the "Minutes are the master variable" scatter its entire existence.
+    """
+    import streamlit as st
     from streamlit_echarts import st_echarts
     from ui.theme import is_light
     if is_light():
@@ -744,4 +754,16 @@ def render(option: Dict[str, Any], height: str = "260px",
         # The key has to change with the palette or Streamlit reuses the mounted
         # chart and the old colours stay on screen.
         key = (key + "_lt") if key else None
-    st_echarts(options=_json_safe(option), height=height, key=key)
+
+    if not key:
+        st_echarts(options=_json_safe(option), height=height, key=key)
+        return
+
+    # A keyed container gives us a `st-key-…` class to hang the rule on, so the
+    # height applies to THIS chart rather than to every iframe on the page.
+    box_key = "ffchart_%s" % key
+    with st.container(key=box_key):
+        st_echarts(options=_json_safe(option), height=height, key=key)
+    st.markdown(
+        "<style>.st-key-%s iframe{height:%s !important;min-height:%s !important;}"
+        "</style>" % (box_key, height, height), unsafe_allow_html=True)

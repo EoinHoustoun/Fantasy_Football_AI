@@ -217,12 +217,23 @@ def build_html(rows: List[Dict], cols: List[Dict], max_height: int = 420,
             offsets[i] = run
             run += int(c.get("width", 120))
 
+    # The action column is the reason the table exists · "Sign", "Swap in". At a
+    # laptop width it sat off the right-hand edge of a table wide enough to
+    # scroll, so the face and the name stayed put while the only button you came
+    # for scrolled away. Pin it to the right the way identity is pinned left.
+    last_action = None
+    for i, c in enumerate(cols):
+        if c["kind"] == "action":
+            last_action = i
+
     def _cls(i: int, c: Dict) -> str:
         bits = []
         if c.get("align") == ALIGN_NUM or c["kind"] in ("num", "bar"):
             bits.append("num")
         if c.get("pinned"):
             bits.append("pin1" if offsets[i] == 0 else "pin2")
+        elif i == last_action:
+            bits.append("pinR")
         return (' class="%s"' % " ".join(bits)) if bits else ""
 
     def _style(i: int, c: Dict) -> str:
