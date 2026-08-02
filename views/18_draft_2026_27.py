@@ -1345,8 +1345,36 @@ def solve_opening(spec: Dict) -> Optional[Dict]:
                            opening_map=omap, max_attackers_per_club=cap,
                            bench_pts_col=bench_col)
 
+    def _weekly(frame, gw_cols, boost_col):
+        return solve_draft(frame, strategy, float(spec.get("budget", 100.0)),
+                           float(spec.get("risk", 0.3)),
+                           tuple(spec.get("vetoes", [])), ow,
+                           force_names=tuple(spec.get("locks", [])),
+                           opening_map=omap, max_attackers_per_club=cap,
+                           gw_pts_cols=gw_cols, boost_col=boost_col)
+
     bb = spec.get("bench_boost_gw")
     gws = list(range(win[0], win[1] + 1)) if win else []
+
+    # A weekly eleven, whenever there is a window to field one over.
+    #
+    # The fixed-lineup solve maximises the sum of fifteen window totals, but
+    # only eleven of them score in any week. Two players whose good weeks
+    # alternate (8/2/8 and 1/7/1) field 23 over three gameweeks while a flatter
+    # pair with far higher totals (5/7/5 and 5/5/7) fields only 19. The old
+    # objective preferred the flatter pair every time. It matters most in GW1,
+    # where every pick is being asked to deliver on the same afternoon.
+    #
+    # Fall back rather than fail: this is a bigger MILP, and a squad from the
+    # older model beats no squad at all.
+    if gws:
+        try:
+            out = OPLAN.solve_window(b, PROJ, gws, int(bb) if bb else None, _weekly)
+            if out:
+                return out
+        except Exception as exc:   # noqa: BLE001 · never lose the page to the solver
+            logger.warning("weekly-lineup solve failed, using the fixed lineup: %s", exc)
+
     if bb and gws and int(bb) in gws:
         return OPLAN.solve_plan(b, PROJ, gws, int(bb), _arm)
     return _arm(b, None)

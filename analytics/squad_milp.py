@@ -38,6 +38,8 @@ def optimize_squad(
     defcon_codes: Optional[List] = None,
     max_defenders_per_club: Optional[int] = None,
     bench_pts_col: Optional[str] = None,
+    gw_pts_cols: Optional[List[str]] = None,
+    boost_col: Optional[str] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -48,7 +50,41 @@ def optimize_squad(
     `force_codes` · player `code`s that MUST be in the 15 (e.g. Haaland).
     `exclude_codes` · player `code`s that must NOT be picked. Both no-op if the
     frame has no `code` column.
+
+    **`gw_pts_cols` changes what is being optimised.** Without it there is ONE
+    lineup for the whole window, so the objective is really "the fifteen whose
+    window totals sum highest". That cannot see complementary fixtures. Take two
+    pairs over three gameweeks:
+
+        A:  8, 2, 8   and   1, 7, 1     window totals 18 + 9  = 27
+        B:  5, 7, 5   and   5, 5, 7     window totals 17 + 17 = 34
+
+    Summing totals picks B. But you only field one of each pair, and starting
+    the better one each week gives A 8+7+8 = 23 against B's 5+7+7 = 19. Pair A
+    is the better buy and a fixed-lineup model will never choose it.
+
+    Pass one column per gameweek and the eleven is chosen PER GAMEWEEK, which is
+    what actually happens: the same fifteen, subbed weekly. `boost_col` names
+    the gameweek where all fifteen score, so a Bench Boost is priced exactly
+    rather than through the `bench_weight` fudge.
+
+    The cost is a start variable per player per gameweek. The captain variables
+    are left continuous on purpose · the objective is maximising and captaincy
+    is capped at one per week, so the LP relaxation lands on the best starter
+    anyway, and it halves the binary count.
     """
+    if gw_pts_cols:
+        missing = [c for c in gw_pts_cols if c not in players.columns]
+        if missing:
+            raise ValueError("gw_pts_cols not on the frame: %s" % missing)
+        if boost_col is not None and boost_col not in gw_pts_cols:
+            raise ValueError("boost_col %r must be one of gw_pts_cols" % boost_col)
+        return _optimize_multi_week(
+            players, budget=budget, gw_pts_cols=gw_pts_cols, boost_col=boost_col,
+            captain=captain, time_limit=time_limit, bench_budget=bench_budget,
+            force_codes=force_codes, exclude_codes=exclude_codes,
+            max_attackers_per_club=max_attackers_per_club, defcon_codes=defcon_codes,
+            max_defenders_per_club=max_defenders_per_club)
     df = players.dropna(subset=[pts_col, "price", "position"]).reset_index(drop=True)
     if exclude_codes and "code" in df.columns:
         df = df[~df["code"].isin(exclude_codes)].reset_index(drop=True)
@@ -181,6 +217,168 @@ def optimize_squad(
         "captain_idx": cap_i,
         "solver_status": label,
         "proven_optimal": proven,
+    }
+
+
+def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
+                 force_codes, max_attackers_per_club, defcon_codes,
+                 max_defenders_per_club):
+    """The constraints on the FIFTEEN · identical whichever objective is used.
+
+    Pulled out so the single-week and per-gameweek models cannot drift apart.
+    A squad rule that held in one and not the other would show up as the two
+    solvers disagreeing about a squad, which is exactly the class of bug the
+    single `solve_opening` path was introduced to kill.
+    """
+    limits = PERFECT_SEASON["squad_limits"]
+    prob += pulp.lpSum(squad[i] for i in idx) == 15
+    prob += pulp.lpSum(df.loc[i, "price"] * squad[i] for i in idx) <= budget
+
+    for pos, n in limits.items():
+        prob += pulp.lpSum(squad[i] for i in idx
+                           if df.loc[i, "position"] == pos) == n
+
+    if "team_id" in df.columns:
+        for team in df["team_id"].dropna().unique():
+            t_idx = [i for i in idx if df.loc[i, "team_id"] == team]
+            prob += pulp.lpSum(squad[i] for i in t_idx) <= PERFECT_SEASON["max_per_club"]
+
+    if max_attackers_per_club is not None and "team_id" in df.columns:
+        defcon = set(defcon_codes or [])
+        has_code = "code" in df.columns
+        for team in df["team_id"].dropna().unique():
+            a_idx = [i for i in idx
+                     if df.loc[i, "team_id"] == team
+                     and df.loc[i, "position"] in ("MID", "FWD")
+                     and not (has_code and df.loc[i, "code"] in defcon)]
+            if a_idx:
+                prob += pulp.lpSum(squad[i] for i in a_idx) <= max_attackers_per_club
+
+    if max_defenders_per_club is not None and "team_id" in df.columns:
+        for team in df["team_id"].dropna().unique():
+            d_idx = [i for i in idx
+                     if df.loc[i, "team_id"] == team and df.loc[i, "position"] == "DEF"]
+            if d_idx:
+                prob += pulp.lpSum(squad[i] for i in d_idx) <= max_defenders_per_club
+
+    if force_codes and "code" in df.columns:
+        for c in force_codes:
+            f_idx = [i for i in idx if df.loc[i, "code"] == c]
+            if f_idx:
+                prob += pulp.lpSum(squad[i] for i in f_idx) == 1
+
+
+def _optimize_multi_week(
+    players: pd.DataFrame,
+    budget: float,
+    gw_pts_cols: List[str],
+    boost_col: Optional[str],
+    captain: bool,
+    time_limit: int,
+    bench_budget: Optional[float],
+    force_codes: Optional[List],
+    exclude_codes: Optional[List],
+    max_attackers_per_club: Optional[int],
+    defcon_codes: Optional[List],
+    max_defenders_per_club: Optional[int],
+) -> Optional[Dict]:
+    """One fifteen, a fresh eleven every gameweek. See `optimize_squad`."""
+    need = list(gw_pts_cols) + ["price", "position"]
+    df = players.dropna(subset=need).reset_index(drop=True)
+    if exclude_codes and "code" in df.columns:
+        df = df[~df["code"].isin(exclude_codes)].reset_index(drop=True)
+    idx = list(df.index)
+    if not idx:
+        return None
+
+    lineup_min = PERFECT_SEASON["lineup_min"]
+    weeks = list(range(len(gw_pts_cols)))
+    P = {g: df[gw_pts_cols[g]].astype(float) for g in weeks}
+    boost_g = gw_pts_cols.index(boost_col) if boost_col is not None else None
+
+    prob = pulp.LpProblem("squad_window", pulp.LpMaximize)
+    squad = pulp.LpVariable.dicts("squad", idx, cat="Binary")
+    start = pulp.LpVariable.dicts("start", (idx, weeks), cat="Binary")
+    # Continuous on purpose · see the note in `optimize_squad`.
+    cap = pulp.LpVariable.dicts("cap", (idx, weeks), lowBound=0, upBound=1)
+
+    # In the Boost week the four non-starters score too, so the whole fifteen
+    # counts. Written as start + (squad - start) rather than plain `squad` so
+    # the captain term stays attached to the eleven.
+    prob += pulp.lpSum(
+        P[g][i] * (start[i][g] + (cap[i][g] if captain else 0)
+                   + ((squad[i] - start[i][g]) if g == boost_g else 0))
+        for i in idx for g in weeks)
+
+    _squad_rules(prob, df, idx, squad, budget, None, force_codes,
+                 max_attackers_per_club, defcon_codes, max_defenders_per_club)
+
+    for g in weeks:
+        prob += pulp.lpSum(start[i][g] for i in idx) == 11
+        prob += pulp.lpSum(cap[i][g] for i in idx) == (1 if captain else 0)
+        for pos, lo in lineup_min.items():
+            pos_idx = [i for i in idx if df.loc[i, "position"] == pos]
+            if pos == "GKP":
+                prob += pulp.lpSum(start[i][g] for i in pos_idx) == 1
+            else:
+                prob += pulp.lpSum(start[i][g] for i in pos_idx) >= lo
+        for i in idx:
+            prob += start[i][g] <= squad[i]
+            prob += cap[i][g] <= start[i][g]
+
+    if bench_budget is not None:
+        # Bench money is dead money, but with a rotating eleven "the bench" is
+        # not a fixed four. The rule is applied to the FIRST gameweek's bench,
+        # which is the one a manager actually looks at on deadline day.
+        prob += pulp.lpSum(df.loc[i, "price"] * (squad[i] - start[i][0])
+                           for i in idx) <= bench_budget
+
+    status = prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=time_limit))
+    label = pulp.LpStatus[status]
+    if label not in ("Optimal", "Not Solved"):
+        logger.warning("window squad MILP status: %s", label)
+        return None
+    proven = label == "Optimal"
+    if not proven:
+        logger.warning("window squad MILP hit the %ss limit · best found is not "
+                       "proven optimal", time_limit)
+
+    picked = [i for i in idx if squad[i].value() and squad[i].value() > 0.5]
+    if len(picked) != 15:
+        return None
+
+    xi_by_week, cap_by_week, total = {}, {}, 0.0
+    for g in weeks:
+        started = [i for i in picked if start[i][g].value() and start[i][g].value() > 0.5]
+        cap_i = max(started, key=lambda i: P[g][i]) if (started and captain) else None
+        xi_by_week[g] = started
+        cap_by_week[g] = cap_i
+        total += float(P[g][started].sum())
+        if cap_i is not None:
+            total += float(P[g][cap_i])
+        if g == boost_g:
+            total += float(P[g][[i for i in picked if i not in started]].sum())
+
+    first, cap_i = xi_by_week[0], cap_by_week[0]
+    squad_df = df.loc[picked].copy()
+    squad_df["in_xi"] = squad_df.index.isin(first)
+    squad_df["is_captain"] = squad_df.index == cap_i
+    # `pts` keeps the shape every caller expects: what this player contributes
+    # over the whole window if he starts every week.
+    squad_df["pts"] = sum(P[g] for g in weeks).loc[picked]
+
+    return {
+        "squad": squad_df.sort_values(["in_xi", "pts"], ascending=[False, False]),
+        "xi_points": round(float(P[0][first].sum())
+                           + (float(P[0][cap_i]) if cap_i is not None else 0.0), 2),
+        "window_points": round(total, 2),
+        "squad_cost": round(float(squad_df["price"].sum()), 1),
+        "captain_idx": cap_i,
+        "xi_by_week": {g: [df.loc[i, "code"] for i in xi_by_week[g]]
+                       for g in weeks} if "code" in df.columns else {},
+        "solver_status": label,
+        "proven_optimal": proven,
+        "per_week": True,
     }
 
 

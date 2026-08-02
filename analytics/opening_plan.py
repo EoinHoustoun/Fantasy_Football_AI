@@ -64,6 +64,44 @@ def plan_vectors(board: pd.DataFrame, proj, gws: Sequence[int],
     return d
 
 
+def week_vectors(board: pd.DataFrame, proj, gws: Sequence[int]) -> pd.DataFrame:
+    """Add one column per gameweek in the window, named `wk<gw>`.
+
+    This is what lets the optimiser field a different eleven each week instead
+    of assuming one fixed lineup for the whole window. `plan_vectors` above
+    collapses the window to two numbers and cannot express a player who starts
+    in GW1 and GW3 but is subbed in GW2, which is the ordinary case.
+    """
+    d = board.copy()
+    codes = [int(c) for c in d["code"]]
+    mat = proj.matrix(codes, list(gws))
+    key = d["code"].astype(int)
+    for g in gws:
+        d[week_col(g)] = key.map(mat[int(g)]).fillna(0.0).round(2)
+    return d
+
+
+def week_col(gw: int) -> str:
+    return "wk%d" % int(gw)
+
+
+def solve_window(board: pd.DataFrame, proj, gws: Sequence[int],
+                 boost_gw: Optional[int], solve_weekly) -> Optional[Dict]:
+    """The fifteen that scores most when the eleven is re-picked every week.
+
+    `solve_weekly(frame, gw_cols, boost_col) -> result_or_None` does the
+    optimisation, so the caller keeps ownership of its own squad rules.
+    """
+    gws = list(gws)
+    if not gws:
+        return None
+    frame = week_vectors(board, proj, gws)
+    cols = tuple(week_col(g) for g in gws)
+    bcol = (week_col(boost_gw)
+            if boost_gw is not None and int(boost_gw) in gws else None)
+    return solve_weekly(frame, cols, bcol)
+
+
 def solve_plan(board: pd.DataFrame, proj, gws: Sequence[int],
                boost_gw: Optional[int], solve) -> Optional[Dict]:
     """Solve for this plan, and never return a squad worse than the plain one.

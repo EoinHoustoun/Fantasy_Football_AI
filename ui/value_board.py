@@ -341,7 +341,8 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 risk: float = 0.3, exclude_names: tuple = (), opening: float = 0.0,
                 max_attackers_per_club: int = 1,
                 opening_map: tuple = (), bench_budget=None,
-                force_names: tuple = (), bench_pts_col: Optional[str] = None):
+                force_names: tuple = (), bench_pts_col: Optional[str] = None,
+                gw_pts_cols: tuple = (), boost_col: Optional[str] = None):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
@@ -396,6 +397,13 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     r = max(0.0, min(1.0, float(risk)))
     ow = max(0.0, min(1.0, float(opening)))
     d["obj"] = d["pts"] * (1.0 - r) + d["proj_lo"].fillna(d["pts"]) * r
+    # The risk blend BEFORE any fixture tilt. Per-gameweek columns already carry
+    # each week's fixture in the number itself, so tilting them again would
+    # count the same fixture twice · measured, that cost up to 7 points over
+    # GW1-3 and made the weekly solve look worse than the fixed one. Risk is
+    # about how certain a projection is, not about who the opponent is, so that
+    # part does still belong.
+    d["_obj_risk"] = d["obj"]
 
     # A window-specific map wins over the board's stock GW1-6 factors, and it
     # implies the caller wants the tilt applied even when the slider is at zero.
@@ -420,6 +428,34 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
         d["_bench_obj"] = (pd.to_numeric(d[bench_pts_col], errors="coerce")
                            .fillna(0.0) * _ratio.fillna(1.0)).round(3)
         _bcol = "_bench_obj"
+
+    # A weekly eleven, when the caller has per-gameweek columns to give.
+    #
+    # Each week is put on the objective's scale by the player's OWN obj/pts
+    # ratio, exactly as the bench column is. Skipping that would apply the risk
+    # dial and the opening tilt to the season number while the weekly numbers
+    # went through raw, so the two halves of the objective would disagree about
+    # what a point is worth.
+    if gw_pts_cols:
+        _pts = pd.to_numeric(d["pts"], errors="coerce").replace(0, float("nan"))
+        _ratio = (pd.to_numeric(d["_obj_risk"], errors="coerce") / _pts).fillna(1.0)
+        _cols, _boost = [], None
+        for c in gw_pts_cols:
+            if c not in d.columns:
+                continue
+            oc = "_obj_%s" % c
+            d[oc] = (pd.to_numeric(d[c], errors="coerce").fillna(0.0) * _ratio).round(3)
+            _cols.append(oc)
+            if boost_col is not None and c == boost_col:
+                _boost = oc
+        if _cols:
+            return optimize_squad(
+                d, budget=budget, time_limit=90,
+                gw_pts_cols=_cols, boost_col=_boost,
+                force_codes=list(force), exclude_codes=list(exclude),
+                max_attackers_per_club=max_attackers_per_club,
+                defcon_codes=_defcon_codes(), max_defenders_per_club=1,
+                bench_budget=bench_budget)
 
     return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
                           force_codes=list(force), exclude_codes=list(exclude),
