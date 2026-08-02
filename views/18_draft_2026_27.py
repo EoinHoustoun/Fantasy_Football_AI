@@ -182,9 +182,11 @@ def _changes_summary(ledger: Dict) -> str:
         # actually arrived. A player sold and bought back appears in neither.
         _pairs = list(zip(w["moves"].get("out", []), w["moves"].get("in", [])))
         for i, (out, inn) in enumerate(_pairs):
-            free = i < w["free_used"]
-            tag = ("FREE" if free else "-4")
-            tok = "mint" if free else "red"
+            # On a Wildcard every move is free however many you make · the
+            # week has no allowance to run out of.
+            free = w.get("wildcard") or i < w["free_used"]
+            tag = ("WILDCARD" if w.get("wildcard") else "FREE" if free else "-4")
+            tok = "mag" if w.get("wildcard") else "mint" if free else "red"
             delta = float(prices.get(int(inn), 0)) - float(prices.get(int(out), 0))
             rows.append(
                 f'<div style="display:flex;align-items:center;gap:10px;'
@@ -201,7 +203,9 @@ def _changes_summary(ledger: Dict) -> str:
                 f'font-weight:800;letter-spacing:0.06em;">{tag}</span></div>')
         plural = "s" if w["used"] != 1 else ""
         cost_txt = (" · costs %d pts" % w["cost"]) if w["cost"] else ""
-        meta = ("%d move%s, %d free available%s"
+        meta = ("%d move%s on the Wildcard · unlimited, free" % (w["used"], plural)
+                if w.get("wildcard") else
+                "%d move%s, %d free available%s"
                 % (w["used"], plural, w["available_before"], cost_txt))
         blocks.append(
             f'<div style="margin-bottom:14px;">'
@@ -427,6 +431,33 @@ PTS_COL = "consensus_points" if HAS_CONSENSUS else "projected_points"
 # a club suffix only where it has to.
 NAME_COL = "uniq_name" if "uniq_name" in board.columns else "web_name"
 NAMES = sorted(board[NAME_COL].tolist())
+_NAME_SET = set(NAMES)
+
+# Drafts saved before the pick names changed hold the bare `web_name`, so a
+# veto on "Šeško" would silently vanish from the multiselect and then vanish
+# from the file on the next save. Losing a user's veto without telling them is
+# the worst kind of bug, so old names are translated forward instead.
+_BY_WEB: Dict[str, List[str]] = {}
+for _w_nm, _u_nm in zip(board["web_name"], board[NAME_COL]):
+    _BY_WEB.setdefault(str(_w_nm), []).append(str(_u_nm))
+
+
+def _pick_names(saved: Optional[List[str]]) -> List[str]:
+    """Saved player names, translated onto the current pick names."""
+    out = []
+    for n in (saved or []):
+        if n in _NAME_SET:
+            out.append(n)
+            continue
+        cands = _BY_WEB.get(str(n), [])
+        if len(cands) == 1:
+            out.append(cands[0])        # unambiguous · just re-spelled
+        elif cands:
+            # The name was shared even then, so we cannot know which one was
+            # meant. Keep the most valuable, which is almost always the intent.
+            _best = board[board["web_name"] == n].nlargest(1, PTS_COL)
+            out.append(str(_best.iloc[0][NAME_COL]) if not _best.empty else cands[0])
+    return out
 
 # A model input that fails to load used to die in a log line. The Scout backfill
 # is the one that matters: without it every Coventry, Hull and Ipswich player
@@ -943,7 +974,7 @@ with _open_controls:
         locked = st.multiselect(
             ":material/lock: Must have · these go in no matter what",
             options=NAMES,
-            default=[n for n in _spec.get("locks", []) if n in NAMES],
+            default=_pick_names(_spec.get("locks")),
             key=f"lock_{_k}",
             help="A lock beats a veto. This is where a premium call lives: "
                  "locking Haaland IS the Haaland draft.")
@@ -951,7 +982,7 @@ with _open_controls:
         excluded = st.multiselect(
             ":material/block: Do not want · never pick these",
             options=NAMES,
-            default=[n for n in _spec.get("vetoes", []) if n in NAMES],
+            default=_pick_names(_spec.get("vetoes")),
             key=f"veto_{_k}",
             help="Anyone you are not convinced by · a club in turmoil, a player "
                  "you think is leaving, an unproven signing.")
@@ -1494,7 +1525,8 @@ def _transfer_ledger(upto_gw: int) -> Dict:
     from analytics.squad_planner import FT_CAP
     return SR.transfer_ledger(st.session_state[_sk("draft_swaps")],
                               upto_gw, ft_cap=FT_CAP,
-                              start_codes=[int(c) for c in SOLVED["code"]])
+                              start_codes=[int(c) for c in SOLVED["code"]],
+                              wildcard_gw=wildcard_gw)
 
 
 # ── Player evidence ───────────────────────────────────────────────────────────
@@ -2373,17 +2405,29 @@ def planner() -> None:
     _bank_label = ("To spend" if _freed else "In the bank")
     _bank_sub = (f"£{bank:.1f}m banked + £{_freed:.1f}m freed" if _freed
                  else "unspent")
+    # A Wildcard week has unlimited transfers and costs nothing, so a count of
+    # "2 of 5" and a hit warning are both wrong there · it is the one week the
+    # constraint does not exist, and the tile should say so rather than making
+    # you remember it.
+    _wild_now = wildcard_gw is not None and int(wildcard_gw) == int(gw)
+    if gw <= 1:
+        _ft_val, _ft_sub, _ft_tok = "Draft week", "the draft is free", "muted"
+    elif _wild_now:
+        _ft_val, _ft_sub, _ft_tok = "∞", "Wildcard · move anyone, free", "mag"
+    else:
+        _ft_val = f"{_ft} of {ledger['cap']}"
+        _ft_sub = "banked, cap %d" % ledger["cap"]
+        _ft_tok = "mint" if _ft else "orange"
+
     st.markdown(_strip([
         ("savings", "Squad value", f"£{cost:.1f}m", "of your budget", "text"),
         ("account_balance", _bank_label, f"£{_spend:.1f}m", _bank_sub,
          "mint" if _spend >= 0 else "red"),
-        ("swap_horiz", "Free transfers",
-         "Draft week" if gw <= 1 else f"{_ft} of {ledger['cap']}",
-         "the draft is free" if gw <= 1 else "banked, cap 5",
-         "muted" if gw <= 1 else ("mint" if _ft else "orange")),
+        ("swap_horiz", "Free transfers", _ft_val, _ft_sub, _ft_tok),
         ("shopping_cart", "Made this week", str(_made) if gw > 1 else "-",
-         "transfers" if gw > 1 else "no transfers in GW1",
-         "text" if not _made else "cyan"),
+         ("free on the Wildcard" if _wild_now else "transfers") if gw > 1
+         else "no transfers in GW1",
+         "text" if not _made else ("mag" if _wild_now else "cyan")),
         ("trending_down", "Points spent",
          f"-{ledger['points_cost']}" if ledger["points_cost"] else "0",
          "on hits so far", "red" if ledger["points_cost"] else "muted"),
@@ -2514,16 +2558,27 @@ def planner() -> None:
     # you have been working on come with it.
     _untitled = str(_spec["id"]).startswith("untitled-")
     _is_mine = not _spec.get("preset")
-    _s1, _s2, _s3 = st.columns([3, 2, 2])
+    _cur_fifteen = {
+        "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
+        "budget": float(budget), "risk": float(risk),
+        "opening": float(opening), "minutes_gate": float(minutes_gate),
+        "cap_attackers": bool(cap_attackers),
+        "bench_boost_gw": _spec.get("bench_boost_gw"),
+        "wildcard_gw": _spec.get("wildcard_gw"),
+        "squad": [int(c) for c in sq["code"]],
+    }
+    _s1, _s2, _s3, _s4 = st.columns([3, 2, 2, 2])
     with _s1:
         _save_as = st.text_input(
             "Draft name", value="" if (_untitled or not _is_mine) else _spec["name"],
             placeholder=("Name it, then save" if _untitled
                          else "Name this draft to save it"),
             key="planner_save_name", label_visibility="collapsed")
+    _typed = _save_as.strip()
+    _same = _typed == _spec.get("name")
+    _clash = (_typed in _SAVED_BY_NAME
+              and _SAVED_BY_NAME[_typed]["id"] != _spec["id"])
     with _s2:
-        _typed = _save_as.strip()
-        _same = _typed == _spec.get("name")
         _label = (":material/save: Update" if (_is_mine and _same and not _untitled)
                   else ":material/bookmark_add: Name and save")
         # Deliberately NOT disabled on an empty name. A disabled button swallows
@@ -2532,26 +2587,21 @@ def planner() -> None:
         _save_hit = st.button(_label, use_container_width=True, type="primary",
                               key="planner_save_go",
                               help="Saves the fifteen exactly as it is on the "
-                                   "pitch, swaps and all, along with the dials.")
-        _clash = (_typed in _SAVED_BY_NAME
-                  and _SAVED_BY_NAME[_typed]["id"] != _spec["id"])
+                                   "pitch, swaps and all, along with the dials. "
+                                   "Typing a different name RENAMES this draft "
+                                   "everywhere · the comparison follows it.")
         if _save_hit and not _typed:
             st.warning("Give it a name first.")
         elif _save_hit and _clash:
             st.warning("**%s** is already taken. Pick another name." % _typed)
         elif _save_hit:
             # Rename in place when this draft is one of yours · a new id would
-            # orphan the untitled one and lose the working state with it.
+            # orphan the old one and lose the working state with it. The id
+            # never changes, so every surface that points at this draft (the
+            # comparison, the last-used memory, the session keys) follows the
+            # new name for free.
             _keep_id = _spec["id"] if _is_mine else None
-            DR.save_draft(_typed, {
-                "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
-                "budget": float(budget), "risk": float(risk),
-                "opening": float(opening), "minutes_gate": float(minutes_gate),
-                "cap_attackers": bool(cap_attackers),
-                "bench_boost_gw": _spec.get("bench_boost_gw"),
-                "wildcard_gw": _spec.get("wildcard_gw"),
-                "squad": [int(c) for c in sq["code"]],
-            }, draft_id=_keep_id)
+            DR.save_draft(_typed, _cur_fifteen, draft_id=_keep_id)
             st.session_state["_want_draft"] = _typed
             # The transfers are now baked into the saved fifteen, so replaying
             # them on top would apply every move twice.
@@ -2559,6 +2609,27 @@ def planner() -> None:
             st.toast(f"Saved {_typed}", icon="✅")
             st.rerun()
     with _s3:
+        # Forking, kept · it is how you try a change without losing the version
+        # that works, and then put the two side by side. The New draft button
+        # copies the RECIPE; this copies the fifteen you are looking at, swaps
+        # and all, which is a different and more useful thing at this point.
+        _copy_hit = st.button(":material/content_copy: Save as a copy",
+                              use_container_width=True, key="planner_copy_go",
+                              help="Keeps this draft as it is and stores what is "
+                                   "on the pitch under the name you typed, as a "
+                                   "new draft. Then compare the two.")
+        if _copy_hit and not _typed:
+            st.warning("Type the name for the copy first.")
+        elif _copy_hit and (_same or _typed in _SAVED_BY_NAME):
+            st.warning("A copy needs a name of its own · **%s** is taken."
+                       % _typed)
+        elif _copy_hit:
+            DR.save_draft(_typed, _cur_fifteen)      # new id, original untouched
+            st.session_state["_want_draft"] = _typed
+            _reset_draft_state()
+            st.toast(f"Copied to {_typed}", icon="✅")
+            st.rerun()
+    with _s4:
         show_changes = st.toggle("Summary of changes", value=False,
                                  key="show_changes")
     if show_changes:
@@ -2655,8 +2726,10 @@ def planner() -> None:
         _want = [_pos_f] if _pos_f else _pos_opts
         alt = _candidates_multi(sq, _open, _budget, _want)
         if _q_name.strip():
-            alt = alt[alt["web_name"].str.contains(_q_name.strip(), case=False,
-                                                   na=False, regex=False)]
+            # Accent-blind · "sesko" has to find "Šeško".
+            _q = SR.fold_accents(_q_name.strip())
+            alt = alt[alt["web_name"].map(SR.fold_accents).str.contains(
+                _q, na=False, regex=False)]
         alt = alt[alt["actual_price"] <= _max_p]
 
         if alt.empty:
@@ -2848,8 +2921,10 @@ def planner() -> None:
         if club_f:
             pool = pool[pool["team_name"].isin(club_f)]
         if name_q.strip():
-            pool = pool[pool["web_name"].str.contains(name_q.strip(), case=False,
-                                                      na=False, regex=False)]
+            # Accent-blind · see SR.fold_accents. "sesko" finds "Šeško".
+            _pq = SR.fold_accents(name_q.strip())
+            pool = pool[pool["web_name"].map(SR.fold_accents).str.contains(
+                _pq, na=False, regex=False)]
         _hi_gw = min(38, gw + horizon - 1)
         # One matrix beats a Python sum per player per gameweek on every
         # keystroke, and it is computed once instead of twice (the survivors

@@ -192,3 +192,79 @@ def test_a_revert_in_a_LATER_week_is_a_real_transfer():
 def test_without_start_codes_it_falls_back_to_counting_entries():
     led = transfer_ledger({2: {1: 99, 99: 1}}, upto_gw=2)
     assert led["weeks"][0]["used"] == 2
+
+
+# ── the Wildcard week ────────────────────────────────────────────────────────
+
+def test_the_wildcard_week_costs_nothing_however_many_moves():
+    led = transfer_ledger({4: {1: 101, 2: 102, 3: 103, 4: 104, 5: 105, 6: 106}},
+                          upto_gw=4, wildcard_gw=4)
+    wk = [w for w in led["weeks"] if w["gw"] == 4][0]
+    assert wk["hits"] == 0 and wk["cost"] == 0
+    assert led["points_cost"] == 0
+
+
+def test_the_wildcard_week_grants_no_free_transfer():
+    """Three banked going into a GW4 Wildcard is still three in GW5 · you
+    played the chip that week instead of taking the transfer."""
+    plain = transfer_ledger({}, upto_gw=4)
+    wild = transfer_ledger({}, upto_gw=4, wildcard_gw=4)
+    assert plain["available_now"] == 3          # GW2, GW3, GW4
+    assert wild["available_now"] == 2           # GW2, GW3 only
+
+
+def test_the_bank_survives_the_wildcard_untouched():
+    """Unlimited transfers that week must not eat the saved ones."""
+    led = transfer_ledger({4: {1: 101, 2: 102}}, upto_gw=5, wildcard_gw=4)
+    # GW2 +1, GW3 +1, GW4 none (wildcard), GW5 +1 = 3
+    assert led["available_now"] == 3
+
+
+def test_the_wildcard_week_is_flagged():
+    led = transfer_ledger({}, upto_gw=4, wildcard_gw=4)
+    assert [w["gw"] for w in led["weeks"] if w["wildcard"]] == [4]
+
+
+def test_weeks_around_the_wildcard_still_charge_normally():
+    led = transfer_ledger({3: {1: 101, 2: 102, 3: 103}}, upto_gw=4, wildcard_gw=4)
+    wk3 = [w for w in led["weeks"] if w["gw"] == 3][0]
+    assert wk3["used"] == 3 and wk3["hits"] == 1     # 2 banked, 3 made
+
+
+def test_no_wildcard_behaves_exactly_as_before():
+    a = transfer_ledger({3: {1: 101}}, upto_gw=5)
+    b = transfer_ledger({3: {1: 101}}, upto_gw=5, wildcard_gw=None)
+    assert a["available_now"] == b["available_now"]
+    assert a["points_cost"] == b["points_cost"]
+
+
+# ── accent-blind search ──────────────────────────────────────────────────────
+
+def test_accents_fold_so_a_plain_keyboard_finds_the_player():
+    from analytics.squad_rules import fold_accents as f
+    assert f("Šeško") == "sesko"
+    assert f("Dúbravka") == "dubravka"
+    assert f("João Pedro") == "joao pedro"
+
+
+def test_letters_that_do_not_decompose_are_mapped():
+    """ø and đ have no combining form to strip, so NFD alone leaves them."""
+    from analytics.squad_rules import fold_accents as f
+    assert f("Højlund") == "hojlund"
+    assert f("Ødegaard") == "odegaard"
+
+
+def test_a_plain_name_is_only_lower_cased():
+    from analytics.squad_rules import fold_accents as f
+    assert f("Haaland") == "haaland"
+
+
+def test_empty_input_is_safe():
+    from analytics.squad_rules import fold_accents as f
+    assert f("") == "" and f(None) == ""
+
+
+def test_the_turkish_dotless_i_folds():
+    """It is its own letter, not an accented one, so NFD leaves it alone."""
+    from analytics.squad_rules import fold_accents as f
+    assert f("Kadıoğlu") == "kadioglu"

@@ -219,14 +219,30 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
 
 
 def _unique_names(df: pd.DataFrame) -> pd.Series:
-    """`web_name`, with a club suffix only where the name is shared."""
+    """The name you PICK by · club suffix where shared, plain spelling where accented.
+
+    Two different problems, one column:
+
+    1. Thirteen `web_name`s are shared, so "Palmer" alone is ambiguous.
+    2. Nobody types Š. Streamlit's multiselect filters on the visible label and
+       does not fold diacritics, so "sesko" finds nothing at all unless the
+       plain spelling is IN the label. Hence "Šeško (Sesko)".
+
+    Only the pickers use this column. The pitch, the tables and the player cards
+    all render `web_name`, so the accents stay where they belong.
+    """
+    from analytics.squad_rules import fold_accents
+
     nm = df["web_name"].astype(str)
     dup = nm.duplicated(keep=False)
     club = df.get("team_short")
     if club is None:
         club = df.get("team_name", pd.Series([""] * len(df), index=df.index))
-    suffix = " (" + club.astype(str).str.slice(0, 3).str.upper() + ")"
-    return nm.where(~dup, nm + suffix)
+    out = nm.where(~dup, nm + " (" + club.astype(str).str.slice(0, 3).str.upper() + ")")
+
+    plain = nm.map(fold_accents)
+    accented = plain != nm.str.lower()
+    return out.where(~accented, out + " (" + plain.str.title() + ")")
 
 
 def _add_consensus(verdicts: pd.DataFrame, live_bs: dict) -> pd.DataFrame:

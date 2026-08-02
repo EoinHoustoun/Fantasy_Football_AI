@@ -59,9 +59,35 @@ def legal_swaps(out_code: int, xi: Iterable[int], squad_codes: Iterable[int],
             if is_legal_xi((xi - {out_code}) | {cand}, pos_by_code)]
 
 
+def fold_accents(s: str) -> str:
+    """Lower-case and strip diacritics, so "sesko" finds "Šeško".
+
+    Nobody types Š, and half the Premier League has an accent in their name ·
+    Šeško, Dúbravka, João Pedro, Højlund, Ødegaard. A search box that only
+    matches the exact glyph is a search box that hides those players.
+
+    NFD splits a letter from its accent, then the combining marks (category Mn)
+    are dropped. It also handles the ones that do not decompose, like ø and đ,
+    through an explicit map.
+    """
+    import unicodedata
+    if not s:
+        return ""
+    out = unicodedata.normalize("NFD", str(s).lower())
+    out = "".join(c for c in out if unicodedata.category(c) != "Mn")
+    for a, b in (("ø", "o"), ("đ", "d"), ("ł", "l"), ("æ", "ae"),
+                 ("œ", "oe"), ("ß", "ss"), ("ð", "d"), ("þ", "th"),
+                 # Turkish dotless i · Kadıoğlu. It is its own letter, not an
+                 # accented one, so NFD leaves it exactly where it was.
+                 ("ı", "i")):
+        out = out.replace(a, b)
+    return out
+
+
 def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
                     first_paid_gw: int = 2,
-                    start_codes: Optional[Iterable[int]] = None) -> Dict:
+                    start_codes: Optional[Iterable[int]] = None,
+                    wildcard_gw: Optional[int] = None) -> Dict:
     """Free transfers, hits and what each week's moves cost.
 
     One free transfer a gameweek from GW2, banked up to `ft_cap`, spent oldest
@@ -71,6 +97,12 @@ def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
     Saving transfers early is worth more than it looks: a bank of five in GW6 is
     the flexibility to react once there is real information, which is a large
     part of why an early Bench Boost and Wildcard are attractive.
+
+    `wildcard_gw` is the week you play a Wildcard. That week has **unlimited**
+    transfers and costs nothing however many you make, and it grants no free
+    transfer of its own · you played the chip instead. Your bank is untouched
+    and carries straight through, so three saved going into a GW4 Wildcard is
+    still three in GW5.
 
     `swaps` is {gw: {out_code: in_code}}.
 
@@ -83,9 +115,14 @@ def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
     """
     weeks, avail, total_hits = [], 0, 0
     squad = [int(c) for c in (start_codes or [])]
+    wc = int(wildcard_gw) if wildcard_gw else None
 
     for g in range(int(first_paid_gw), int(upto_gw) + 1):
-        avail = min(ft_cap, avail + 1)
+        wild = wc is not None and g == wc
+        # No accrual in the Wildcard week · the chip is what you played that
+        # week. The bank itself is untouched and rolls on unchanged.
+        if not wild:
+            avail = min(ft_cap, avail + 1)
         moves = (swaps or {}).get(g, {}) or {}
 
         if squad:
@@ -100,14 +137,16 @@ def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
         else:
             used = len(moves)
 
-        free_used = min(used, avail)
-        hits = used - free_used
+        free_used = used if wild else min(used, avail)
+        hits = 0 if wild else used - free_used
         total_hits += hits
         weeks.append({
             "gw": g, "moves": moves, "used": used,
             "free_used": free_used, "hits": hits, "cost": hits * HIT_COST,
-            "available_before": avail,
+            "available_before": avail, "wildcard": wild,
         })
-        avail = max(0, avail - used)
+        if not wild:
+            avail = max(0, avail - used)
     return {"weeks": weeks, "available_now": avail, "hits": total_hits,
-            "points_cost": total_hits * HIT_COST, "cap": ft_cap}
+            "points_cost": total_hits * HIT_COST, "cap": ft_cap,
+            "wildcard_gw": wc}
