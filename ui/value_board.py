@@ -157,6 +157,34 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
     # board · the only stated "will he start" signal in the stack.
     verdicts = _add_consensus(verdicts, live_bs)
 
+    # Some facts no model prices. A player expected to leave the league scores
+    # nothing at all, and that is not a form haircut on OUR projection · it is a
+    # statement about the blended number, because Scout and the Hub have not
+    # heard either. `pts_mult` only touches our own component, so on a 0.35
+    # weight a 0.65 multiplier moves the consensus by about 12%, which is not
+    # what the call meant. `availability_mult` applies after the blend.
+    try:
+        from analytics.projection_overrides import load_overrides
+        _av = {int(c): float(a["availability_mult"])
+               for c, a in load_overrides().items()
+               if a.get("availability_mult") is not None}
+        if _av and "consensus_points" in verdicts.columns:
+            _m = verdicts["code"].astype(int).map(_av)
+            _hit = _m.notna()
+            for _c in ("consensus_points", "consensus_lo", "consensus_hi",
+                       "projected_points"):
+                if _c in verdicts.columns:
+                    verdicts.loc[_hit, _c] = (
+                        pd.to_numeric(verdicts.loc[_hit, _c], errors="coerce")
+                        * _m[_hit]).round(1)
+            verdicts["availability_mult"] = _m.fillna(1.0)
+            logger.info("availability multiplier applied to %d players", int(_hit.sum()))
+        else:
+            verdicts["availability_mult"] = 1.0
+    except Exception as exc:
+        logger.warning("availability overrides skipped: %s", exc)
+        verdicts["availability_mult"] = 1.0
+
     # Promoted sides defend more, so their DEFENDERS bank more DEFCON than any
     # carryover model expects · they have no Premier League record to carry over.
     # Derivation, evidence strength and why midfielders get nothing: see

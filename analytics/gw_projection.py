@@ -178,6 +178,21 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
     # 0.73 for established players). The season blend already refuses their
     # vote; without this the same optimism walked straight into any objective
     # scored over a window · a Coventry forward away at Arsenal read 3.3.
+    # The same call has to reach the match cells. A player who may not be in
+    # the league cannot be projected 15.5 points over three gameweeks just
+    # because the Hub has not heard he is leaving.
+    if long is not None and not long.empty and "availability_mult" in board.columns:
+        av = {int(c): float(m) for c, m in
+              zip(board["code"], board["availability_mult"].fillna(1.0)) if m != 1.0}
+        if av:
+            hit = long["code"].astype(int).isin(av)
+            long = long.copy()
+            long.loc[hit, "pts"] = (
+                pd.to_numeric(long.loc[hit, "pts"], errors="coerce")
+                * long.loc[hit, "code"].astype(int).map(av)).round(2)
+            logger.info("availability multiplier applied to %d match cells",
+                        int(hit.sum()))
+
     if long is not None and not long.empty and "consensus_echoed_scout" in board.columns:
         no_record = set(board.loc[board["consensus_echoed_scout"].fillna(False).astype(bool),
                                   "code"].astype(int))

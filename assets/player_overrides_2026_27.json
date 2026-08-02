@@ -113,5 +113,45 @@
     "minutes": 2400,
     "note": "Expected to start the opening weeks under the new City manager. Elite rate (5.67 per 90 in 25/26). The match model has him at 32 minutes a game, which is a lower opening-minutes call than we believe \u00b7 early_nailedness overrides it, season minutes stay at 2400.",
     "early_nailedness": 0.78
+  },
+  "208706": {
+    "name": "Bruno G.",
+    "note": "Expected to leave Newcastle in the window. A move abroad scores zero FPL points, so this is not a form haircut \u00b7 it prices the chance he is not in the league. Eoin's read, not a model output. Remove this the moment he starts a Premier League game.",
+    "availability_mult": 0.65
+  },
+  "201666": {
+    "name": "Barnes",
+    "pts_mult": 0.9,
+    "note": "Newcastle rebuild \u00b7 manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded \u00b7 nailed at 0.97 and the one Eoin rates."
+  },
+  "98747": {
+    "name": "Pope",
+    "pts_mult": 0.9,
+    "note": "Newcastle rebuild \u00b7 manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded \u00b7 nailed at 0.97 and the one Eoin rates."
+  },
+  "220237": {
+    "name": "Botman",
+    "pts_mult": 0.9,
+    "note": "Newcastle rebuild \u00b7 manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded \u00b7 nailed at 0.97 and the one Eoin rates."
+  },
+  "487838": {
+    "name": "Hall",
+    "pts_mult": 0.9,
+    "note": "Newcastle rebuild \u00b7 manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded \u00b7 nailed at 0.97 and the one Eoin rates."
+  },
+  "180974": {
+    "name": "Joelinton",
+    "pts_mult": 0.9,
+    "note": "Newcastle rebuild \u00b7 manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded \u00b7 nailed at 0.97 and the one Eoin rates."
+  },
+  "538207": {
+    "name": "Osula",
+    "pts_mult": 0.9,
+    "note": "Newcastle rebuild \u00b7 manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded \u00b7 nailed at 0.97 and the one Eoin rates."
+  },
+  "470313": {
+    "name": "Woltemade",
+    "pts_mult": 0.9,
+    "note": "Newcastle rebuild \u00b7 manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded \u00b7 nailed at 0.97 and the one Eoin rates."
   }
 }
