@@ -218,8 +218,66 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
         if no_record:
             long = _damp_no_record(long, no_record)
 
+    # Fantasy Football Scout's Rate My Team, per gameweek, GW1-6. This is the
+    # HEAVIER voice · it matches 89% of the board against the Hub's 73%, covers
+    # six gameweeks against four, and until now the per-gameweek layer had
+    # exactly ONE match-level source, so a single provider's read of a fixture
+    # went through unchallenged. The Hub is still worth having: it is the only
+    # one that states expected MINUTES, which is what the early-minutes gate and
+    # the "is he actually playing" checks run on.
+    try:
+        from analytics import scout_rmt
+        rmt_snap = scout_rmt.load_snapshot()
+        if rmt_snap is not None:
+            rmt = scout_rmt.per_gw_by_code(rmt_snap, board)
+            if not rmt.empty:
+                long = _blend_match_sources(long, rmt)
+    except Exception as exc:
+        logger.warning("Scout RMT per-gameweek projections unavailable: %s", exc)
+
     return GwProjection(board, fixtures_by_gw, long, miss_gws=miss,
                         gw_points=hand)
+
+
+# How the two per-gameweek providers are weighted where both have a view.
+# Scout leads on Eoin's call and on coverage; the Hub is a real second opinion
+# rather than a tie-breaker, so it keeps a meaningful share.
+RMT_WEIGHT, HUB_WEIGHT = 0.65, 0.35
+
+
+def _blend_match_sources(hub: Optional[pd.DataFrame],
+                         rmt: pd.DataFrame) -> pd.DataFrame:
+    """Blend Scout's per-gameweek points with the Hub's, Scout weighted higher.
+
+    The two are NOT on the same scale · the Hub runs hotter. Blending raw would
+    smuggle that offset in as if it were disagreement, so the Hub is rescaled
+    onto Scout's scale on the overlap first, exactly as the season consensus
+    does. Expected minutes always come from the Hub, which is the only source
+    that states them.
+    """
+    rmt = rmt.rename(columns={"pts": "pts_rmt"})
+    if hub is None or hub.empty:
+        out = rmt.rename(columns={"pts_rmt": "pts"})
+        out["exp_mins"] = float("nan")
+        logger.info("per-gameweek points from Scout RMT alone (%d cells)", len(out))
+        return out
+
+    m = hub.merge(rmt, on=["code", "gw"], how="outer")
+    both = m["pts"].notna() & m["pts_rmt"].notna() & (m["pts"] > 0.2)
+    scale = 1.0
+    if int(both.sum()) >= 50:
+        scale = float((m.loc[both, "pts_rmt"] / m.loc[both, "pts"]).median())
+        scale = scale if np.isfinite(scale) and 0.2 < scale < 5.0 else 1.0
+    hub_scaled = m["pts"] * scale
+
+    w = RMT_WEIGHT * m["pts_rmt"].notna() + HUB_WEIGHT * hub_scaled.notna()
+    total = (m["pts_rmt"].fillna(0) * RMT_WEIGHT * m["pts_rmt"].notna()
+             + hub_scaled.fillna(0) * HUB_WEIGHT * hub_scaled.notna())
+    m["pts"] = (total / w.replace(0, np.nan)).round(2)
+    logger.info("per-gameweek blend · Scout %d cells, Hub %d, both %d, "
+                "Hub rescaled x%.3f", int(m["pts_rmt"].notna().sum()),
+                int(hub_scaled.notna().sum()), int(both.sum()), scale)
+    return m.drop(columns=["pts_rmt"])
 
 
 # Our shape / the Hub's, for players with no Premier League record. Measured,
