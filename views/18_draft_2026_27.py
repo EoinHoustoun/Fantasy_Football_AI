@@ -661,7 +661,7 @@ _hero, _ctrl = st.columns([4, 1])
 with _hero:
     st.markdown(_HERO, unsafe_allow_html=True)
 with _ctrl:
-    _open_controls = st.popover(":material/tune: 2 · Tune", use_container_width=True)
+    st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
 
 
 # ── The workflow, stated ──────────────────────────────────────────────────────
@@ -731,6 +731,14 @@ _GROUP_ICON = {"Mine": "bookmark", "Locked": "lock",
                "Base": "balance", "Routes": "science"}
 _opts = sorted(_all_opts, key=lambda n: (_GROUP_ORDER.index(_draft_group(n)), n))
 
+# Selecting a draft you just created cannot be done by writing to the widget's
+# own key · Streamlit refuses once the widget exists, and the whole create flow
+# died on that. The wanted name is stashed instead and applied HERE, before the
+# selectbox is built, which is the only legal moment.
+_want = st.session_state.pop("_want_draft", None)
+if _want and _want in _opts:
+    st.session_state["planner_draft"] = _want
+
 _default = st.session_state.get("planner_draft")
 if _default not in _opts:
     _default = next((n for n in _opts if "BB1 → WC4" in n), _opts[0])
@@ -754,6 +762,9 @@ with _new_col:
                  help="Copies the draft you are on, so you tune from where you "
                       "are rather than from scratch."):
         st.session_state["show_new_draft"] = True
+        # Legal here · the box below has not been built yet this run. Opening
+        # the form on a name left over from last time is a trap.
+        st.session_state["new_draft_name"] = ""
 if _pick is None:
     _pick = _default
 _spec = _SAVED_BY_NAME[_pick]
@@ -768,23 +779,39 @@ if st.session_state.get("show_new_draft"):
             f'<b>{_pick}</b> · locks, dials and chips come with it. '
             f'Tune it, then it saves as you go.</span></div>'),
             unsafe_allow_html=True)
-        _n1, _n2, _n3 = st.columns([4, 1, 1])
-        with _n1:
-            _nd = st.text_input("Name", key="new_draft_name",
-                                placeholder="e.g. Opening 15, no Newcastle",
-                                label_visibility="collapsed")
-        with _n2:
-            if st.button("Create", type="primary", use_container_width=True,
-                         disabled=not _nd.strip(), key="new_draft_go"):
-                DR.save_draft(_nd.strip(),
+        # A FORM, not a loose text box and a button. Typing into a bare
+        # st.text_input does not reach Python until the box loses focus, so a
+        # Create button gated on the typed name was still disabled on the click
+        # that was meant to fire it · you had to click twice. A form submits the
+        # name and the click together, and Return works too.
+        with st.form("new_draft_form", border=False):
+            _n1, _n2, _n3 = st.columns([4, 1, 1])
+            with _n1:
+                _nd = st.text_input("Name", key="new_draft_name",
+                                    placeholder="e.g. Opening 15, no Newcastle",
+                                    label_visibility="collapsed")
+            with _n2:
+                _go = st.form_submit_button("Create", type="primary",
+                                            use_container_width=True)
+            with _n3:
+                _no = st.form_submit_button("Cancel", use_container_width=True)
+
+        if _no:
+            st.session_state["show_new_draft"] = False
+            st.rerun()
+        if _go:
+            _name = (_nd or "").strip()
+            if not _name:
+                st.warning("Give the draft a name first.")
+            elif _name in _SAVED_BY_NAME:
+                st.warning("**%s** already exists. Pick another name." % _name)
+            else:
+                DR.save_draft(_name,
                               {k: _spec.get(k) for k in DR.BASE},
                               allow_clear=("bench_boost_gw", "wildcard_gw"))
-                st.session_state["planner_draft"] = _nd.strip()
+                st.session_state["_want_draft"] = _name
                 st.session_state["show_new_draft"] = False
-                st.rerun()
-        with _n3:
-            if st.button("Cancel", use_container_width=True, key="new_draft_no"):
-                st.session_state["show_new_draft"] = False
+                st.session_state["just_created"] = True
                 st.rerun()
 
 # The facts about THIS draft, as chips. A selector that only echoes its own
@@ -840,6 +867,17 @@ if st.session_state.get("confirm_delete") == _spec["id"]:
             st.rerun()
 
 
+# Step 2 lives inline rather than behind a popover, and opens by itself the
+# moment you create a draft · naming a squad and then being left on the same
+# screen with no obvious next move is where the old flow lost people. It stays
+# open while you tune and remembers that you closed it.
+_just_made = st.session_state.pop("just_created", False)
+if _just_made:
+    st.session_state["tune_open"] = True
+_open_controls = st.expander(
+    "2 · Tune this draft  ·  who you want, who you do not, and the dials",
+    expanded=bool(st.session_state.get("tune_open", False)))
+
 with _open_controls:
     mode = _spec.get("strategy", "⚖️ Optimal value")
 
@@ -847,6 +885,32 @@ with _open_controls:
     # them on the draft id is what makes them re-read when you switch draft
     # rather than carrying the previous one's settings across.
     _k = _spec["id"]
+
+    # Who you want and who you do not comes FIRST. It is the reason anyone opens
+    # this panel, and it was below five sliders nobody had an opinion about.
+    l1, l2 = st.columns(2)
+    with l1:
+        locked = st.multiselect(
+            ":material/lock: Must have · these go in no matter what",
+            options=NAMES,
+            default=[n for n in _spec.get("locks", []) if n in NAMES],
+            key=f"lock_{_k}",
+            help="A lock beats a veto. This is where a premium call lives: "
+                 "locking Haaland IS the Haaland draft.")
+    with l2:
+        excluded = st.multiselect(
+            ":material/block: Do not want · never pick these",
+            options=NAMES,
+            default=[n for n in _spec.get("vetoes", []) if n in NAMES],
+            key=f"veto_{_k}",
+            help="Anyone you are not convinced by · a club in turmoil, a player "
+                 "you think is leaving, an unproven signing.")
+
+    st.markdown(_one_line(
+        f'<div style="font-size:10.5px;color:{V("muted")};margin:2px 0 8px;">'
+        f'The dials below are fine at their defaults. Change them only when you '
+        f'have a reason.</div>'), unsafe_allow_html=True)
+
     c1, c2, c3 = st.columns(3)
     with c1:
         budget = st.slider("Budget (£m)", 95.0, 105.0,
@@ -887,22 +951,6 @@ with _open_controls:
                  "club, so a bad week for that club cannot sink two picks. It "
                  "costs points whenever you deliberately want two.")
         two_att = not cap_attackers
-    l1, l2 = st.columns(2)
-    with l1:
-        locked = st.multiselect(
-            "Lock in · players I definitely want", options=NAMES,
-            default=[n for n in _spec.get("locks", []) if n in NAMES],
-            key=f"lock_{_k}",
-            help="These go into the fifteen no matter what. A lock beats a veto. "
-                 "This is where a premium call lives: locking Haaland IS the "
-                 "Haaland draft.")
-    with l2:
-        excluded = st.multiselect(
-            "Don't trust · exclude these players", options=NAMES,
-            default=[n for n in _spec.get("vetoes", []) if n in NAMES],
-            key=f"veto_{_k}",
-            help="Veto anyone you're not convinced by.")
-
     _bb, _wc = _spec.get("bench_boost_gw"), _spec.get("wildcard_gw")
     if _bb or _wc:
         st.caption("Chip plan on this draft: "
@@ -912,34 +960,67 @@ with _open_controls:
                    + ". The planner shows the squad; the chips are priced in "
                      "Compare drafts.")
 
-    # ── Save what is on screen as a draft of your own ────────────────────────
-    # Saving belongs where the draft is built, not only in the comparison tab.
-    # You tune the dials here, so this is where "keep this one" is asked.
+    # ── Keep it ───────────────────────────────────────────────────────────
+    # The loop is: tune, watch the squad change below, keep it. Saving ONTO the
+    # draft you are on is the common case and used to be impossible here · you
+    # could only ever fork a new one, so every tweak spawned another draft.
     st.markdown(f'<div style="height:1px;background:{V("line")};margin:14px 0 10px;"></div>',
                 unsafe_allow_html=True)
-    _n1, _n2, _n3 = st.columns([3, 2, 2])
-    with _n1:
-        _new_name = st.text_input("Save these settings as", key="ctrl_save_name",
-                                  placeholder="Name your draft")
-    with _n2:
-        _new_bb = st.selectbox("Bench Boost", ["None"] + [f"GW{g}" for g in range(1, 13)],
-                               index=0 if not _bb else _bb, key="ctrl_save_bb")
-    with _n3:
-        _new_wc = st.selectbox("Wildcard", ["None"] + [f"GW{g}" for g in range(2, 15)],
-                               index=0 if not _wc else max(0, _wc - 1), key="ctrl_save_wc")
-    if st.button(":material/bookmark_add: Save as a new draft", key="ctrl_save_go",
-                 use_container_width=True, disabled=not _new_name.strip()):
-        DR.save_draft(_new_name.strip(), {
-            "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
-            "budget": float(budget), "risk": float(risk), "opening": float(opening),
-            "minutes_gate": float(minutes_gate), "cap_attackers": bool(cap_attackers),
-            "bench_boost_gw": None if _new_bb == "None" else int(_new_bb[2:]),
-            "wildcard_gw": None if _new_wc == "None" else int(_new_wc[2:]),
-        })
-        st.session_state["planner_draft"] = _new_name.strip()
-        st.success(f"Saved **{_new_name.strip()}**. It is now in the picker and in "
-                   f"Compare drafts.")
-        st.rerun()
+
+    _cur_spec = {
+        "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
+        "budget": float(budget), "risk": float(risk), "opening": float(opening),
+        "minutes_gate": float(minutes_gate), "cap_attackers": bool(cap_attackers),
+        "bench_boost_gw": _spec.get("bench_boost_gw"),
+        "wildcard_gw": _spec.get("wildcard_gw"),
+    }
+    _changed = any(_cur_spec[k] != _spec.get(k) for k in
+                   ("locks", "vetoes", "budget", "risk", "opening",
+                    "minutes_gate", "cap_attackers"))
+
+    _s1, _s2, _s3 = st.columns([3, 2, 2])
+    with _s1:
+        st.markdown(_one_line(
+            f'<div style="font-size:11.5px;color:{V("mint") if _changed else V("muted")};'
+            f'padding-top:8px;">'
+            + ("Unsaved changes on <b>%s</b>." % _spec["name"] if _changed
+               else "Nothing changed yet.")
+            + '</div>'), unsafe_allow_html=True)
+    with _s2:
+        # Truncate the NAME, not the label · slicing the whole string ate the
+        # icon markup's budget and left four characters of the draft name.
+        _short = _spec["name"] if len(_spec["name"]) <= 14 else _spec["name"][:13] + "…"
+        if st.button(f":material/save: Save to {_short}",
+                     use_container_width=True, key="ctrl_save_same",
+                     disabled=bool(_spec.get("preset")) or not _changed,
+                     help=("Presets cannot be overwritten · use Save as a copy."
+                           if _spec.get("preset") else
+                           "Keep these settings on this draft.")):
+            DR.save_draft(_spec["name"], _cur_spec, draft_id=_spec["id"],
+                          allow_clear=("bench_boost_gw", "wildcard_gw"))
+            st.toast(f"Saved to {_spec['name']}", icon="✅")
+            st.rerun()
+    with _s3:
+        # A form for the same reason as the create box · a typed name does not
+        # reach Python until focus leaves, so a gated button eats the first click.
+        with st.form("save_copy_form", border=False):
+            _copy = st.text_input("Save as a copy", key="ctrl_save_name",
+                                  placeholder="New name",
+                                  label_visibility="collapsed")
+            _copy_go = st.form_submit_button(":material/bookmark_add: Save as a copy",
+                                             use_container_width=True)
+        if _copy_go:
+            _cn = (_copy or "").strip()
+            if not _cn:
+                st.warning("Name the copy first.")
+            else:
+                DR.save_draft(_cn, _cur_spec,
+                              allow_clear=("bench_boost_gw", "wildcard_gw"))
+                st.session_state["_want_draft"] = _cn
+                st.rerun()
+
+    st.caption("Chips are set on the squad below · press **3 · Boost GWn** on the "
+               "week you want to test it.")
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -2285,8 +2366,14 @@ def planner() -> None:
         _same = _save_as.strip() == _spec.get("name")
         _label = (f":material/save: Update" if (_is_mine and _same)
                   else ":material/bookmark_add: Save this team")
-        if st.button(_label, use_container_width=True, type="primary",
-                     disabled=not _save_as.strip(), key="planner_save_go"):
+        # Deliberately NOT disabled on an empty name. A disabled button swallows
+        # the click that was meant to commit the name you just typed, so you had
+        # to click twice. Validate here instead.
+        _save_hit = st.button(_label, use_container_width=True, type="primary",
+                              key="planner_save_go")
+        if _save_hit and not _save_as.strip():
+            st.warning("Name this draft first.")
+        elif _save_hit:
             DR.save_draft(_save_as.strip(), {
                 "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
                 "budget": float(budget), "risk": float(risk),
@@ -2296,7 +2383,7 @@ def planner() -> None:
                 "wildcard_gw": _spec.get("wildcard_gw"),
                 "squad": [int(c) for c in sq["code"]],
             })
-            st.session_state["planner_draft"] = _save_as.strip()
+            st.session_state["_want_draft"] = _save_as.strip()
             # The transfers are now baked into the saved fifteen, so replaying
             # them on top would apply every move twice.
             _reset_draft_state()
