@@ -104,9 +104,13 @@ def _assign_verdicts(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
             #    must-have. This keeps Necessity to the genuine template core.
             if pts >= pts_hi and own >= cfg["necessity_ownership"]:
                 df.at[idx, "verdict"] = VERDICTS.NECESSITY
+                # Say WHOSE number this is. The card's headline total is the
+                # three-model blend; every figure in here is our carryover
+                # model alone, which is what the buckets are drawn from. Two
+                # unlabelled totals disagreeing on one card reads as a bug.
                 df.at[idx, "verdict_reason"] = (
-                    f"Top-tier {pos} projection ({pts:.0f} pts), {own:.0f}% owned. "
-                    f"Template must-have.")
+                    f"Top-tier {pos} projection ({pts:.0f} pts on our model), "
+                    f"{own:.0f}% owned. Template must-have.")
                 continue
 
             # 2. Overpriced · a premium tag the value does not back up, or last
@@ -119,11 +123,11 @@ def _assign_verdicts(df: pd.DataFrame, cfg: Dict) -> pd.DataFrame:
                 if premium_weak:
                     df.at[idx, "verdict_reason"] = (
                         f"£{price:.1f}m premium but only {vscore:.1f} pts/£m projected "
-                        f"({pts:.0f} pts). Priced above its value.")
+                        f"({pts:.0f} pts on our model). Priced above its value.")
                 else:
                     df.at[idx, "verdict_reason"] = (
                         f"{last_pts:.0f} pts in 25/26 kept the £{price:.1f}m tag, but "
-                        f"the projection ({pts:.0f}) doesn't earn it. Pedigree tax.")
+                        f"our model's {pts:.0f} doesn't earn it. Pedigree tax.")
                 continue
 
             # 3. Value · FPL priced below the model, or strong value at the

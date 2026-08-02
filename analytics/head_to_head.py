@@ -242,7 +242,12 @@ def verdict(cmp: Dict, profiles: List[Dict]) -> Dict:
 
     w = cmp["winner"]
     ed = cmp["edges"]
-    margin = ed[w] - max(v for i, v in enumerate(ed) if i != w)
+    # The winner's OWN mean relative advantage over the field · not his edge
+    # minus the loser's. With two players the two edges are equal and opposite,
+    # so subtracting counted the same gap twice and doubled every margin: Sarr
+    # and Kudus, 0.7% apart on the headline total, came out "narrowly better"
+    # because a 3% mean edge was reported as 6%.
+    margin = ed[w]
     win = profiles[w]
     others = [p for i, p in enumerate(profiles) if i != w]
     other_names = ", ".join(p["name"] for p in others)

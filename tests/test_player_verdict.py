@@ -99,3 +99,30 @@ def test_a_missing_score_is_not_quietly_green():
 def test_a_thin_sample_falls_back_rather_than_fitting_to_noise():
     cuts = points_cuts({"FWD": [4.0, 4.1, 4.2]})
     assert cuts["FWD"] == (3.5, 4.3)
+
+
+# ── the margin is the gap, not twice the gap ─────────────────────────────────
+
+def test_two_players_a_hair_apart_are_the_same():
+    """The live case: 30.7 vs 30.5 over six gameweeks, one a fraction better
+    per 90. `margin` used to be the winner's edge MINUS the loser's, and with
+    two players those are equal and opposite, so every gap was doubled and this
+    read "narrowly the better pick"."""
+    v = _v(_p("A", 6.5, 30.7, 5.11, 80, 4.7, 0.31, 0.40),
+           _p("B", 6.5, 30.5, 5.09, 74, 4.7, 0.33, 0.40))
+    assert v["call"] == "same"
+
+
+def test_margin_is_the_winners_own_edge():
+    """A player ahead on every axis by a clear stretch still reads clear."""
+    v = _v(_p("Strong", 6.0, 40.0, 6.7, 88, 6.7, 0.48, 0.60),
+           _p("Weak", 6.0, 24.0, 4.0, 60, 4.0, 0.22, 0.20))
+    assert v["call"] == "clear"
+    assert "clearly" in v["headline"]
+
+
+def test_a_genuine_middling_edge_is_still_reported_as_narrow():
+    v = _v(_p("Ahead", 6.0, 33.0, 5.5, 86, 5.5, 0.38, 0.50),
+           _p("Behind", 6.0, 29.0, 4.8, 80, 4.8, 0.33, 0.44))
+    assert v["call"] == "lean"
+    assert "narrowly" in v["headline"]

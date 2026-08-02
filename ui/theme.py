@@ -33,6 +33,41 @@ import streamlit as st
 THEME_KEY = "ff_theme"
 DEFAULT_THEME = "dark"
 
+# Session state dies on a hard reload, so the choice is also written to a tiny
+# file. Without it the app snapped back to dark every refresh and you had to
+# pick light again, all day.
+_PREF_PATH = None
+
+
+def _pref_file():
+    global _PREF_PATH
+    if _PREF_PATH is None:
+        import os
+        from config import CACHE_DIR
+        _PREF_PATH = os.path.join(CACHE_DIR, "ui_prefs.json")
+    return _PREF_PATH
+
+
+def _read_pref() -> Optional[str]:
+    import json
+    try:
+        with open(_pref_file()) as fh:
+            v = json.load(fh).get("theme")
+        return v if v in ("light", "dark") else None
+    except Exception:
+        return None
+
+
+def _write_pref(theme: str) -> None:
+    import json
+    import os
+    try:
+        os.makedirs(os.path.dirname(_pref_file()), exist_ok=True)
+        with open(_pref_file(), "w") as fh:
+            json.dump({"theme": theme}, fh)
+    except Exception:
+        pass        # a preference is never worth an exception
+
 
 # ── Palettes ──────────────────────────────────────────────────────────────────
 DARK: Dict[str, str] = {
@@ -104,8 +139,16 @@ DISPLAY_STACK = "'Archivo','SF Pro Display',system-ui,-apple-system,sans-serif"
 
 # ── Access ────────────────────────────────────────────────────────────────────
 def current() -> str:
-    """'dark' or 'light'. Reads session state, defaults to dark."""
-    return st.session_state.get(THEME_KEY, DEFAULT_THEME)
+    """'dark' or 'light'.
+
+    Session state first. On a fresh reload it is empty, and `inject_theme` runs
+    before the sidebar toggle is built, so the saved preference is read here
+    too · otherwise the page painted dark and then flipped to light a moment
+    later. Seeded into session state so the file is read once, not per call.
+    """
+    if THEME_KEY not in st.session_state:
+        st.session_state[THEME_KEY] = _read_pref() or DEFAULT_THEME
+    return st.session_state[THEME_KEY]
 
 
 def is_light() -> bool:
@@ -426,7 +469,7 @@ button[data-baseweb="tab"][aria-selected="true"] {{
 @media (max-width: 1100px) {{
   /* Reclaim the sidebar. It is navigation, not content. */
   [data-testid="stSidebar"] {{ min-width: 232px !important; max-width: 262px !important; }}
-  [data-testid="stSidebar"] .stButton > button {{ padding-left: 10px !important; }}
+  [data-testid="stSidebar"] .stButton button {{ padding-left: 10px !important; }}
 }}
 @media (max-width: 820px) {{
   [data-testid="stSidebar"] {{ min-width: 200px !important; max-width: 216px !important; }}
@@ -436,12 +479,17 @@ button[data-baseweb="tab"][aria-selected="true"] {{
 }}
 
 /* ── Controls ── */
-.stButton > button {{
+/* DESCENDANT, not `>`. A button carrying a `help=` tooltip is wrapped by
+   Streamlit in stTooltipIcon / stTooltipHoverTarget, so it stops being a direct
+   child of .stButton and the child combinator silently missed it. Streamlit's
+   own base theme is dark, so in LIGHT mode every button with a tooltip stayed
+   near-black with near-black text. "+ New draft" was unreadable. */
+.stButton button {{
   background: var(--ff-s2) !important; color: {ink} !important;
   border:1px solid var(--ff-line) !important; border-radius:8px !important;
   transition: transform .15s ease, border-color .15s, color .15s;
 }}
-.stButton > button:hover {{
+.stButton button:hover {{
   border-color: var(--ff-mint) !important; color: var(--ff-mint) !important;
 }}
 .stSelectbox > div > div, .stMultiSelect > div > div,
@@ -469,7 +517,7 @@ hr {{ border-color: var(--ff-line) !important; }}
 
 /* Category buttons · the accordion headers. Open one reads as a solid dark
    plate on the cyan; closed ones are quiet outlines. */
-[data-testid="stSidebar"] .stButton > button {{
+[data-testid="stSidebar"] .stButton button {{
   background: rgba(255,255,255,0.42) !important;
   border: 1px solid rgba(5,34,43,0.20) !important;
   color: var(--ff-side-ink) !important;
@@ -478,21 +526,21 @@ hr {{ border-color: var(--ff-line) !important; }}
   border-radius: 10px !important; padding: 8px 12px !important;
   justify-content: flex-start !important;
 }}
-[data-testid="stSidebar"] .stButton > button:hover {{
+[data-testid="stSidebar"] .stButton button:hover {{
   background: rgba(255,255,255,0.72) !important;
   border-color: rgba(5,34,43,0.38) !important; color: var(--ff-side-ink) !important;
 }}
-[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+[data-testid="stSidebar"] .stButton button[kind="primary"] {{
   background: var(--ff-side-ink) !important;
   border-color: var(--ff-side-ink) !important;
   color: #7FEAF8 !important;
 }}
 /* The label sits in a child element, which the blanket sidebar-ink rule also
    matches · without this the open category is dark text on a dark plate. */
-[data-testid="stSidebar"] .stButton > button[kind="primary"] * {{
+[data-testid="stSidebar"] .stButton button[kind="primary"] * {{
   color: #7FEAF8 !important;
 }}
-[data-testid="stSidebar"] .stButton > button[kind="secondary"] * {{
+[data-testid="stSidebar"] .stButton button[kind="secondary"] * {{
   color: var(--ff-side-ink) !important;
 }}
 [data-testid="stSidebar"] [data-testid="stPageLink"] {{ margin: 1px 0 1px 10px; }}
@@ -538,7 +586,7 @@ def theme_toggle(location=None) -> str:
     a glance instead of inferred from a tick.
     """
     host = location if location is not None else st.sidebar
-    st.session_state.setdefault(THEME_KEY, DEFAULT_THEME)
+    st.session_state.setdefault(THEME_KEY, _read_pref() or DEFAULT_THEME)
     choice = host.radio(
         "Appearance", ["🌙 Dark", "☀️ Light"],
         index=0 if current() == "dark" else 1,
@@ -546,6 +594,7 @@ def theme_toggle(location=None) -> str:
     picked = "light" if "Light" in choice else "dark"
     if picked != st.session_state[THEME_KEY]:
         st.session_state[THEME_KEY] = picked
+        _write_pref(picked)
         st.rerun()
     return picked
 

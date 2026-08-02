@@ -604,7 +604,10 @@ _SAVED = DR.load_drafts()
 _SAVED_BY_NAME = {d["name"]: d for d in _SAVED}
 
 if not _SAVED:
-    st.warning("No saved drafts. Restore the presets in Compare drafts.")
+    # The "restore the presets" button it used to point at is gone, and so is
+    # the panel that held it. Say what actually fixes this.
+    st.warning("No saved drafts. Delete `data/cache/saved_drafts.json` and "
+               "reload · the Optimal preset is laid down on first run.")
     st.stop()
 
 
@@ -749,7 +752,12 @@ if _default not in _opts:
     if _default not in _opts:
         _default = _opts[0]
 
-_sel_col, _new_col, _act_col = st.columns([4, 2, 2])
+# Three columns, not four-plus-a-nested-two. The chips and Delete used to share
+# a quarter of the row and then split it again, which left Delete about 50px
+# wide · the browser rendered it one letter per line, under a trash icon, on top
+# of the chips. The chips get their own full-width line below instead, where
+# they can wrap the way chips are supposed to.
+_sel_col, _new_col, _act_col = st.columns([5, 2, 1])
 with _sel_col:
     _pick = st.selectbox(
         "1 · Which draft", _opts, index=_opts.index(_default), key="planner_draft",
@@ -899,27 +907,27 @@ if len(_chips) == 1:
                    "No Bench Boost or Wildcard planned on this draft."))
 
 with _act_col:
-    _d1, _d2 = st.columns([3, 2])
-    with _d1:
-        st.markdown(_one_line(
-            '<div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:6px;">'
-            + "".join(
-                f'<span title="{_why}" style="display:inline-flex;align-items:center;'
-                f'gap:4px;background:{V("chip-bg")};color:{V(_tok)};border-radius:6px;'
-                f'padding:3px 8px;font-size:10px;font-weight:800;'
-                f'letter-spacing:0.05em;text-transform:uppercase;cursor:help;'
-                # A chip never breaks mid-phrase. In a narrow column the label
-                # was stacking one word per line into a five-line tower.
-                f'white-space:nowrap;">'
-                f'{theme.icon(_ic, 13, V(_tok))}{_lab}</span>'
-                for _ic, _lab, _tok, _why in _chips)
-            + '</div>'), unsafe_allow_html=True)
-    with _d2:
-        if not _spec.get("preset"):
-            if st.button(":material/delete: Delete", use_container_width=True,
-                         key="del_draft",
-                         help="Remove this draft. Presets cannot be deleted."):
-                st.session_state["confirm_delete"] = _spec["id"]
+    st.markdown('<div style="height:26px;"></div>', unsafe_allow_html=True)
+    # Icon only. The word never fitted, and a bin needs no caption.
+    if st.button(":material/delete:", use_container_width=True, key="del_draft",
+                 disabled=bool(_spec.get("preset")),
+                 help=("Presets cannot be deleted." if _spec.get("preset")
+                       else "Delete this draft.")):
+        st.session_state["confirm_delete"] = _spec["id"]
+
+# The chips get a full-width line of their own, so they wrap like chips instead
+# of stacking into a tower in a 90px column.
+st.markdown(_one_line(
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 10px;">'
+    + "".join(
+        f'<span title="{_why}" style="display:inline-flex;align-items:center;'
+        f'gap:4px;background:{V("chip-bg")};color:{V(_tok)};border-radius:6px;'
+        f'padding:3px 8px;font-size:10px;font-weight:800;'
+        f'letter-spacing:0.05em;text-transform:uppercase;cursor:help;'
+        f'white-space:nowrap;">'
+        f'{theme.icon(_ic, 13, V(_tok))}{_lab}</span>'
+        for _ic, _lab, _tok, _why in _chips)
+    + '</div>'), unsafe_allow_html=True)
 
 # Deleting is one click away but never one click · a saved fifteen is work.
 if st.session_state.get("confirm_delete") == _spec["id"]:
@@ -2816,14 +2824,17 @@ _sec("5 · Compare and read", "Everything that informs the draft, without "
 
 # Material icons throughout · the sidebar and every tile already use them, and
 # mixing emoji into the tab strip was the one place the page changed alphabet.
+# One word each. Seven long labels did not fit a laptop and the last tab sat
+# off the right edge with no way to reach it · and "Compare players" inside a
+# section called "Compare and read" says the same word twice anyway.
 tab_cmp, tab_ab, tab_verdict, tab_models, tab_wc, tab_route, tab_all = st.tabs(
-    [":material/balance: Compare players",
-     ":material/compare_arrows: Compare drafts",
+    [":material/balance: Players",
+     ":material/compare_arrows: Drafts",
      ":material/target: Verdicts",
-     ":material/handshake: Model agreement",
+     ":material/handshake: Models",
      ":material/playing_cards: Wildcard",
      ":material/alt_route: Chip route",
-     ":material/table_rows: All players"])
+     ":material/table_rows: Everyone"])
 
 
 # ── Compare players ───────────────────────────────────────────────────────────
