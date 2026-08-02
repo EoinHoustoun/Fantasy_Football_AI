@@ -297,7 +297,7 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 risk: float = 0.3, exclude_names: tuple = (), opening: float = 0.0,
                 max_attackers_per_club: int = 1,
                 opening_map: tuple = (), bench_budget=None,
-                force_names: tuple = ()):
+                force_names: tuple = (), bench_pts_col: Optional[str] = None):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
@@ -317,6 +317,10 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     `force_names` are players locked into the fifteen · the optimiser builds the
     best squad it can AROUND them. They win over `exclude_names` if a player
     somehow appears in both, because an explicit lock is the stronger intent.
+    `bench_pts_col` names a column holding what each player scores in a Bench
+    Boost week. Given one, a benched player is worth exactly that and the
+    `bench_weight` fudge is dropped · which is the difference between "buy four
+    cheap bodies" and "buy the fifteen that scores most with the chip on".
     """
     from analytics.squad_milp import optimize_squad
 
@@ -354,9 +358,23 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
         of = d["opening_factor"].fillna(1.0)
         d["obj"] = d["obj"] * ((1.0 - ow) + ow * of)
 
+    # The bench column has to live on the same scale as the objective, or the
+    # risk dial and the opening tilt would silently apply to the XI and not to
+    # the bench. Carry each player's own obj/pts ratio across.
+    _bcol = None
+    if bench_pts_col and bench_pts_col in d.columns:
+        # float("nan"), not pd.NA · dividing by pd.NA yields NAType, which
+        # astype(float) refuses outright.
+        _pts = pd.to_numeric(d["pts"], errors="coerce").replace(0, float("nan"))
+        _ratio = pd.to_numeric(d["obj"], errors="coerce") / _pts
+        d["_bench_obj"] = (pd.to_numeric(d[bench_pts_col], errors="coerce")
+                           .fillna(0.0) * _ratio.fillna(1.0)).round(3)
+        _bcol = "_bench_obj"
+
     return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
                           force_codes=list(force), exclude_codes=list(exclude),
                           max_attackers_per_club=max_attackers_per_club,
                           defcon_codes=_defcon_codes(),
                           max_defenders_per_club=1,
-                          bench_budget=bench_budget)
+                          bench_budget=bench_budget,
+                          bench_pts_col=_bcol)

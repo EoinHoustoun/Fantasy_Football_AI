@@ -66,8 +66,8 @@ def test_bench_value_never_exceeds_start_value():
 
 def _solver(board):
     """Take the whole (small) board as the squad, so the plan maths is exposed."""
-    def solve(frame):
-        return {"squad": frame.copy()}
+    def solve(frame, bench_col=None):
+        return {"squad": frame.copy(), "bench_col": bench_col}
     return solve
 
 
@@ -112,3 +112,101 @@ def test_the_boosted_week_counts_the_bench_and_others_do_not():
     for w in out["per_week"]:
         expected = w["xi"] + w["captain"] + (w["bench"] if w["boosted"] else 0.0)
         assert abs(w["total"] - expected) < 0.05
+
+
+def test_the_solver_is_told_which_column_carries_bench_value():
+    """No Boost means no bench column · the `bench_weight` fudge is the right
+    tool there, because a bench you never boost is insurance, not points."""
+    b = _board(15)
+    seen = []
+
+    def solve(frame, bench_col=None):
+        seen.append(bench_col)
+        return {"squad": frame.copy()}
+
+    best_boost_week(b, FakeProj(), [1, 2, 3], solve, candidates=[2])
+    assert seen == [None, "plan_bench"]
+
+
+# ── solve_plan · declaring a Boost can never cost you points ─────────────────
+
+def _pair_solver(bench_squad, plain_squad):
+    """Return a different fifteen depending on whether a bench column was asked
+    for, so the two candidates can be scored against each other."""
+    def solve(frame, bench_col=None):
+        codes = bench_squad if bench_col else plain_squad
+        return {"squad": frame[frame["code"].isin(codes)].copy()}
+    return solve
+
+
+def test_solve_plan_keeps_the_squad_that_actually_scores_more():
+    from analytics.opening_plan import solve_plan
+    b = _board(30)
+    # The "bench-aware" candidate is deliberately the WEAKER fifteen. The plan
+    # score has to notice and keep the plain one.
+    weak, strong = list(range(1, 16)), list(range(16, 31))
+    out = solve_plan(b, FakeProj(), [1, 2, 3], 2, _pair_solver(weak, strong))
+    assert set(out["squad"]["code"]) == set(strong)
+    assert out["bench_aware"] is False
+
+
+def test_solve_plan_prefers_the_bench_aware_squad_on_a_tie():
+    from analytics.opening_plan import solve_plan
+    b = _board(30)
+    same = list(range(1, 16))
+    out = solve_plan(b, FakeProj(), [1, 2, 3], 2, _pair_solver(same, same))
+    assert out["bench_aware"] is True
+
+
+def test_solve_plan_reports_the_honest_plan_total():
+    from analytics.opening_plan import solve_plan, plan_total
+    b = _board(30)
+    squad = list(range(1, 16))
+    out = solve_plan(b, FakeProj(), [1, 2, 3], 2, _pair_solver(squad, squad))
+    assert out["plan_total"] == round(
+        plan_total(out["squad"], FakeProj(), [1, 2, 3], 2), 1)
+
+
+def test_solve_plan_without_a_boost_solves_once_and_says_so():
+    from analytics.opening_plan import solve_plan
+    b = _board(30)
+    calls = []
+
+    def solve(frame, bench_col=None):
+        calls.append(bench_col)
+        return {"squad": frame.head(15).copy()}
+
+    out = solve_plan(b, FakeProj(), [1, 2, 3], None, solve)
+    assert calls == [None]
+    assert out["bench_aware"] is False
+
+
+def test_solve_plan_ignores_a_boost_outside_the_window():
+    from analytics.opening_plan import solve_plan
+    b = _board(30)
+    calls = []
+
+    def solve(frame, bench_col=None):
+        calls.append(bench_col)
+        return {"squad": frame.head(15).copy()}
+
+    solve_plan(b, FakeProj(), [1, 2, 3], 9, solve)
+    assert calls == [None]
+
+
+def test_solve_plan_survives_an_infeasible_arm():
+    from analytics.opening_plan import solve_plan
+    b = _board(30)
+
+    def solve(frame, bench_col=None):
+        return None if bench_col else {"squad": frame.head(15).copy()}
+
+    out = solve_plan(b, FakeProj(), [1, 2, 3], 2, solve)
+    assert out is not None and out["bench_aware"] is False
+
+
+def test_solve_plan_returns_none_when_nothing_is_feasible():
+    from analytics.opening_plan import solve_plan
+    b = _board(30)
+    out = solve_plan(b, FakeProj(), [1, 2, 3], 2, lambda f, c=None: None)
+    assert out is None

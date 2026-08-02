@@ -28,6 +28,7 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
+from analytics import opening_plan as OPLAN
 from analytics import squad_rules as SR
 from components import ff_table as T
 from components.animations import inject_global_animations
@@ -741,7 +742,12 @@ if _want and _want in _opts:
 
 _default = st.session_state.get("planner_draft")
 if _default not in _opts:
-    _default = next((n for n in _opts if "BB1 → WC4" in n), _opts[0])
+    # Session state dies on a hard reload, so fall back to the draft you were
+    # last on rather than to whichever one happens to sort first.
+    _by_id = {d["id"]: d["name"] for d in _SAVED}
+    _default = _by_id.get(DR.last_used() or "", None)
+    if _default not in _opts:
+        _default = _opts[0]
 
 _sel_col, _new_col, _act_col = st.columns([4, 2, 2])
 with _sel_col:
@@ -768,6 +774,48 @@ with _new_col:
 if _pick is None:
     _pick = _default
 _spec = _SAVED_BY_NAME[_pick]
+
+# ── Working state, scoped to the selected draft ───────────────────────────────
+# Transfers, the axed player, manual XI picks and the viewed gameweek all belong
+# to ONE draft. Held under bare keys they leaked across drafts: switching preset
+# carried the previous draft's transfers onto the new fifteen, so the pitch
+# showed a squad that no draft had ever specified. Scoped by draft id the same
+# way the dials are, which also means flipping back to a draft finds your work
+# where you left it.
+#
+# This block sits ABOVE the solve on purpose. The Bench Boost week is now part
+# of the OBJECTIVE, not a thing you switch on afterwards, so the optimiser has
+# to know it before it picks anybody.
+_DRAFT_ID = str(_spec["id"])
+DR.remember_last(_DRAFT_ID)     # no-op unless it actually changed
+
+# A preset cannot be written to, but you should still be able to TRY a chip
+# week on one. The override lives in session state, scoped to the draft, and a
+# custom draft also persists it so "whatever it is left as is what it saves".
+_BB_UNSET = "unset"
+
+
+def _sk(name: str) -> str:
+    """Session-state key for `name` under the ACTIVE draft."""
+    return f"{name}::{_DRAFT_ID}"
+
+
+def _effective_boost_gw():
+    v = st.session_state.get(_sk("bb_override"), _BB_UNSET)
+    return _spec.get("bench_boost_gw") if v == _BB_UNSET else v
+
+
+_DRAFT_STATE_DEFAULTS = {
+    "draft_swaps": dict,      # {gw: {out_code: in_code}}
+    "draft_axe": list,   # ORDERED codes marked out · fills slots first-in-first-out
+    "draft_bench": set,
+    "sub_from": lambda: None,  # player tapped to be subbed
+    "xi_override": dict,      # {gw: set(codes)} manual XI
+    "draft_gw": lambda: 1,
+}
+
+for _n, _factory in _DRAFT_STATE_DEFAULTS.items():
+    st.session_state.setdefault(_sk(_n), _factory())
 
 # The naming step, inline. It copies the CURRENT draft so tuning starts from
 # where you are, which is how anyone actually builds a variant.
@@ -816,18 +864,39 @@ if st.session_state.get("show_new_draft"):
 
 # The facts about THIS draft, as chips. A selector that only echoes its own
 # label teaches you nothing.
-_kind = ("Your saved fifteen" if DR.has_squad(_spec)
-         else "Route experiment" if _spec["name"].startswith("Route")
-         else "Preset")
-_chips = [(_GROUP_ICON[_draft_group(_pick)], _kind, "mint")]
+# `preset` is the authoritative flag. Falling through to "Preset" because a
+# draft had no saved fifteen labelled every draft the user had just made as one
+# of ours, and presets cannot be saved to · so the label contradicted the
+# buttons next to it.
+# Short enough for a chip · this column is about 190px with the sidebar open,
+# and a long label wrapped into five stacked words. It says what KIND of draft
+# this is, not whether it is saved · a recipe that has been saved still has no
+# fifteen on it, and reading "not saved yet" right after pressing Save is a lie.
+_kind, _kind_why = (
+    ("Saved fifteen", "A team you built by hand. Shown exactly as saved.")
+    if DR.has_squad(_spec) else
+    ("Route", "A chip-route experiment.")
+    if _spec["name"].startswith("Route") else
+    ("Preset", "One of ours. Tune it and save a copy under your own name.")
+    if _spec.get("preset") else
+    ("Recipe", "Re-solved from your settings every time, so it stays right "
+               "when prices and projections move. Press Save this team below "
+               "to freeze the fifteen."))
+_chips = [(_GROUP_ICON[_draft_group(_pick)], _kind, "mint", _kind_why)]
 if _spec.get("locks"):
-    _chips.append(("lock", "%d locked" % len(_spec["locks"]), "gold"))
+    _chips.append(("lock", "%d locked" % len(_spec["locks"]), "gold",
+                   "Must-have players: " + ", ".join(_spec["locks"])))
 if _spec.get("bench_boost_gw"):
-    _chips.append(("battery_charging_full", "BB GW%d" % _spec["bench_boost_gw"], "cyan"))
+    _chips.append(("battery_charging_full", "BB GW%d" % _spec["bench_boost_gw"],
+                   "cyan", "Bench Boost planned for GW%d · all fifteen score "
+                           "that week." % _spec["bench_boost_gw"]))
 if _spec.get("wildcard_gw"):
-    _chips.append(("playing_cards", "WC GW%d" % _spec["wildcard_gw"], "mag"))
+    _chips.append(("playing_cards", "WC GW%d" % _spec["wildcard_gw"], "mag",
+                   "Wildcard planned for GW%d, so this fifteen is built for "
+                   "GW1-%d." % (_spec["wildcard_gw"], _spec["wildcard_gw"] - 1)))
 if len(_chips) == 1:
-    _chips.append(("block", "no chips", "muted2"))
+    _chips.append(("block", "no chips", "muted2",
+                   "No Bench Boost or Wildcard planned on this draft."))
 
 with _act_col:
     _d1, _d2 = st.columns([3, 2])
@@ -835,12 +904,15 @@ with _act_col:
         st.markdown(_one_line(
             '<div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:6px;">'
             + "".join(
-                f'<span title="{_lab}" style="display:inline-flex;align-items:center;'
+                f'<span title="{_why}" style="display:inline-flex;align-items:center;'
                 f'gap:4px;background:{V("chip-bg")};color:{V(_tok)};border-radius:6px;'
                 f'padding:3px 8px;font-size:10px;font-weight:800;'
-                f'letter-spacing:0.05em;text-transform:uppercase;">'
+                f'letter-spacing:0.05em;text-transform:uppercase;cursor:help;'
+                # A chip never breaks mid-phrase. In a narrow column the label
+                # was stacking one word per line into a five-line tower.
+                f'white-space:nowrap;">'
                 f'{theme.icon(_ic, 13, V(_tok))}{_lab}</span>'
-                for _ic, _lab, _tok in _chips)
+                for _ic, _lab, _tok, _why in _chips)
             + '</div>'), unsafe_allow_html=True)
     with _d2:
         if not _spec.get("preset"):
@@ -951,14 +1023,70 @@ with _open_controls:
                  "club, so a bad week for that club cannot sink two picks. It "
                  "costs points whenever you deliberately want two.")
         two_att = not cap_attackers
-    _bb, _wc = _spec.get("bench_boost_gw"), _spec.get("wildcard_gw")
-    if _bb or _wc:
-        st.caption("Chip plan on this draft: "
-                   + " then ".join(filter(None, [
-                       f"Bench Boost GW{_bb}" if _bb else "",
-                       f"Wildcard GW{_wc}" if _wc else ""]))
-                   + ". The planner shows the squad; the chips are priced in "
-                     "Compare drafts.")
+    # ── The chip that changes the objective ───────────────────────────────
+    # A Bench Boost you have already decided on is not something to switch on
+    # after the squad exists · it changes what "best fifteen" MEANS. Without it
+    # the optimiser buys eleven players and four cheap seat-fillers, which is
+    # correct for a normal week and wrong for the week all fifteen score.
+    # Declared here, it goes straight into the objective below.
+    # "off" rather than None as the no-chip option. A selectbox whose value is
+    # set to None shows its PLACEHOLDER, not the None entry, so clearing the
+    # chip from the pitch left the box reading "Choose an option".
+    _OFF = "off"
+    _gw_opts = [_OFF] + list(range(1, MAX_GW + 1))
+    _fmt_gw = lambda g: "Not playing it" if g == _OFF else "GW%d" % g
+    _as_gw = lambda g: None if g == _OFF else int(g)
+    b1, b2, b3 = st.columns([2, 2, 3])
+    with b1:
+        # The pitch's "Boost GWn" button stashes its choice here · applied
+        # before the box is built, which is the only legal moment.
+        if "_want_bb" in st.session_state:
+            _w = st.session_state.pop("_want_bb")
+            st.session_state[f"bbweek_{_k}"] = _OFF if _w is None else int(_w)
+        _bb_now = _effective_boost_gw()
+        boost_gw = _as_gw(st.selectbox(
+            ":material/battery_charging_full: Bench Boost week", _gw_opts,
+            index=_gw_opts.index(_bb_now) if _bb_now in _gw_opts else 0,
+            format_func=_fmt_gw, key=f"bbweek_{_k}",
+            help="Set it here and the optimiser builds the fifteen that scores "
+                 "most WITH the boost, not an eleven plus four seat-fillers. "
+                 "Leave it off and bench money is treated as dead money."))
+    with b2:
+        # The wildcard week is the other half of the same decision · it sets how
+        # long you own this squad, and therefore how many weeks the bench has to
+        # be carried against the one week it pays.
+        _wc_now = _spec.get("wildcard_gw")
+        wildcard_gw = _as_gw(st.selectbox(
+            ":material/playing_cards: Wildcard week", _gw_opts,
+            index=_gw_opts.index(_wc_now) if _wc_now in _gw_opts else 0,
+            format_func=_fmt_gw, key=f"wcweek_{_k}",
+            help="Wildcarding at GW4 means this fifteen only has to be good for "
+                 "GW1-3, so the optimiser scores it over those weeks instead of "
+                 "a season you are going to tear up."))
+    with b3:
+        _win_hi = (int(wildcard_gw) - 1) if wildcard_gw and int(wildcard_gw) > 1 else None
+        if boost_gw and _win_hi:
+            _msg = (f'Built for <b style="color:{V("cyan")};">GW1-{_win_hi}</b> '
+                    f'with all fifteen scoring in <b style="color:{V("cyan")};">'
+                    f'GW{boost_gw}</b>. The bench is priced at exactly what it '
+                    f'earns · full value that week, nothing in the others.')
+        elif boost_gw:
+            _msg = (f'All fifteen score in <b style="color:{V("cyan")};">'
+                    f'GW{boost_gw}</b>. With no wildcard week set the squad is '
+                    f'still scored over a whole season, so one boosted week '
+                    f'barely moves it. Set a wildcard week to make it bite.')
+        elif _win_hi:
+            _msg = (f'Built for <b style="color:{V("cyan")};">GW1-{_win_hi}</b> '
+                    f'only. The bench is dead money · the optimiser spends as '
+                    f'little on it as the rules allow.')
+        else:
+            _msg = ('No chips. The bench is worth a token fraction of a starter '
+                    'and the squad is scored over the full season.')
+        st.markdown(_one_line(
+            f'<div style="font-size:11.5px;color:{V("muted")};padding-top:30px;">'
+            f'{_msg}</div>'), unsafe_allow_html=True)
+    # Keep the gameweek stepper's toggle and this control as ONE fact.
+    st.session_state[_sk("bb_override")] = boost_gw
 
     # ── Keep it ───────────────────────────────────────────────────────────
     # The loop is: tune, watch the squad change below, keep it. Saving ONTO the
@@ -971,12 +1099,13 @@ with _open_controls:
         "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
         "budget": float(budget), "risk": float(risk), "opening": float(opening),
         "minutes_gate": float(minutes_gate), "cap_attackers": bool(cap_attackers),
-        "bench_boost_gw": _spec.get("bench_boost_gw"),
-        "wildcard_gw": _spec.get("wildcard_gw"),
+        "bench_boost_gw": boost_gw,
+        "wildcard_gw": wildcard_gw,
     }
     _changed = any(_cur_spec[k] != _spec.get(k) for k in
                    ("locks", "vetoes", "budget", "risk", "opening",
-                    "minutes_gate", "cap_attackers"))
+                    "minutes_gate", "cap_attackers", "bench_boost_gw",
+                    "wildcard_gw"))
 
     _s1, _s2, _s3 = st.columns([3, 2, 2])
     with _s1:
@@ -1019,8 +1148,6 @@ with _open_controls:
                 st.session_state["_want_draft"] = _cn
                 st.rerun()
 
-    st.caption("Chips are set on the squad below · press **3 · Boost GWn** on the "
-               "week you want to test it.")
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -1147,7 +1274,9 @@ _omap, _oweight = (), opening
 
 # An early Wildcard changes what "optimal" MEANS. Score the opening squad over
 # the weeks you will actually own it, not over a season you are going to tear up.
-_wc = _spec.get("wildcard_gw")
+# The TUNED week, not the saved one · the dial has to move the squad before you
+# save, or you are tuning blind.
+_wc = wildcard_gw
 OPT_WINDOW = (1, int(_wc) - 1) if _wc and int(_wc) > 1 else None
 if OPT_WINDOW:
     SOLVE_BOARD = _window_board(SOLVE_BOARD, OPT_WINDOW[0], OPT_WINDOW[1],
@@ -1172,11 +1301,34 @@ if DR.has_squad(_spec):
     if len(_codes) == 15:
         _SAVED_SQUAD = _codes
 
+# A declared Bench Boost week enters the OBJECTIVE, not a post-hoc weighting.
+# `plan_bench` is what each player is worth in that one week, which is exactly
+# what a benched player earns under the chip · zero in every other week. The
+# MILP then trades bench quality against XI quality on real points instead of
+# the 0.1-of-a-starter fudge, and no bench points TARGET is needed: chasing a
+# target is a constraint, and a constraint can only ever build a worse fifteen.
+#
+# `solve_plan` runs it both ways and keeps whichever actually scores more over
+# the plan, because the MILP fixes ONE eleven for the window while the plan
+# re-picks the best eleven weekly. Measured on the live board the bench-aware
+# arm won by up to 1.2 points and lost by 0.1 once · so declaring the chip is
+# now guaranteed not to cost you anything.
+def _solve_arm(frame, bench_col):
+    return solve_draft(frame, mode, budget, risk, tuple(excluded), _oweight,
+                       force_names=tuple(locked), opening_map=_omap,
+                       max_attackers_per_club=None if two_att else 1,
+                       bench_pts_col=bench_col)
+
+
+_plan_gws = (list(range(OPT_WINDOW[0], OPT_WINDOW[1] + 1)) if OPT_WINDOW else [])
+
 res = None
 if _SAVED_SQUAD is None:
-    res = solve_draft(SOLVE_BOARD, mode, budget, risk, tuple(excluded), _oweight,
-                      force_names=tuple(locked), opening_map=_omap,
-                      max_attackers_per_club=None if two_att else 1)
+    if boost_gw and _plan_gws and int(boost_gw) in _plan_gws:
+        res = OPLAN.solve_plan(SOLVE_BOARD, PROJ, _plan_gws, int(boost_gw),
+                               _solve_arm)
+    else:
+        res = _solve_arm(SOLVE_BOARD, None)
 if _SAVED_SQUAD is None and res is None:
     why = ""
     if locked:
@@ -1229,11 +1381,30 @@ if locked and res is not None:
     # What the conviction actually costs · the same solve without the locks. This
     # is the whole Fernandes question: owning him is only wrong if spreading his
     # money returns more.
-    free = solve_draft(SOLVE_BOARD, mode, budget, risk, tuple(excluded), _oweight,
-                       opening_map=_omap, max_attackers_per_club=None if two_att else 1)
+    # Solved the SAME way as the locked squad · comparing a bench-aware squad
+    # against a bench-blind one would price the chip, not the conviction.
+    def _free_arm(frame, bench_col):
+        return solve_draft(frame, mode, budget, risk, tuple(excluded), _oweight,
+                           opening_map=_omap,
+                           max_attackers_per_club=None if two_att else 1,
+                           bench_pts_col=bench_col)
+
+    if boost_gw and _plan_gws and int(boost_gw) in _plan_gws:
+        free = OPLAN.solve_plan(SOLVE_BOARD, PROJ, _plan_gws, int(boost_gw),
+                                _free_arm)
+    else:
+        free = _free_arm(SOLVE_BOARD, None)
     lk = board[board["web_name"].isin(locked)]
     spend = float(lk["actual_price"].sum())
-    cost = (res["xi_points"] - free["xi_points"]) if free else None
+    # Priced on the PLAN total where there is one · that is the number the user
+    # is actually trying to maximise. `xi_points` is an objective value and does
+    # not include the boosted bench.
+    if free is None:
+        cost = None
+    elif "plan_total" in res and "plan_total" in free:
+        cost = res["plan_total"] - free["plan_total"]
+    else:
+        cost = res["xi_points"] - free["xi_points"]
     _tok = ("mint" if (cost is None or cost > CONVICTION_FREE)
             else "orange" if cost > CONVICTION_REAL else "red")
     # Say what it MEANS, not what it measures. "-36 XI pts vs the free optimum ·
@@ -1261,45 +1432,6 @@ if locked and res is not None:
         f'£{budget:.0f}m, leaving £{budget - spend:.1f}m for the other '
         f'{15 - len(locked)} players.</span></span></div>'),
         unsafe_allow_html=True)
-
-# ── Working state, scoped to the selected draft ───────────────────────────────
-# Transfers, the axed player, manual XI picks and the viewed gameweek all belong
-# to ONE draft. Held under bare keys they leaked across drafts: switching preset
-# carried the previous draft's transfers onto the new fifteen, so the pitch
-# showed a squad that no draft had ever specified. Scoped by draft id the same
-# way the dials are, which also means flipping back to a draft finds your work
-# where you left it.
-_DRAFT_ID = str(_spec["id"])
-
-# A preset cannot be written to, but you should still be able to TRY a chip
-# week on one. The override lives in session state, scoped to the draft, and a
-# custom draft also persists it so "whatever it is left as is what it saves".
-_BB_UNSET = "unset"
-
-
-def _effective_boost_gw():
-    v = st.session_state.get(_sk("bb_override"), _BB_UNSET)
-    return _spec.get("bench_boost_gw") if v == _BB_UNSET else v
-
-
-_DRAFT_STATE_DEFAULTS = {
-    "draft_swaps": dict,      # {gw: {out_code: in_code}}
-    "draft_axe": list,   # ORDERED codes marked out · fills slots first-in-first-out
-    "draft_bench": set,
-    "sub_from": lambda: None,  # player tapped to be subbed
-    "xi_override": dict,      # {gw: set(codes)} manual XI
-    "draft_gw": lambda: 1,
-}
-
-
-def _sk(name: str) -> str:
-    """Session-state key for `name` under the ACTIVE draft."""
-    return f"{name}::{_DRAFT_ID}"
-
-
-for _n, _factory in _DRAFT_STATE_DEFAULTS.items():
-    st.session_state.setdefault(_sk(_n), _factory())
-
 
 def _reset_draft_state(**overrides) -> None:
     """Clear this draft's working state. Other drafts keep theirs."""
@@ -2145,7 +2277,9 @@ def planner() -> None:
     ledger = _transfer_ledger(gw)
 
     # ── Gameweek stepper ─────────────────────────────────────────────────────
-    nav = st.columns([1, 1, 4, 3, 2, 2])
+    # The Compact toggle needs room for a switch, a label and a help icon · at
+    # 2/13 of the row it broke "Compact" into "Com" / "pact".
+    nav = st.columns([1, 1, 3, 3, 3, 2])
     with nav[0]:
         if st.button("◀", use_container_width=True, disabled=gw <= 1,
                      help="Previous gameweek"):
@@ -2180,15 +2314,17 @@ def planner() -> None:
                            f"worth that week.")):
             _new_bb = None if _bb_here else int(gw)
             st.session_state[_sk("bb_override")] = _new_bb
+            # The Tune panel's selectbox is the SAME fact and owns its own key,
+            # which cannot be written to now that the widget exists. Stash it
+            # and let the panel apply it before it builds the box next run,
+            # otherwise the panel's stale value overwrites this on the rerun.
+            st.session_state["_want_bb"] = _new_bb
             _spec["bench_boost_gw"] = _new_bb
-            if not _spec.get("preset"):
-                # The whole spec, because save_draft ignores None values (so a
-                # partial save cannot null a field) · turning the chip OFF has
-                # to survive, so send everything and let it overwrite.
-                _sp = {k: _spec.get(k) for k in DR.BASE}
-                _sp["bench_boost_gw"] = _new_bb
-                DR.save_draft(_spec["name"], _sp, draft_id=_spec["id"],
-                              allow_clear=("bench_boost_gw",))
+            # Deliberately NOT written to disk here. The chip week is a tuning
+            # dial like every other one now, and one rule beats two: nothing is
+            # saved until you press Save. This button used to write straight
+            # through, so a chip you were only trying out was already committed
+            # while the dials next to it still said "unsaved changes".
             st.rerun()
     with nav[4]:
         compact = st.toggle("Compact", value=True, key="pitch_compact",
@@ -2556,11 +2692,14 @@ def planner() -> None:
                     f'<b style="color:{V("text")};">{_n_match}</b> candidates.</div>'),
                     unsafe_allow_html=True)
             with _p2:
-                if _lim < _n_match:
-                    if st.button(f"Show {min(POOL_PAGE, _n_match - _lim)} more",
-                                 use_container_width=True, key="cand_more"):
-                        st.session_state[_shown_key] = _lim + POOL_PAGE
-                        st.rerun(scope="fragment")
+                # Always rendered · see the note on the pool's paging below.
+                _rest = max(0, _n_match - _lim)
+                if st.button("Show %d more" % min(POOL_PAGE, _rest) if _rest
+                             else "All %d shown" % _n_match,
+                             use_container_width=True, key="cand_more",
+                             disabled=not _rest):
+                    st.session_state[_shown_key] = _lim + POOL_PAGE
+                    st.rerun(scope="fragment")
             with _p3:
                 if st.button("Clear marks", use_container_width=True, key="cand_cancel"):
                     st.session_state[_sk("draft_axe")] = []
@@ -2647,16 +2786,24 @@ def planner() -> None:
                     f'{" your filters" if (pos_f or club_f or name_q.strip()) else ""}'
                     f'.</div>'), unsafe_allow_html=True)
             with _c2:
-                if _pool_limit < _n_matched:
-                    if st.button(f"Show {min(POOL_PAGE, _n_matched - _pool_limit)} more",
-                                 use_container_width=True, key="pool_more"):
-                        st.session_state[_shown_key] = _pool_limit + POOL_PAGE
-                        st.rerun(scope="fragment")
-                elif _pool_limit > POOL_PAGE:
-                    if st.button("Show fewer", use_container_width=True,
-                                 key="pool_fewer"):
-                        st.session_state[_shown_key] = POOL_PAGE
-                        st.rerun(scope="fragment")
+                # Both buttons ALWAYS render, disabled when they do not apply.
+                # Swapping one widget for a different key at the same spot, or
+                # dropping it entirely, changes the element tree between fragment
+                # runs · Streamlit's frontend then gets a delta for a node it has
+                # not got and dies with "Bad message format · cannot read
+                # properties of undefined (reading 'setIn')". It showed up on the
+                # LAST page, which is exactly where this branch flipped.
+                _rest = max(0, _n_matched - _pool_limit)
+                if st.button("Show %d more" % min(POOL_PAGE, _rest) if _rest
+                             else "All %d shown" % _n_matched,
+                             use_container_width=True, key="pool_more",
+                             disabled=not _rest):
+                    st.session_state[_shown_key] = _pool_limit + POOL_PAGE
+                    st.rerun(scope="fragment")
+                if st.button("Show fewer", use_container_width=True,
+                             key="pool_fewer", disabled=_pool_limit <= POOL_PAGE):
+                    st.session_state[_shown_key] = POOL_PAGE
+                    st.rerun(scope="fragment")
 
 
 planner()
@@ -2850,56 +2997,16 @@ with tab_ab:
     saved = DR.load_drafts()
     by_id = {d["id"]: d for d in saved}
 
-    # ── Save the current controls as a named draft ───────────────────────────
-    with st.expander("💾 Save this draft, or manage the saved ones", expanded=False):
-        s1, s2, s3 = st.columns([3, 2, 2])
-        with s1:
-            new_name = st.text_input(
-                "Name", key="save_name", placeholder="e.g. Optimal, no Haaland",
-                help="Saves the CONTROLS, not the fifteen · strategy, locks, dials "
-                     "and chip plan. A saved draft stays correct when prices move "
-                     "or a projection updates.")
-        with s2:
-            save_bb = st.selectbox("Bench Boost", ["None"] + [f"GW{g}" for g in range(1, 11)],
-                                   key="save_bb")
-        with s3:
-            save_wc = st.selectbox("Wildcard", ["None"] + [f"GW{g}" for g in range(2, 13)],
-                                   key="save_wc")
-        if st.button("Save draft", key="save_go", disabled=not new_name.strip()):
-            DR.save_draft(new_name.strip(), {
-                "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
-                "budget": float(budget), "risk": float(risk),
-                "opening": float(opening), "minutes_gate": float(minutes_gate),
-                "cap_attackers": bool(cap_attackers),
-                "bench_boost_gw": None if save_bb == "None" else int(save_bb[2:]),
-                "wildcard_gw": None if save_wc == "None" else int(save_wc[2:]),
-            })
-            st.success(f"Saved **{new_name.strip()}**.")
-            st.rerun()
-
-        st.markdown(_one_line(
-            f'<div style="font-size:11px;font-weight:800;letter-spacing:0.18em;'
-            f'color:{V("muted")};text-transform:uppercase;margin:12px 0 6px;">'
-            f'Saved drafts ({len(saved)})</div>'), unsafe_allow_html=True)
-        drop = st.multiselect("Delete", options=[d["name"] for d in saved],
-                              key="drop_drafts", label_visibility="collapsed",
-                              placeholder="Pick drafts to delete")
-        d1, d2 = st.columns([1, 3])
-        with d1:
-            if st.button("Delete selected", key="drop_go", disabled=not drop):
-                for d in saved:
-                    if d["name"] in drop:
-                        DR.delete_draft(d["id"])
-                st.rerun()
-        with d2:
-            if st.button("Restore the nine presets", key="reset_presets",
-                         help="Wipes the list and lays the preset drafts down again."):
-                DR.reset_to_presets()
-                st.rerun()
+    # Saving and deleting live in step 1 and step 2, next to the controls they
+    # act on. A second copy of them down here offered its own Bench Boost and
+    # Wildcard pickers with a different range, and a button restoring nine
+    # presets that no longer exist · three ways to do one thing, two of them wrong.
 
     # ── Pick which to compare ────────────────────────────────────────────────
     default = [d["name"] for d in saved][:4]
-    _sec("1 · Choose the drafts", icon="checklist")
+    # No number · the page already numbers 1 to 5, and a second "1" three
+    # sections down reads as a contradiction rather than a sub-step.
+    _sec("Choose the drafts", icon="checklist")
 
     # Selecting thirteen drafts one at a time is not a choice anyone wants to
     # make. Three shortcuts cover how the list is actually used: everything,
@@ -2941,7 +3048,7 @@ with tab_ab:
     if picks:
         st.markdown(_identity_row(picks, _ids), unsafe_allow_html=True)
 
-    _sec("2 · Set the window", icon="tune")
+    _sec("Set the window", icon="tune")
     wc1, wc2, wc3 = st.columns([3, 2, 2])
     with wc1:
         window = st.slider("Score over gameweeks", 1, MAX_GW, (1, 8), key="ab_window")
@@ -3011,15 +3118,14 @@ with tab_ab:
         else:
             ranked = sorted(sim["drafts"], key=lambda d: -d["total_mean"])
             # Chart labels: keep the chip plan, which is what usually differs,
-            # and abbreviate the squad. "Optimal + Fernan…" hides the useful half.
+            # and keep the NAME. The old abbreviations were built for thirteen
+            # near-identical preset names and rewrote "Optimal" as "Base", so the
+            # chart named a draft that appeared nowhere else on the page. The
+            # picker's label dropped them for exactly this reason; this copy of
+            # the same code was missed.
             for d in ranked:
-                nm = d["name"]
-                head, _, chip = nm.partition(" · ")
-                squad = (head.replace("Optimal + ", "+ ")
-                             .replace("Optimal", "Base")
-                             .replace("Fernandes", "Fern").replace("Mosquera", "Mosq")
-                             .replace("Haaland", "Haal"))
-                d["short"] = (f"{squad} {chip}" if chip else squad)[:26]
+                head, _, chip = d["name"].partition(" · ")
+                d["short"] = (f"{head} {chip}" if chip else head)[:26]
         if ranked:
             # The leader is mint. Anyone still in the fight (beats it in at least
             # 35% of simulations) is gold. Everyone clearly behind goes grey, so

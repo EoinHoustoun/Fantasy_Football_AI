@@ -143,6 +143,10 @@ def _write(raw: Dict[str, Any]) -> None:
     os.replace(tmp, STORE_PATH)
 
 
+# Keys in the store that are bookkeeping rather than drafts.
+_META = ("_seeded", "_last")
+
+
 def load_drafts(seed_presets: bool = True) -> List[Dict[str, Any]]:
     """Every saved draft, newest last. Seeds the presets on first run only.
 
@@ -155,7 +159,25 @@ def load_drafts(seed_presets: bool = True) -> List[Dict[str, Any]]:
             raw.setdefault(d["id"], d)
         raw["_seeded"] = True
         _write(raw)
-    return [v for k, v in raw.items() if k != "_seeded" and isinstance(v, dict)]
+    return [v for k, v in raw.items() if k not in _META and isinstance(v, dict)]
+
+
+def last_used() -> Optional[str]:
+    """The draft id the user was last on, or None.
+
+    Session state dies on a hard reload, so without this the picker snapped back
+    to whichever draft sorted first and you had to find yours again every time.
+    """
+    v = _read().get("_last")
+    return str(v) if isinstance(v, str) else None
+
+
+def remember_last(draft_id: str) -> None:
+    raw = _read()
+    if raw.get("_last") == str(draft_id):
+        return          # no write, no fsync, on every rerun
+    raw["_last"] = str(draft_id)
+    _write(raw)
 
 
 
