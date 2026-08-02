@@ -179,11 +179,41 @@ def match_to_board(snap: pd.DataFrame, board: pd.DataFrame) -> Dict:
             if c in s.columns]
     keep += [c for c in s.columns if re.match(r"^gw\d+_(pts|min|opp)$", str(c))]
 
+    _ren = {"pred": "ffh_pred", "pps": "ffh_pts_per_start",
+            "own": "ffh_ownership", "price": "ffh_price"}
     merged = b.merge(
-        s[["_key", "_club"] + keep].rename(columns={
-            "pred": "ffh_pred", "pps": "ffh_pts_per_start",
-            "own": "ffh_ownership", "price": "ffh_price"}),
+        s[["_key", "_club"] + keep].rename(columns=_ren),
         on=["_key", "_club"], how="left")
+
+    # Second pass on the surname · FPL writes a clashing name as an initial plus
+    # a surname ("M.Fernandes"), the Hub usually drops the initial, so the exact
+    # key misses and the player loses this model entirely while the page still
+    # calls his number a blend. Only unambiguous surname+club pairs are taken:
+    # a wrong join silently attributes another player's forecast, which is worse
+    # than a missing one.
+    from analytics.scout_projections import surname_key
+    miss = merged["ffh_pred"].isna()
+    if miss.any():
+        bs = b.loc[miss, ["code", "web_name", "_club"]].copy()
+        bs["_sur"] = bs["web_name"].map(surname_key)
+        bs = bs[bs.groupby(["_sur", "_club"])["code"].transform("size") == 1]
+
+        ss = s.copy()
+        ss["_sur"] = ss["name"].map(surname_key)
+        ss = ss[ss.groupby(["_sur", "_club"])["name"].transform("size") == 1]
+
+        pair = bs.merge(ss[["_sur", "_club"] + keep].rename(columns=_ren),
+                        on=["_sur", "_club"], how="inner")
+        if not pair.empty:
+            cols = [_ren.get(c, c) for c in keep]
+            idx = merged.set_index("code").index
+            for c in cols:
+                if c in pair.columns:
+                    fill = pair.set_index("code")[c]
+                    merged[c] = merged[c].fillna(
+                        pd.Series(idx.map(fill), index=merged.index))
+            logger.info("FFH surname rescue matched %d: %s", len(pair),
+                        ", ".join(sorted(pair["web_name"].astype(str))[:8]))
 
     hit = merged["ffh_pred"].notna()
     matched = merged[hit].drop(columns=["_key", "_club"])

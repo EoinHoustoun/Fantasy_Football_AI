@@ -134,3 +134,61 @@ def test_disagreements_ignore_bench_players_by_minutes(tmp_path):
     # above every fixture's minutes, so nobody survives the filter
     assert disagreements(res["matched"], min_delta=0.0, min_mins=3200).empty
 
+
+
+# ── surname rescue · a missing second opinion is a silent, one-sided error ───
+
+def test_an_initial_prefixed_name_still_joins():
+    """FPL writes a clash as "M.Fernandes"; Scout drops the initial. The exact
+    key misses and the player loses BOTH second opinions while his number still
+    wears a three-model badge. All figures INVENTED."""
+    import pandas as pd
+    from analytics.scout_projections import match_to_board
+    scout = pd.DataFrame({
+        "scout_name": ["Fernandes"], "team_short": ["TOT"], "pos": ["MID"],
+        "join_key": ["fernandes"], "scout_pts": [100.0], "scout_mins": [2900],
+        "scout_price": [6.0]})
+    board = pd.DataFrame({
+        "code": [1], "web_name": ["M.Fernandes"], "team_short": ["TOT"],
+        "position": ["MID"], "actual_price": [6.0], "projected_points": [110.0]})
+    out = match_to_board(scout, board)
+    assert len(out["matched"]) == 1
+    assert int(out["matched"].iloc[0]["code"]) == 1
+
+
+def test_an_ambiguous_surname_is_left_unmatched():
+    """Two Fernandes at the same club in the same position · a wrong join
+    silently attributes another player's projection, which is worse than a
+    missing one."""
+    import pandas as pd
+    from analytics.scout_projections import match_to_board
+    scout = pd.DataFrame({
+        "scout_name": ["Fernandes"], "team_short": ["TOT"], "pos": ["MID"],
+        "join_key": ["fernandes"], "scout_pts": [100.0], "scout_mins": [2900],
+        "scout_price": [6.0]})
+    board = pd.DataFrame({
+        "code": [1, 2], "web_name": ["M.Fernandes", "J.Fernandes"],
+        "team_short": ["TOT", "TOT"], "position": ["MID", "MID"],
+        "actual_price": [6.0, 5.0], "projected_points": [110.0, 90.0]})
+    out = match_to_board(scout, board)
+    assert len(out["matched"]) == 0
+
+
+def test_a_different_club_is_not_rescued():
+    import pandas as pd
+    from analytics.scout_projections import match_to_board
+    scout = pd.DataFrame({
+        "scout_name": ["Fernandes"], "team_short": ["MUN"], "pos": ["MID"],
+        "join_key": ["fernandes"], "scout_pts": [100.0], "scout_mins": [2900],
+        "scout_price": [6.0]})
+    board = pd.DataFrame({
+        "code": [1], "web_name": ["M.Fernandes"], "team_short": ["TOT"],
+        "position": ["MID"], "actual_price": [6.0], "projected_points": [110.0]})
+    assert len(match_to_board(scout, board)["matched"]) == 0
+
+
+def test_surname_key_handles_both_spellings():
+    from analytics.scout_projections import surname_key
+    assert surname_key("M.Fernandes") == surname_key("Fernandes") == "fernandes"
+    assert surname_key("B.Fernandes") == "fernandes"
+    assert surname_key("Haaland") == "haaland"

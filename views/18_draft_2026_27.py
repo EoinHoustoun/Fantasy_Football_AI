@@ -502,15 +502,33 @@ def _club_fixtures() -> Dict:
 _FIX = _club_fixtures()
 
 
-# Bump when GwProjection gains a method or changes behaviour. `cache_resource`
-# holds the LIVE object across code edits, so without a version in the key an
-# edited class keeps serving the old instance and you get AttributeError on a
-# method that plainly exists in the file.
-_PROJ_VERSION = 2
+# `cache_resource` holds the LIVE object across code edits, so an edited class
+# keeps serving the old INSTANCE. The manual version int below was meant to
+# guard that and it failed exactly the way manual steps do: `gw_points` (a
+# hand-set score for one gameweek) was added to GwProjection and the int was not
+# bumped, so the running app served a projector with no such feature and Foden's
+# GW2 stayed on the model's 1.2 instead of the 4.0 in the overrides file.
+#
+# So the key now carries the module's own mtime. Edit the class, get a new
+# object, with nothing to remember.
+_PROJ_VERSION = 3
+
+
+def _module_stamp(*mods) -> str:
+    """mtime of each module's source · a cache key that notices a code edit."""
+    import os
+    bits = []
+    for m in mods:
+        try:
+            bits.append("%s:%s" % (m.__name__, os.path.getmtime(m.__file__)))
+        except Exception:
+            bits.append(getattr(m, "__name__", "?"))
+    return "|".join(bits)
 
 
 @st.cache_resource(show_spinner=False)
-def _projector(_board: pd.DataFrame, _fix: Dict, _stamp: str, _version: int):
+def _projector(_board: pd.DataFrame, _fix: Dict, _stamp: str, _version: int,
+               _code: str):
     from analytics import gw_projection
     return gw_projection.build(_board, _fix)
 
@@ -522,7 +540,9 @@ from analytics import freshness as _freshness
 
 BOARD_STAMP = _freshness.board_stamp(board, PTS_COL)
 
-PROJ = _projector(board, _FIX, BOARD_STAMP, _PROJ_VERSION)
+from analytics import gw_projection as _gwp_mod
+PROJ = _projector(board, _FIX, BOARD_STAMP, _PROJ_VERSION,
+                  _module_stamp(_gwp_mod))
 MATCH_WINDOW = PROJ.window
 
 

@@ -56,6 +56,58 @@ def normalise_name(name: str) -> str:
     return " ".join(s.lower().split())
 
 
+def surname_key(name: str) -> str:
+    """The surname alone, for a second pass at a join the exact name missed.
+
+    FPL writes a clashing name as an initial plus a surname · "M.Fernandes",
+    "B.Fernandes", "J.Gomes". Scout and the Hub usually drop the initial for
+    whichever of them they treat as the primary, so the exact key misses and the
+    player silently loses BOTH second opinions. His blended number then comes
+    from our carryover model alone while still wearing a three-model badge.
+    """
+    raw = str(name)
+    if "." in raw:
+        return normalise_name(raw.split(".", 1)[1])
+    parts = normalise_name(raw).split()
+    return parts[-1] if parts else ""
+
+
+def _surname_rescue(unmatched: pd.DataFrame, board: pd.DataFrame,
+                    keep: List[str]) -> pd.DataFrame:
+    """Second pass on (surname, club, position), unambiguous matches only.
+
+    Club and position still have to agree, and the surname must identify exactly
+    ONE player on each side. Two Fernandes at the same club in the same position
+    would be left unmatched rather than guessed at · a wrong join is worse than
+    a missing one, because it silently attributes another player's projection.
+    """
+    if unmatched.empty:
+        return unmatched
+    b = board.copy()
+    b["sur_key"] = b["web_name"].map(surname_key)
+    # Only surnames that are unique within their club and position.
+    grp = b.groupby(["sur_key", "team_short", "pos"])["code"].transform("size")
+    b = b[grp == 1]
+
+    u = unmatched.copy()
+    u["sur_key"] = u["scout_name"].map(surname_key)
+    ug = u.groupby(["sur_key", "team_short", "pos"])["scout_name"].transform("size")
+    u_ok = u[ug == 1]
+
+    # Never drop the columns we are about to merge ON · the board copies of
+    # `web_name`, `code` and the rest are the ones being replaced, but
+    # `sur_key`, `team_short` and `pos` have to survive to do the join.
+    on = ["sur_key", "team_short", "pos"]
+    drop = [c for c in keep if c in u_ok.columns and c not in on]
+    right = b[[c for c in keep if c in b.columns and c not in on] + on]
+    joined = u_ok.drop(columns=drop, errors="ignore").merge(
+        right, on=on, how="inner")
+    if not joined.empty:
+        logger.info("Scout surname rescue matched %d: %s", len(joined),
+                    ", ".join(sorted(joined["scout_name"].astype(str))[:8]))
+    return joined
+
+
 def load_snapshot(path=None) -> Optional[pd.DataFrame]:
     """Read the Scout snapshot. Returns None when no snapshot has been saved."""
     path = path or SNAPSHOT_PATH
@@ -96,9 +148,21 @@ def match_to_board(scout: pd.DataFrame, board: pd.DataFrame) -> Dict[str, pd.Dat
     joined = scout.merge(b[keep], on=["join_key", "team_short", "pos"], how="left")
 
     matched = joined[joined["code"].notna()].copy()
-    matched["code"] = matched["code"].astype(int)
     unmatched = joined[joined["code"].isna()].copy()
-    logger.info("Scout join: %d matched, %d unmatched", len(matched), len(unmatched))
+
+    # Second pass · the exact name missed but the surname, club and position all
+    # agree and identify one player on each side. This is what was costing
+    # M.Fernandes, J.Gomes, Grealish and five others BOTH of their second
+    # opinions while the page still called the result a three-model blend.
+    rescued = _surname_rescue(unmatched, b, keep)
+    if not rescued.empty:
+        matched = pd.concat([matched, rescued], ignore_index=True, sort=False)
+        got = set(rescued["scout_name"].astype(str))
+        unmatched = unmatched[~unmatched["scout_name"].astype(str).isin(got)]
+
+    matched["code"] = matched["code"].astype(int)
+    logger.info("Scout join: %d matched (%d by surname), %d unmatched",
+                len(matched), len(rescued), len(unmatched))
     return {"matched": matched, "unmatched": unmatched}
 
 
