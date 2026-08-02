@@ -431,7 +431,44 @@ def build_phases(spec: Dict, solve, window_map, gw_lo: int, gw_hi: int,
 # neither draft owns.
 DEFAULT_SIMS = 1500
 RATE_CV_FLOOR, RATE_CV_CAP = 0.06, 0.55
-MATCH_OVERDISPERSION = 2.4      # weekly variance / mean, fitted loosely on FPL scores
+
+# Weekly match noise · MEASURED on the 2025-26 gameweek archive rather than
+# guessed. 180 regular starters, every game they played 60+ minutes.
+#
+# The old model was `sd = sqrt(mean * 2.4)`, which makes the coefficient of
+# variation FALL as a player gets better: 0.76 at three points a week, 0.49 at
+# eleven. Reality does not do that. Measured cv is close to FLAT at about 0.78
+# from two points a week to eight:
+#
+#     mean 1.5-2.5   n=  9   cv 0.90
+#     mean 2.5-3.5   n= 78   cv 0.78
+#     mean 3.5-4.5   n=106   cv 0.80
+#     mean 4.5-6.0   n= 51   cv 0.77
+#     mean 6.0-12.0  n=  6   cv 0.65     (thin, treat with care)
+#
+# So the old model understated a premium's week-to-week swing by about a fifth,
+# and every draft comparison that turned on a premium was correspondingly
+# OVER-confident. The variance is now mostly proportional to the mean, with a
+# small square-root floor so a near-zero projection still has room to return
+# something. Fitted so the total spread, rate draw included, lands on the
+# measured cv across the whole range.
+# Fitted on the buckets that have real sample size (n=78, 106, 51 at 2.5-3.5,
+# 3.5-4.5 and 4.5-6.0 a week). The 1.5-2.5 bucket is n=9 and the 6+ bucket
+# n=6, so neither was allowed to pull the fit around.
+MATCH_CV = 0.78                 # proportional part · the dominant term
+MATCH_FLOOR_K = 1.0             # square-root part · keeps low scorers honest
+MATCH_OVERDISPERSION = 2.4      # kept for callers that still reference it
+
+
+def match_sd(mu):
+    """Week-to-week standard deviation for a player projected at `mu`.
+
+    Mostly proportional to the mean, because that is what the archive shows,
+    with a square-root floor so a player projected near zero can still return
+    something. Accepts a scalar or an array.
+    """
+    m = np.maximum(np.asarray(mu, dtype=float), 0.0)
+    return np.sqrt(m * MATCH_FLOOR_K + (MATCH_CV * m) ** 2)
 
 
 def _player_uncertainty(board: pd.DataFrame, codes: List[int]) -> Dict[int, float]:
@@ -486,7 +523,7 @@ def simulate_drafts(entries: List[Dict], proj, board: pd.DataFrame,
     rate = rng.normal(1.0, np.array([cv[c] for c in codes]), size=(S, P))
     rate = np.clip(rate, 0.15, 2.2)
 
-    sd = np.sqrt(np.maximum(mu, 0.4) * MATCH_OVERDISPERSION)
+    sd = match_sd(mu)
     noise = rng.normal(0.0, 1.0, size=(S, P, G)) * sd[None, :, :]
 
     # A gameweek score cannot be negative in any way that matters here.

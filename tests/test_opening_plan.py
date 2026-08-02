@@ -125,7 +125,10 @@ def test_the_solver_is_told_which_column_carries_bench_value():
         return {"squad": frame.copy()}
 
     best_boost_week(b, FakeProj(), [1, 2, 3], solve, candidates=[2])
-    assert seen == [None, "plan_bench"]
+    # [no chip] then [plain arm, bench-aware arm] for the GW2 candidate ·
+    # every candidate is now built BOTH ways so it cannot lose the enumeration
+    # to an approximation error rather than to football.
+    assert seen == [None, None, "plan_bench"]
 
 
 # ── solve_plan · declaring a Boost can never cost you points ─────────────────
@@ -210,3 +213,32 @@ def test_solve_plan_returns_none_when_nothing_is_feasible():
     b = _board(30)
     out = solve_plan(b, FakeProj(), [1, 2, 3], 2, lambda f, c=None: None)
     assert out is None
+
+
+
+# ── the whole enumeration, not just the winner ───────────────────────────────
+
+def test_every_candidate_comes_back_ranked():
+    """"GW2 beats GW1 by 0.4" is a different decision from "by 9", so the
+    caller needs the field, not only the winner."""
+    b = _board(15)
+    out = best_boost_week(b, FakeProj(), [1, 2, 3], _solver(b), candidates=[1, 2, 3])
+    ranked = out["ranked"]
+    assert [r["boost_gw"] for r in ranked][0] == out["boost_gw"]
+    assert all(ranked[i]["total"] >= ranked[i + 1]["total"]
+               for i in range(len(ranked) - 1))
+
+
+def test_each_candidate_reports_what_the_chip_is_worth():
+    b = _board(15)
+    out = best_boost_week(b, FakeProj(), [1, 2, 3], _solver(b), candidates=[2])
+    row = next(r for r in out["ranked"] if r["boost_gw"] == 2)
+    assert row["boost_gain"] > 0
+    assert next(r for r in out["ranked"] if r["boost_gw"] is None)["boost_gain"] == 0
+
+
+def test_each_candidate_carries_its_own_weekly_breakdown():
+    b = _board(15)
+    out = best_boost_week(b, FakeProj(), [1, 2, 3], _solver(b), candidates=[1, 2])
+    for row in out["ranked"]:
+        assert len(row["per_week"]) == 3

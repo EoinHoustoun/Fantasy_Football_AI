@@ -119,14 +119,26 @@ def best_boost_week(board: pd.DataFrame, proj, gws: Sequence[int],
     best = None
     # `None` first, so a Boost has to BEAT carrying the chip rather than merely
     # matching it. A chip that gains nothing should stay in your pocket.
+    #
+    # Each candidate goes through `solve_plan`, not a bare solve · that builds
+    # the squad BOTH ways (bench-aware and bench-blind) and keeps whichever
+    # actually scores more over the plan. Without it a candidate could lose the
+    # enumeration to an approximation error rather than to football.
     for bb in [None] + list(candidates or list(gws)):
-        frame = plan_vectors(board, proj, gws, bb)
-        res = solve(frame, "plan_bench" if bb is not None else None)
+        res = solve_plan(board, proj, gws, bb, solve)
         if not res:
-            tried.append({"boost_gw": bb, "total": None})
+            tried.append({"boost_gw": bb, "total": None, "per_week": [],
+                          "squad": None})
             continue
-        total = plan_total(res["squad"], proj, gws, bb)
-        tried.append({"boost_gw": bb, "total": round(total, 1)})
+        total = float(res.get("plan_total", plan_total(res["squad"], proj, gws, bb)))
+        weeks = _per_week(res["squad"], proj, gws, bb)
+        tried.append({
+            "boost_gw": bb, "total": round(total, 1), "per_week": weeks,
+            "squad": res["squad"], "bench_aware": bool(res.get("bench_aware")),
+            # What the chip is actually worth in the week it is played.
+            "boost_gain": round(
+                next((w["bench"] for w in weeks if w["boosted"]), 0.0), 1),
+        })
         if best is None or total > best["total"] + TIE_MARGIN:
             best = {"boost_gw": bb, "total": total, "squad": res["squad"],
                     "result": res}
@@ -135,6 +147,10 @@ def best_boost_week(board: pd.DataFrame, proj, gws: Sequence[int],
     best["per_week"] = _per_week(best["squad"], proj, gws, best["boost_gw"])
     best["tried"] = tried
     best["total"] = round(best["total"], 1)
+    # Ranked, so a caller can show the whole enumeration rather than only the
+    # winner · "GW2 beats GW1 by 0.4" is a different decision from "by 9".
+    best["ranked"] = sorted([t for t in tried if t["total"] is not None],
+                            key=lambda t: -t["total"])
     return best
 
 

@@ -1428,6 +1428,116 @@ if _SAVED_SQUAD is not None:
 else:
     SOLVED = res["squad"]
 
+
+# ── Which week to Boost · solve every option and rank them ───────────────────
+# With a Wildcard at GW4 the opening plan is a small, closed question: Boost in
+# GW1, GW2, GW3, or not at all. Four candidates. Each one gets its OWN optimal
+# fifteen, because the best squad for a GW1 Boost is not the best squad for a
+# GW2 one, and each is then scored the same honest way over the window. Nothing
+# after the Wildcard counts, because that squad is torn up.
+@st.cache_data(ttl=3600, show_spinner=False)
+def _search_boost_week(_spec_json: str, cands: tuple, _stamp: str) -> Dict:
+    import json as _json
+    spec = _json.loads(_spec_json)
+    gws = list(range(1, int(spec["wildcard_gw"])))
+
+    def _arm(frame, bench_col):
+        return solve_draft(frame, spec.get("strategy") or "⚖️ Optimal value",
+                           float(spec["budget"]), float(spec["risk"]),
+                           tuple(spec["vetoes"]), float(spec["opening"]),
+                           force_names=tuple(spec["locks"]), opening_map=(),
+                           max_attackers_per_club=(None if not spec["cap_attackers"]
+                                                   else 1),
+                           bench_pts_col=bench_col)
+
+    base = _window_board(_tuned_board(float(spec["minutes_gate"])),
+                         1, gws[-1], _stamp)
+    out = OPLAN.best_boost_week(base, PROJ, gws, _arm, candidates=list(cands))
+    # The squads are DataFrames and do not survive the cache usefully · the
+    # ranking and the weekly totals are what the page draws.
+    return {"boost_gw": out.get("boost_gw"),
+            "ranked": [{k: v for k, v in r.items() if k != "squad"}
+                       for r in out.get("ranked", [])]}
+
+
+# Shown even when the draft carries a hand-saved fifteen · "which week should I
+# Boost" is still the question, and the honest answer needs the squad rebuilt
+# for each option. It never overwrites the saved team; it only tells you what
+# the settings above would produce.
+if wildcard_gw and int(wildcard_gw) > 1:
+    import json as _json_mod
+    _cands = tuple(range(1, int(wildcard_gw)))
+    _spec_key = _json_mod.dumps(_LIVE_SPEC, sort_keys=True, default=str)
+
+    _r1, _r2 = st.columns([2, 5])
+    with _r1:
+        _find = st.button(":material/auto_awesome: Best Boost week",
+                          use_container_width=True, key="findbb",
+                          help="Builds a separate optimal fifteen for every "
+                               "Boost week and for no Boost at all, then scores "
+                               "each over GW1-%d and ranks them." % _cands[-1])
+    with _r2:
+        st.markdown(_one_line(
+            f'<div style="font-size:11.5px;color:{V("muted")};padding-top:8px;">'
+            f'Tries no Boost and GW{_cands[0]} to GW{_cands[-1]}, a full solve '
+            f'each, on the settings above. The squad is rebuilt for every '
+            f'option · the best fifteen for a GW1 Boost is not the best fifteen '
+            f'for a GW2 one.'
+            + ('<br><b>Your saved fifteen is not touched</b> · this solves from '
+               'the settings, so treat it as a second opinion.'
+               if _SAVED_SQUAD is not None else '')
+            + '</div>'), unsafe_allow_html=True)
+
+    if _find:
+        with st.spinner("Solving every opening plan…"):
+            st.session_state["bb_search"] = _search_boost_week(
+                _spec_key, _cands, BOARD_STAMP)
+            st.session_state["bb_search_key"] = _spec_key
+
+    _found = st.session_state.get("bb_search")
+    _stale = st.session_state.get("bb_search_key") != _spec_key
+    if _found and _found.get("ranked"):
+        _lbl = (lambda g: "No Boost" if g is None else "Boost GW%d" % g)
+        _rk = _found["ranked"]
+        _win = _rk[0]
+        _gap = (_win["total"] - _rk[1]["total"]) if len(_rk) > 1 else 0.0
+        _call = ("a clear call" if _gap >= 4.0 else
+                 "a slight lean" if _gap >= 1.0 else "a coin flip")
+        st.markdown(_one_line(
+            f'<div style="{CARD}border-left:3px solid '
+            f'{V("orange") if _stale else V("mint")};padding:11px 14px;'
+            f'margin:8px 0 6px;font-size:13px;color:{V("text")};'
+            f'line-height:1.6;">'
+            + ("<b>Settings have changed since this ran.</b> " if _stale else "")
+            + f'<b>{_lbl(_win["boost_gw"])}</b> wins over '
+              f'GW1-{_cands[-1]} with <b>{_win["total"]:.1f}</b> points'
+            + (f', {_gap:+.1f} on the next best · <b>{_call}</b>.'
+               if len(_rk) > 1 else '.')
+            + (f' The chip is worth <b>{_win["boost_gain"]:.1f}</b> in the week '
+               f'it is played.' if _win["boost_gw"] else '')
+            + '</div>'), unsafe_allow_html=True)
+
+        _rows = []
+        for r in _rk:
+            row = {"plan": _lbl(r["boost_gw"]), "total": r["total"],
+                   "chip": r["boost_gain"] if r["boost_gw"] else 0.0}
+            for w in r["per_week"]:
+                row["gw%d" % w["gw"]] = w["total"]
+            _rows.append(row)
+        _bcols = [T.col_text("plan", "Plan"),
+                  T.col_num("total", "GW1-%d" % _cands[-1], fmt="%.1f")]
+        for _g in _cands:
+            _bcols.append(T.col_num("gw%d" % _g, "GW%d" % _g, fmt="%.1f"))
+        _bcols.append(T.col_num("chip", "Chip worth", fmt="%.1f"))
+        T.render(_rows, _bcols, key="bbsearch", max_height=230)
+
+        if st.button(":material/check: Use %s" % _lbl(_win["boost_gw"]),
+                     key="usebb", disabled=_win["boost_gw"] == boost_gw,
+                     help="Sets the Bench Boost week to the winner. Everything "
+                          "below rebuilds around it."):
+            st.session_state["_want_bb"] = _win["boost_gw"]
+            st.rerun()
+
 if locked and res is not None:
     # What the conviction actually costs · the same solve without the locks. This
     # is the whole Fernandes question: owning him is only wrong if spreading his
