@@ -2689,8 +2689,12 @@ def planner() -> None:
                     f'font-weight:900;">{str(f.get("opp", "?"))[:3]}'
                     f'{"" if f.get("home") else "·a"}</span>' for f in _runs)
                 _mins = PROJ.expected_minutes(_cc, gw)
-                _afford = float(_c["actual_price"]) <= _budget + float(
-                    _slot["actual_price"]) + 1e-9
+                # The SAME ceiling the table below uses · bank plus what the
+                # player he replaces sells for. `_budget` already includes the
+                # freed money, so adding the slot price to it counted the sale
+                # twice and marked a player affordable who is not.
+                _afford = (float(_c["actual_price"])
+                           <= bank + float(_slot["actual_price"]) + 1e-9)
                 _cards.append(
                     f'<div style="{CARD}flex:1;min-width:200px;'
                     f'border-top:3px solid {V(_tok)};'
