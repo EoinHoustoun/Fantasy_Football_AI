@@ -2535,13 +2535,33 @@ def planner() -> None:
             "swap_ok": code in swap_targets,
         })
 
+    # ── Squad score · your week against the best week available ──────────────
+    # A raw total tells you nothing on its own: 60 is excellent in a hard week
+    # and poor in an easy one. This is what you scored as a share of what a
+    # perfect £100m Free Hit would have scored on the same fixtures, so it says
+    # "wrong players for these games" in a way a total cannot. A Bench Boost can
+    # push it past 100, and should · the ceiling is an eleven and you played
+    # fifteen.
+    _perfect = _perfect_week(int(gw), float(budget), BOARD_STAMP)
+    _score = (100.0 * xi_pts / _perfect) if _perfect > 0 else 0.0
+    _score_tok = ("mint" if _score >= 88 else "gold" if _score >= 78
+                  else "orange" if _score >= 68 else "red")
+    _score_sub = ("best possible was %.0f" % _perfect if _perfect else
+                  "no ceiling available")
+    if boost_on and _score > 100:
+        _score_sub = "over the eleven-man ceiling · Boost"
+
     click = _click(render_squad_pitch(
         players, stat_label=f"GW{gw}", title_right=f"{NEXT_SEASON} · GW{gw}",
         interactive=True, compact=compact,
         # Same number as the XI tile · the pitch would otherwise sum the cards
         # and quietly drop the captain's double.
         xi_total_override=round(xi_pts, 1),
-        total_label="SQUAD" if boost_on else "XI", key="draft_pitch"), "_pitch_nonce")
+        total_label="SQUAD" if boost_on else "XI",
+        # Beside the total, where you are already looking · the total on its
+        # own cannot tell you whether 79.7 is a good week or a wasted one.
+        score_pct=_score if _perfect else None, score_colour=theme.fill(_score_tok),
+        key="draft_pitch"), "_pitch_nonce")
     if click:
         action, cid = click.get("action"), int(click.get("id") or 0)
         if action == "detail":
@@ -2673,22 +2693,6 @@ def planner() -> None:
     _punt = punt_meter(board, [int(c) for c in codes])
     _punt_tok = {"maverick": "red", "differential": "gold",
                  "template": "cyan"}.get(_punt["level"], "muted")
-
-    # ── Squad score · your week against the best week available ──────────────
-    # A raw total tells you nothing on its own: 60 is excellent in a hard week
-    # and poor in an easy one. This is what you scored as a share of what a
-    # perfect £100m Free Hit would have scored on the same fixtures, so it says
-    # "wrong players for these games" in a way a total cannot. A Bench Boost can
-    # push it past 100, and should · the ceiling is an eleven and you played
-    # fifteen.
-    _perfect = _perfect_week(int(gw), float(budget), BOARD_STAMP)
-    _score = (100.0 * xi_pts / _perfect) if _perfect > 0 else 0.0
-    _score_tok = ("mint" if _score >= 88 else "gold" if _score >= 78
-                  else "orange" if _score >= 68 else "red")
-    _score_sub = ("best possible was %.0f" % _perfect if _perfect else
-                  "no ceiling available")
-    if boost_on and _score > 100:
-        _score_sub = "over the eleven-man ceiling · Boost"
 
     _tiles([
         ("Spend", f"£{cost:.1f}m", f"£{bank:.1f}m banked", "mint"),

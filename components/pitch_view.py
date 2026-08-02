@@ -241,11 +241,15 @@ def _position_row(players: List[pd.Series], interactive: bool = False,
 
 def _formation_bar(formation: str, title_right: str = "",
                    total: Optional[float] = None, total_label: str = "XI",
-                   bench_total: Optional[float] = None) -> str:
-    """Squad header · label, projected total, formation.
+                   bench_total: Optional[float] = None,
+                   score_pct: Optional[float] = None,
+                   score_colour: Optional[str] = None) -> str:
+    """Squad header · label, projected total, squad score, formation.
 
     The total lives here rather than in a tile below the pitch, because it is
-    the number you want while you are looking at the team.
+    the number you want while you are looking at the team. `score_pct` is that
+    total as a share of the best any legal squad could score on the same
+    fixtures, which is the number that says whether the total is any good.
     """
     # This bar sits ABOVE the pitch, on the page background rather than on
     # grass, so it cannot use the white the cards use · in light mode that was
@@ -258,12 +262,23 @@ def _formation_bar(formation: str, title_right: str = "",
         bench = (f'<span style="font-size:11px;font-weight:600;'
                  f'color:var(--ff-muted);margin-left:8px;">'
                  f'bench {bench_total:.1f}</span>' if bench_total is not None else "")
+        # The score sits right beside the total on purpose · the total alone
+        # cannot tell you whether 79.7 is a good week or a wasted one.
+        pct = ""
+        if score_pct is not None:
+            pct = (f'<span title="Share of the best any legal squad could score '
+                   f'on these fixtures" style="margin-left:10px;padding:2px 7px;'
+                   f'border-radius:6px;background:var(--ff-chip-bg,'
+                   f'rgba(255,255,255,0.07));font-family:{_DISPLAY};font-size:13px;'
+                   f'font-weight:900;color:{score_colour or "var(--ff-mint)"};'
+                   f'line-height:1.3;white-space:nowrap;">{score_pct:.0f}%</span>')
         mid = (f'<div style="display:flex;align-items:baseline;gap:7px;">'
                f'<span style="font-size:10px;font-weight:800;letter-spacing:0.16em;'
                f'text-transform:uppercase;color:var(--ff-muted);">'
                f'{total_label}</span>'
                f'<span style="font-family:{_DISPLAY};font-size:22px;font-weight:900;'
-               f'color:var(--ff-mint);line-height:1;">{total:.1f}</span>{bench}</div>')
+               f'color:var(--ff-mint);line-height:1;">{total:.1f}</span>'
+               f'{bench}{pct}</div>')
     return (
         f'<div style="display:flex;justify-content:space-between;align-items:center;'
         f'gap:12px;flex-wrap:wrap;margin-bottom:8px;">{left}{mid}'
@@ -558,6 +573,8 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
                        show_total: bool = True,
                        xi_total_override: Optional[float] = None,
                        total_label: str = "XI",
+                       score_pct: Optional[float] = None,
+                       score_colour: Optional[str] = None,
                        key: str = "ff_pitch_replay"):
     """Generic pitch for Season Lab squads (GK→DEF→MID→FWD, top to bottom).
 
@@ -614,7 +631,8 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
         f'<div style="font-family:sans-serif;max-width:{900 if compact else 1040}px;'
         f'margin:0 auto;">'
         + _formation_bar(formation, title_right, xi_total,
-                         f"{total_label} {stat_label}", bench_total)
+                         f"{total_label} {stat_label}", bench_total,
+                         score_pct=score_pct, score_colour=score_colour)
         + f'<div style="{pitch_bg}">' + _PITCH_LINES
         + '<div style="position:relative;z-index:2;">'
         + _row(by_pos["GKP"]) + _row(by_pos["DEF"])
