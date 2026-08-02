@@ -11,6 +11,7 @@ import streamlit as st
 
 from components.animations import inject_global_animations
 from ui import charts
+from analytics import freshness as _freshness
 from ui.value_board import build_board, solve_draft, DRAFT_STRATEGIES
 from analytics.chip_timing import chip_windows
 from config import CHIP_TIMING
@@ -48,7 +49,7 @@ st.info("2026/27 gives **two of every chip**. The first set (WC · FH · BB · T
         "**by GW19**, so this plans the first half only. Timings are fixture-based best guesses · "
         "doubles and blanks firm up during the season.")
 
-board, scout, _, _ = build_board()
+board, scout, _, _ = build_board(_freshness.inputs_stamp())
 if board is None:
     st.error("Archive not built · run `python scripts/build_archive.py` first.")
     st.stop()

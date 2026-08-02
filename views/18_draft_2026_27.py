@@ -420,10 +420,11 @@ CONVICTION_FREE = float(DRAFT_UI["conviction_free"])
 CONVICTION_REAL = float(DRAFT_UI["conviction_real"])
 SEASON_MINUTES = float(DRAFT_UI["season_minutes"])
 
+from analytics import freshness as _freshness
 from ui.value_board import (SPRINT_STRATEGY, SPRINT_WINDOW, build_board,
                             solve_draft)
 
-board, scout, price_bt, _validation = build_board()
+board, scout, price_bt, _validation = build_board(_freshness.inputs_stamp())
 if board is None:
     st.error("Archive not built · run `python scripts/build_archive.py` first.")
     st.stop()
@@ -536,7 +537,6 @@ def _projector(_board: pd.DataFrame, _fix: Dict, _stamp: str, _version: int,
 # Content stamp, not len(board). Refreshing a snapshot or editing an override
 # almost never changes the row COUNT, so keying on length served the stale
 # projection for the whole TTL after the exact edit meant to change it.
-from analytics import freshness as _freshness
 
 BOARD_STAMP = _freshness.board_stamp(board, PTS_COL)
 

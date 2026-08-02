@@ -16,15 +16,23 @@ logger = logging.getLogger(__name__)
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Pricing the board · projections vs actual 26/27 prices…")
-def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
-                           Optional[dict], Optional[dict]]:
+def build_board(stamp: str = "") -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
+                                          Optional[dict], Optional[dict]]:
     """Return (verdicts_df, scout_df, price_backtest, projection_validation).
 
     verdicts_df: every player with a 25/26 projection AND a live price, annotated
     with actual_price, value_score, pricing_surprise, verdict, verdict_reason.
     scout_df: live players with no 25/26 history (promoted / new signings).
     Both are None if the archive has not been built.
+
+    `stamp` is unused inside the body and is the whole point: it is
+    `freshness.inputs_stamp()`, so refreshing a Scout or Hub snapshot on disk
+    changes the cache key. Without an argument this cached for six hours flat,
+    which meant a fresh snapshot did nothing until the TTL expired or the
+    sidebar's Refresh Data was pressed. Every downstream cache keys off the
+    board, so this one function going stale froze the entire page.
     """
+    del stamp  # cache key only
     from data.processors.archive import load_season_summary
     from analytics.price_predictor import train_price_model, predict_next_season_prices
     from analytics.season_projection import project_season, validate_projection

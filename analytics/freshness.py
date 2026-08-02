@@ -37,8 +37,12 @@ def _paths() -> Dict[str, object]:
     """The hand-refreshed inputs, resolved lazily so an import cannot fail."""
     out = {}
     try:
+        # Named for what it still SUPPLIES, not for its provider. Since Scout's
+        # GW1-38 table took over the points, this file only backfills minutes,
+        # goals and clean sheets · so a chip reading "Scout 5d ago" was telling
+        # Eoin his projections were five days old when they were an hour old.
         from analytics.scout_projections import SNAPSHOT_PATH as SCOUT
-        out["Scout"] = SCOUT
+        out["Scout stats"] = SCOUT
     except Exception:
         pass
     try:
@@ -55,11 +59,34 @@ def _paths() -> Dict[str, object]:
     except Exception:
         pass
     try:
+        # Scout's GW1-38 table · the season POINTS every consensus blend starts
+        # from. Same trap as "Scout GW" below it: absent from this list the file
+        # refreshes on disk and nothing on screen moves, because every cache
+        # downstream is keyed on this stamp.
+        from analytics.scout_rmt import SEASON_PATH as RMTS
+        out["Scout season"] = RMTS
+    except Exception:
+        pass
+    try:
         from analytics.projection_overrides import overrides_path
         out["Overrides"] = overrides_path()
     except Exception:
         pass
     return out
+
+
+def inputs_stamp() -> str:
+    """A digest of the hand-refreshed FILES only · no board required.
+
+    `board_stamp` cannot key the function that BUILDS the board, so the board
+    was cached on nothing at all and served a six-hour-old view of files that
+    had changed minutes earlier. This is the key for that function.
+    """
+    h = hashlib.blake2b(digest_size=8)
+    for name, path in sorted(_paths().items()):
+        h.update(name.encode())
+        h.update(repr(_mtime(path)).encode())
+    return h.hexdigest()
 
 
 def board_stamp(board: Optional[pd.DataFrame] = None,

@@ -3,6 +3,8 @@
 The stamp exists because caches keyed on row COUNT survived the exact edits
 they were supposed to notice. These tests pin that down.
 """
+import os
+
 import pandas as pd
 
 from analytics import freshness as F
@@ -83,3 +85,34 @@ def test_sources_returns_a_state_for_every_known_input():
     for r in F.sources():
         assert r["state"] in {"fresh", "ageing", "stale", "missing"}
         assert r["name"]
+
+
+def test_every_hand_refreshed_input_is_tracked():
+    """A snapshot missing from `_paths` refreshes on disk and moves nothing.
+
+    Every cache that feeds the Draft page keys off these mtimes, so an untracked
+    file is invisible twice over: absent from the freshness chip, and unable to
+    invalidate the board. That is exactly how a fresh Scout export sat on disk
+    while the page served a six-hour-old view of it.
+    """
+    tracked = set(F._paths())
+    assert {"Scout stats", "Scout season", "Scout GW", "Hub", "Overrides"} <= tracked
+
+
+def test_inputs_stamp_moves_when_a_tracked_file_is_touched(tmp_path, monkeypatch):
+    """The board's cache key. If it does not move, a refresh does nothing."""
+    f = tmp_path / "snap.csv"
+    f.write_text("x")
+    monkeypatch.setattr(F, "_paths", lambda: {"Snap": f})
+
+    first = F.inputs_stamp()
+    assert first == F.inputs_stamp(), "stamp must be stable while nothing changes"
+
+    os.utime(f, (0, 0))
+    assert F.inputs_stamp() != first
+
+
+def test_inputs_stamp_needs_no_board():
+    """It exists because `board_stamp` cannot key the function building the board."""
+    assert isinstance(F.inputs_stamp(), str)
+    assert len(F.inputs_stamp()) == 16

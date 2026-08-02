@@ -13,6 +13,7 @@ import pandas as pd
 from ui import charts
 import streamlit as st
 
+from analytics import freshness as _freshness
 from components.animations import inject_global_animations
 from components.team_identity import team_dot
 from config import CACHE_DIR, LAST_COMPLETE_SEASON, NEXT_SEASON
@@ -181,7 +182,7 @@ st.markdown(
 try:
     from ui.value_board import build_board
     from analytics.value_verdicts import VERDICTS
-    _vb, _vscout, _, _ = build_board()
+    _vb, _vscout, _, _ = build_board(_freshness.inputs_stamp())
 except Exception:
     _vb = None
 
@@ -857,7 +858,7 @@ with _pb_tabs[4]:
         if _snap is None:
             st.caption("📄 No Scout snapshot loaded. " + _scout_note)
         else:
-            _board, _, _, _ = build_board()
+            _board, _, _, _ = build_board(_freshness.inputs_stamp())
             if _board is None:
                 st.caption("📄 Value board unavailable · build the archive first.")
             else:
