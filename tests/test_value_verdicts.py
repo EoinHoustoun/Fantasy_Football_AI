@@ -130,3 +130,39 @@ def test_live_club_overrides_stale_archive_team():
     assert bargain["team_short"] == "AVL"
     assert bargain["team_name"] == "AVL FC"
     assert bargain["team_id"] == 2
+
+
+# ── ambiguous names ──────────────────────────────────────────────────────────
+
+def test_a_shared_web_name_gets_a_club_suffix():
+    """Palmer is a Chelsea midfielder AND an Ipswich keeper. Resolving a lock by
+    bare web_name bound whichever happened to sort first."""
+    import pandas as pd
+    from ui.value_board import _unique_names
+    df = pd.DataFrame({"web_name": ["Palmer", "Palmer", "Haaland"],
+                       "team_short": ["CHE", "IPS", "MCI"]})
+    out = list(_unique_names(df))
+    assert out == ["Palmer (CHE)", "Palmer (IPS)", "Haaland"]
+
+
+def test_unique_names_are_unique():
+    import pandas as pd
+    from ui.value_board import _unique_names
+    df = pd.DataFrame({"web_name": ["A", "A", "B", "C", "C", "C"],
+                       "team_short": ["X", "Y", "X", "P", "Q", "R"]})
+    assert len(set(_unique_names(df))) == 6
+
+
+def test_an_unshared_name_is_left_alone():
+    import pandas as pd
+    from ui.value_board import _unique_names
+    df = pd.DataFrame({"web_name": ["Solo"], "team_short": ["ARS"]})
+    assert list(_unique_names(df)) == ["Solo"]
+
+
+def test_it_survives_a_board_with_no_club_column():
+    import pandas as pd
+    from ui.value_board import _unique_names
+    df = pd.DataFrame({"web_name": ["A", "A"]})
+    out = list(_unique_names(df))
+    assert len(out) == 2 and all(o.startswith("A") for o in out)

@@ -365,7 +365,8 @@ def score_draft(squad: pd.DataFrame, proj, gw_lo: int, gw_hi: int,
 
 
 def build_phases(spec: Dict, solve, window_map, gw_lo: int, gw_hi: int,
-                 board: Optional[pd.DataFrame] = None) -> List:
+                 board: Optional[pd.DataFrame] = None,
+                 first: Optional[Dict] = None) -> List:
     """Resolve a saved draft into the squads it fields across the window.
 
     Usually one squad for the whole window. A Wildcard splits it in two: the
@@ -375,6 +376,12 @@ def build_phases(spec: Dict, solve, window_map, gw_lo: int, gw_hi: int,
     `solve(strategy, opening_weight, opening_map)` returns the solver result;
     `window_map(lo, hi)` returns the fixture-ease tuple for a window. Both are
     passed in so this module stays free of Streamlit caching concerns.
+
+    `first` is an already-solved opening squad. Pass it when the caller has a
+    richer way of building the opening fifteen than a bare `solve` call · the
+    draft page scores it over the window before the wildcard and prices a
+    declared Bench Boost into the objective, and a comparison that re-derived it
+    here would show a different fifteen from the one on the page above.
     """
     # A draft that carries an explicit fifteen is used verbatim · re-solving it
     # would compare a squad the user never chose.
@@ -389,7 +396,8 @@ def build_phases(spec: Dict, solve, window_map, gw_lo: int, gw_hi: int,
             sq["in_xi"] = True
             return [(gw_lo, sq)]
 
-    first = solve(spec.get("strategy"), spec.get("opening", 0.35), ())
+    if first is None:
+        first = solve(spec.get("strategy"), spec.get("opening", 0.35), ())
     if first is None:
         return []
     phases = [(gw_lo, first["squad"])]

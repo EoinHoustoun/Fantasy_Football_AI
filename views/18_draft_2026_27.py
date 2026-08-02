@@ -421,7 +421,12 @@ if board is None:
 
 HAS_CONSENSUS = "consensus_points" in board.columns
 PTS_COL = "consensus_points" if HAS_CONSENSUS else "projected_points"
-NAMES = sorted(board["web_name"].tolist())
+# Pickable names · `web_name` is shared by up to three players (Palmer is a
+# Chelsea midfielder and an Ipswich keeper), so a lock, a veto or a
+# comparison chosen by bare name could bind the wrong man. `uniq_name` adds
+# a club suffix only where it has to.
+NAME_COL = "uniq_name" if "uniq_name" in board.columns else "web_name"
+NAMES = sorted(board[NAME_COL].tolist())
 
 # A model input that fails to load used to die in a log line. The Scout backfill
 # is the one that matters: without it every Coventry, Hull and Ipswich player
@@ -676,10 +681,10 @@ with _ctrl:
 # to be a wizard · everything stays reachable at any time.
 def _workflow_rail(step: int) -> None:
     steps = [
-        ("Pick a draft", "playlist_add_check", "or start a new one"),
-        ("Tune it", "tune", "budget, risk, locks, vetoes"),
-        ("Plan the chips", "bolt", "Boost and Wildcard weeks"),
-        ("Read the squad", "sports_soccer", "swap, sub, step the weeks"),
+        ("Start a draft", "playlist_add_check", "new, or pick an old one"),
+        ("Tune it", "tune", "who you want, the dials, the chips"),
+        ("It generates", "bolt", "the squad rebuilds as you tune"),
+        ("Tweak and name it", "sports_soccer", "swap by hand, then save"),
         ("Compare", "compare_arrows", "against your other drafts"),
     ]
     cells = []
@@ -768,17 +773,27 @@ with _sel_col:
         format_func=lambda n: ("%s  ·  %s" % (_draft_group(n), _plain_label(n))
                                if len(_opts) > 4 else _plain_label(n)))
 with _new_col:
-    # Making a draft was buried in the Tune popover, which is the one place a
-    # first-time user will not look. Step one needs a visible action.
+    # No name box here. You do not know what a draft IS until you have tuned it
+    # and looked at the fifteen, so being made to name it first is a question
+    # asked at the worst possible moment. It gets a working title, and the name
+    # is the last step, down at Save · which is also where you are looking.
     st.markdown('<div style="height:26px;"></div>', unsafe_allow_html=True)
     if st.button(":material/add: New draft", use_container_width=True,
                  key="new_draft_top",
-                 help="Copies the draft you are on, so you tune from where you "
-                      "are rather than from scratch."):
-        st.session_state["show_new_draft"] = True
-        # Legal here · the box below has not been built yet this run. Opening
-        # the form on a name left over from last time is a trap.
-        st.session_state["new_draft_name"] = ""
+                 help="Starts a copy of the draft you are on, so you tune from "
+                      "where you are. You name it at the end, when you save."):
+        _base = _SAVED_BY_NAME[_pick if _pick in _SAVED_BY_NAME else _default]
+        _taken = {d["id"] for d in _SAVED}
+        _n = 1
+        while ("untitled-%d" % _n) in _taken:
+            _n += 1
+        _new_id, _new_name = "untitled-%d" % _n, "Untitled draft %d" % _n
+        DR.save_draft(_new_name, {k: _base.get(k) for k in DR.BASE if k != "squad"},
+                      draft_id=_new_id,
+                      allow_clear=("bench_boost_gw", "wildcard_gw"))
+        st.session_state["_want_draft"] = _new_name
+        st.session_state["just_created"] = True
+        st.rerun()
 if _pick is None:
     _pick = _default
 _spec = _SAVED_BY_NAME[_pick]
@@ -824,51 +839,6 @@ _DRAFT_STATE_DEFAULTS = {
 
 for _n, _factory in _DRAFT_STATE_DEFAULTS.items():
     st.session_state.setdefault(_sk(_n), _factory())
-
-# The naming step, inline. It copies the CURRENT draft so tuning starts from
-# where you are, which is how anyone actually builds a variant.
-if st.session_state.get("show_new_draft"):
-    with st.container(border=True):
-        st.markdown(_one_line(
-            f'<div style="font-size:12.5px;color:{V("text")};margin-bottom:2px;">'
-            f'<b>New draft</b> <span style="color:{V("muted")};">copies '
-            f'<b>{_pick}</b> · locks, dials and chips come with it. '
-            f'Tune it, then it saves as you go.</span></div>'),
-            unsafe_allow_html=True)
-        # A FORM, not a loose text box and a button. Typing into a bare
-        # st.text_input does not reach Python until the box loses focus, so a
-        # Create button gated on the typed name was still disabled on the click
-        # that was meant to fire it · you had to click twice. A form submits the
-        # name and the click together, and Return works too.
-        with st.form("new_draft_form", border=False):
-            _n1, _n2, _n3 = st.columns([4, 1, 1])
-            with _n1:
-                _nd = st.text_input("Name", key="new_draft_name",
-                                    placeholder="e.g. Opening 15, no Newcastle",
-                                    label_visibility="collapsed")
-            with _n2:
-                _go = st.form_submit_button("Create", type="primary",
-                                            use_container_width=True)
-            with _n3:
-                _no = st.form_submit_button("Cancel", use_container_width=True)
-
-        if _no:
-            st.session_state["show_new_draft"] = False
-            st.rerun()
-        if _go:
-            _name = (_nd or "").strip()
-            if not _name:
-                st.warning("Give the draft a name first.")
-            elif _name in _SAVED_BY_NAME:
-                st.warning("**%s** already exists. Pick another name." % _name)
-            else:
-                DR.save_draft(_name,
-                              {k: _spec.get(k) for k in DR.BASE},
-                              allow_clear=("bench_boost_gw", "wildcard_gw"))
-                st.session_state["_want_draft"] = _name
-                st.session_state["show_new_draft"] = False
-                st.session_state["just_created"] = True
-                st.rerun()
 
 # The facts about THIS draft, as chips. A selector that only echoes its own
 # label teaches you nothing.
@@ -1115,46 +1085,33 @@ with _open_controls:
                     "minutes_gate", "cap_attackers", "bench_boost_gw",
                     "wildcard_gw"))
 
-    _s1, _s2, _s3 = st.columns([3, 2, 2])
+    # ONE button here, and no name box. The naming step lives at the bottom, on
+    # the fifteen you are looking at · asking for a name up here, before the
+    # squad exists, was the confusing part. "Save as a copy" is gone too: the
+    # New draft button already copies, so there were two ways to fork.
+    _s1, _s2 = st.columns([5, 2])
     with _s1:
         st.markdown(_one_line(
             f'<div style="font-size:11.5px;color:{V("mint") if _changed else V("muted")};'
             f'padding-top:8px;">'
-            + ("Unsaved changes on <b>%s</b>." % _spec["name"] if _changed
-               else "Nothing changed yet.")
+            + ("Changed. The squad below has already updated · press Keep to "
+               "hold these settings on <b>%s</b>, or name and save the fifteen "
+               "at the bottom." % _spec["name"] if _changed
+               else "Nothing changed yet. Move a dial and the squad below "
+                    "rebuilds straight away.")
             + '</div>'), unsafe_allow_html=True)
     with _s2:
-        # Truncate the NAME, not the label · slicing the whole string ate the
-        # icon markup's budget and left four characters of the draft name.
-        _short = _spec["name"] if len(_spec["name"]) <= 14 else _spec["name"][:13] + "…"
-        if st.button(f":material/save: Save to {_short}",
+        if st.button(":material/save: Keep these settings",
                      use_container_width=True, key="ctrl_save_same",
                      disabled=bool(_spec.get("preset")) or not _changed,
-                     help=("Presets cannot be overwritten · use Save as a copy."
-                           if _spec.get("preset") else
-                           "Keep these settings on this draft.")):
+                     help=("A preset cannot be written to · press New draft to "
+                           "start your own from it." if _spec.get("preset") else
+                           "Store the dials on this draft. The fifteen is saved "
+                           "separately, at the bottom.")):
             DR.save_draft(_spec["name"], _cur_spec, draft_id=_spec["id"],
                           allow_clear=("bench_boost_gw", "wildcard_gw"))
-            st.toast(f"Saved to {_spec['name']}", icon="✅")
+            st.toast("Settings kept on %s" % _spec["name"], icon="✅")
             st.rerun()
-    with _s3:
-        # A form for the same reason as the create box · a typed name does not
-        # reach Python until focus leaves, so a gated button eats the first click.
-        with st.form("save_copy_form", border=False):
-            _copy = st.text_input("Save as a copy", key="ctrl_save_name",
-                                  placeholder="New name",
-                                  label_visibility="collapsed")
-            _copy_go = st.form_submit_button(":material/bookmark_add: Save as a copy",
-                                             use_container_width=True)
-        if _copy_go:
-            _cn = (_copy or "").strip()
-            if not _cn:
-                st.warning("Name the copy first.")
-            else:
-                DR.save_draft(_cn, _cur_spec,
-                              allow_clear=("bench_boost_gw", "wildcard_gw"))
-                st.session_state["_want_draft"] = _cn
-                st.rerun()
 
 
 
@@ -1277,6 +1234,57 @@ def _window_board(_base: pd.DataFrame, lo: int, hi: int, _stamp: str) -> pd.Data
     return d
 
 
+def solve_opening(spec: Dict) -> Optional[Dict]:
+    """The opening fifteen for a draft spec, built the ONE way.
+
+    Both the planner at the top of the page and the side-by-side comparison go
+    through here. They used to build squads differently: the planner scored the
+    window you actually own the squad for and priced a declared Bench Boost into
+    the objective, while the comparison re-solved on a SEASON board with neither.
+    The same saved draft therefore showed one fifteen at the top of the page and
+    a different one below it, which makes every comparison a lie.
+
+    An explicit saved fifteen wins over all of it · re-solving a team the user
+    built by hand compares something they never chose.
+    """
+    codes = spec.get("squad")
+    if codes and len(codes) == 15:
+        have = [int(c) for c in codes if int(c) in set(board["code"].astype(int))]
+        if len(have) == 15:
+            sq = board[board["code"].isin(have)].copy()
+            sq = sq.set_index("code").reindex(have).reset_index()
+            sq["price"] = sq["actual_price"]
+            sq["pts"] = sq[PTS_COL]
+            sq["is_captain"] = False
+            return {"squad": sq, "explicit": True}
+
+    b = _tuned_board(float(spec.get("minutes_gate", 0.5)))
+    wc = spec.get("wildcard_gw")
+    win = (1, int(wc) - 1) if wc and int(wc) > 1 else None
+    omap, ow = (), float(spec.get("opening", 0.35))
+    if win:
+        b = _window_board(b, win[0], win[1], BOARD_STAMP)
+    elif spec.get("strategy") == SPRINT_STRATEGY:
+        omap, ow = _window_map(*SPRINT_WINDOW), 1.0
+
+    strategy = spec.get("strategy") or "⚖️ Optimal value"
+    cap = None if not spec.get("cap_attackers") else 1
+
+    def _arm(frame, bench_col):
+        return solve_draft(frame, strategy, float(spec.get("budget", 100.0)),
+                           float(spec.get("risk", 0.3)),
+                           tuple(spec.get("vetoes", [])), ow,
+                           force_names=tuple(spec.get("locks", [])),
+                           opening_map=omap, max_attackers_per_club=cap,
+                           bench_pts_col=bench_col)
+
+    bb = spec.get("bench_boost_gw")
+    gws = list(range(win[0], win[1] + 1)) if win else []
+    if bb and gws and int(bb) in gws:
+        return OPLAN.solve_plan(b, PROJ, gws, int(bb), _arm)
+    return _arm(b, None)
+
+
 SOLVE_BOARD = _tuned_board(minutes_gate)
 _omap, _oweight = (), opening
 
@@ -1309,18 +1317,22 @@ if DR.has_squad(_spec):
     if len(_codes) == 15:
         _SAVED_SQUAD = _codes
 
+# The LIVE spec · the dials as they are right now, which is what tuning means.
+# It goes through `solve_opening` exactly like a saved draft does in the
+# comparison, so the two can never drift apart again.
+_LIVE_SPEC = {
+    "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
+    "budget": float(budget), "risk": float(risk), "opening": float(opening),
+    "minutes_gate": float(minutes_gate), "cap_attackers": bool(cap_attackers),
+    "bench_boost_gw": boost_gw, "wildcard_gw": wildcard_gw, "squad": None,
+}
+
 # A declared Bench Boost week enters the OBJECTIVE, not a post-hoc weighting.
 # `plan_bench` is what each player is worth in that one week, which is exactly
 # what a benched player earns under the chip · zero in every other week. The
 # MILP then trades bench quality against XI quality on real points instead of
 # the 0.1-of-a-starter fudge, and no bench points TARGET is needed: chasing a
 # target is a constraint, and a constraint can only ever build a worse fifteen.
-#
-# `solve_plan` runs it both ways and keeps whichever actually scores more over
-# the plan, because the MILP fixes ONE eleven for the window while the plan
-# re-picks the best eleven weekly. Measured on the live board the bench-aware
-# arm won by up to 1.2 points and lost by 0.1 once · so declaring the chip is
-# now guaranteed not to cost you anything.
 def _solve_arm(frame, bench_col):
     return solve_draft(frame, mode, budget, risk, tuple(excluded), _oweight,
                        force_names=tuple(locked), opening_map=_omap,
@@ -1332,15 +1344,11 @@ _plan_gws = (list(range(OPT_WINDOW[0], OPT_WINDOW[1] + 1)) if OPT_WINDOW else []
 
 res = None
 if _SAVED_SQUAD is None:
-    if boost_gw and _plan_gws and int(boost_gw) in _plan_gws:
-        res = OPLAN.solve_plan(SOLVE_BOARD, PROJ, _plan_gws, int(boost_gw),
-                               _solve_arm)
-    else:
-        res = _solve_arm(SOLVE_BOARD, None)
+    res = solve_opening(_LIVE_SPEC)
 if _SAVED_SQUAD is None and res is None:
     why = ""
     if locked:
-        lk = board[board["web_name"].isin(locked)]
+        lk = board[board[NAME_COL].isin(locked)]
         spend = float(lk["actual_price"].sum())
         over = {p: n for p, n in lk["position"].value_counts().to_dict().items()
                 if n > SQUAD_LIMITS.get(p, 15)}
@@ -1363,9 +1371,9 @@ if _SAVED_SQUAD is None and res is None:
             _cause = diagnose_infeasible(
                 _d, budget=budget, pts_col="pts",
                 force_codes=[int(c) for c in
-                             board[board["web_name"].isin(locked)]["code"]],
+                             board[board[NAME_COL].isin(locked)]["code"]],
                 exclude_codes=[int(c) for c in
-                               board[board["web_name"].isin(excluded)]["code"]],
+                               board[board[NAME_COL].isin(excluded)]["code"]],
                 max_attackers_per_club=None if two_att else 1)
             if _cause:
                 why = " The binding constraint is %s." % _cause
@@ -1402,7 +1410,7 @@ if locked and res is not None:
                                 _free_arm)
     else:
         free = _free_arm(SOLVE_BOARD, None)
-    lk = board[board["web_name"].isin(locked)]
+    lk = board[board[NAME_COL].isin(locked)]
     spend = float(lk["actual_price"].sum())
     # Priced on the PLAN total where there is one · that is the number the user
     # is actually trying to maximise. `xi_points` is an objective value and does
@@ -2499,26 +2507,43 @@ def planner() -> None:
     # different objects: the popover stored the RECIPE, which re-solves to
     # something else tomorrow, while what you actually want kept is the fifteen
     # on screen, swaps and all.
-    _is_mine = not _spec.get("preset") and DR.has_squad(_spec)
+    # THE naming step. By the time you are here you have tuned it, watched it
+    # generate and tweaked it by hand, so you finally know what to call it. A
+    # draft made from the New draft button arrives as "Untitled draft n" and
+    # gets renamed IN PLACE here · same id, so the transfers and the viewed week
+    # you have been working on come with it.
+    _untitled = str(_spec["id"]).startswith("untitled-")
+    _is_mine = not _spec.get("preset")
     _s1, _s2, _s3 = st.columns([3, 2, 2])
     with _s1:
         _save_as = st.text_input(
-            "Draft name", value=_spec["name"] if _is_mine else "",
-            placeholder="Name this draft to save it", key="planner_save_name",
-            label_visibility="collapsed")
+            "Draft name", value="" if (_untitled or not _is_mine) else _spec["name"],
+            placeholder=("Name it, then save" if _untitled
+                         else "Name this draft to save it"),
+            key="planner_save_name", label_visibility="collapsed")
     with _s2:
-        _same = _save_as.strip() == _spec.get("name")
-        _label = (f":material/save: Update" if (_is_mine and _same)
-                  else ":material/bookmark_add: Save this team")
+        _typed = _save_as.strip()
+        _same = _typed == _spec.get("name")
+        _label = (":material/save: Update" if (_is_mine and _same and not _untitled)
+                  else ":material/bookmark_add: Name and save")
         # Deliberately NOT disabled on an empty name. A disabled button swallows
         # the click that was meant to commit the name you just typed, so you had
         # to click twice. Validate here instead.
         _save_hit = st.button(_label, use_container_width=True, type="primary",
-                              key="planner_save_go")
-        if _save_hit and not _save_as.strip():
-            st.warning("Name this draft first.")
+                              key="planner_save_go",
+                              help="Saves the fifteen exactly as it is on the "
+                                   "pitch, swaps and all, along with the dials.")
+        _clash = (_typed in _SAVED_BY_NAME
+                  and _SAVED_BY_NAME[_typed]["id"] != _spec["id"])
+        if _save_hit and not _typed:
+            st.warning("Give it a name first.")
+        elif _save_hit and _clash:
+            st.warning("**%s** is already taken. Pick another name." % _typed)
         elif _save_hit:
-            DR.save_draft(_save_as.strip(), {
+            # Rename in place when this draft is one of yours · a new id would
+            # orphan the untitled one and lose the working state with it.
+            _keep_id = _spec["id"] if _is_mine else None
+            DR.save_draft(_typed, {
                 "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
                 "budget": float(budget), "risk": float(risk),
                 "opening": float(opening), "minutes_gate": float(minutes_gate),
@@ -2526,12 +2551,12 @@ def planner() -> None:
                 "bench_boost_gw": _spec.get("bench_boost_gw"),
                 "wildcard_gw": _spec.get("wildcard_gw"),
                 "squad": [int(c) for c in sq["code"]],
-            })
-            st.session_state["_want_draft"] = _save_as.strip()
+            }, draft_id=_keep_id)
+            st.session_state["_want_draft"] = _typed
             # The transfers are now baked into the saved fifteen, so replaying
             # them on top would apply every move twice.
             _reset_draft_state()
-            st.toast(f"Saved {_save_as.strip()}", icon="✅")
+            st.toast(f"Saved {_typed}", icon="✅")
             st.rerun()
     with _s3:
         show_changes = st.toggle("Summary of changes", value=False,
@@ -2638,6 +2663,74 @@ def planner() -> None:
             st.info("Nothing matches those filters.")
         else:
             _hi4 = min(38, gw + 3)
+
+            # The top three as cards, before the list. Twenty-two rows is a
+            # research tool; three cards is an answer, and an answer is what you
+            # want the moment you take someone out. These went missing in the
+            # multi-axe rewrite because one set of cards did not obviously map
+            # onto several open slots · it does, as long as they name the slot
+            # they fill, which is the first open one of that position.
+            _t3 = alt.assign(_r=[PROJ.run_total(int(c), gw, _hi4)
+                                 for c in alt["code"]]).nlargest(3, "_r")
+            _cards = []
+            for _rank, (_, _c) in enumerate(_t3.iterrows(), start=1):
+                _cc = int(_c["code"])
+                _tok = ["mint", "gold", "cyan"][_rank - 1]
+                # Priced against the player he would actually replace, not
+                # against the first one you happened to mark.
+                _slot = next((r for r in _out_rows
+                              if str(r["position"]) == str(_c["position"])),
+                             _out_rows[0])
+                _d_price = float(_c["actual_price"]) - float(_slot["actual_price"])
+                _runs = _fixtures_for(int(_c.get("team_id", 0) or 0), gw, 3)
+                _chips = "".join(
+                    f'<span style="background:{theme.FDR_COLORS.get(int(round(float(f.get("fdr", 3)))), "#FFD60A")};'
+                    f'color:#000;border-radius:4px;padding:1px 5px;font-size:9px;'
+                    f'font-weight:900;">{str(f.get("opp", "?"))[:3]}'
+                    f'{"" if f.get("home") else "·a"}</span>' for f in _runs)
+                _mins = PROJ.expected_minutes(_cc, gw)
+                _afford = float(_c["actual_price"]) <= _budget + float(
+                    _slot["actual_price"]) + 1e-9
+                _cards.append(
+                    f'<div style="{CARD}flex:1;min-width:200px;'
+                    f'border-top:3px solid {V(_tok)};'
+                    f'{"" if _afford else "opacity:0.45;"}">'
+                    f'<div style="display:flex;align-items:center;gap:9px;margin-bottom:7px;">'
+                    f'<span style="display:inline-grid;place-items:center;width:21px;'
+                    f'height:21px;border-radius:7px;background:{V(_tok)};color:#06251A;'
+                    f'font-family:var(--ff-display);font-size:12px;font-weight:900;">'
+                    f'{_rank}</span>'
+                    f'{face_html(_cc, int(_c.get("team_code", 1) or 1), _c["position"] == "GKP", 32)}'
+                    f'<div style="min-width:0;flex:1;">'
+                    f'<div style="font-size:13px;font-weight:700;color:{V("text")};'
+                    f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                    f'{_c["web_name"]}</div>'
+                    f'<div style="font-size:10px;color:{V("muted")};'
+                    f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                    f'for {_slot["web_name"]} · £{float(_c["actual_price"]):.1f}m '
+                    f'({_d_price:+.1f})</div></div></div>'
+                    f'<div style="display:flex;gap:3px;margin-bottom:7px;">{_chips}</div>'
+                    f'<div style="display:flex;justify-content:space-between;gap:6px;">'
+                    f'<div><div class="ff-display" style="font-size:16px;font-weight:800;'
+                    f'color:{V(_tok)};">{float(_c["_r"]):.1f}</div>'
+                    f'<div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;'
+                    f'color:{V("muted2")};">GW{gw}-{_hi4}</div></div>'
+                    f'<div><div class="ff-display" style="font-size:16px;font-weight:800;'
+                    f'color:{V("text")};">{PROJ.points(_cc, gw):.1f}</div>'
+                    f'<div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;'
+                    f'color:{V("muted2")};">GW{gw}</div></div>'
+                    f'<div><div class="ff-display" style="font-size:16px;font-weight:800;'
+                    f'color:{V("text")};">'
+                    f'{("%.0f" % _mins) if _mins is not None else "-"}</div>'
+                    f'<div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;'
+                    f'color:{V("muted2")};">mins</div></div></div>'
+                    + ("" if _afford else
+                       f'<div style="font-size:10px;color:{V("red")};margin-top:6px;">'
+                       f'Too dear for this slot</div>')
+                    + '</div>')
+            st.markdown(_one_line(
+                '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 10px;">'
+                + "".join(_cards) + '</div>'), unsafe_allow_html=True)
             if _sort.startswith("GW"):
                 alt = alt.assign(_k=[PROJ.points(int(c), gw) for c in alt["code"]])
             elif _sort.startswith("Next"):
@@ -2862,7 +2955,7 @@ with tab_cmp:
         from analytics.head_to_head import compare_players, verdict
 
         _cmp_gw = int(st.session_state.get(_sk("draft_gw"), 1))
-        profs = [_profile_window(int(board[board["web_name"] == nm].iloc[0]["code"]),
+        profs = [_profile_window(int(board[board[NAME_COL] == nm].iloc[0]["code"]),
                                  _cmp_gw, cmp_h) for nm in picks]
         cmp = compare_players(profs)
         vd = verdict(cmp, profs)
@@ -3096,6 +3189,11 @@ with tab_ab:
             with st.spinner("Solving squads and simulating the window…"):
                 entries = []
                 for spec in specs:
+                    # Phase 2 only · the squad you rebuild ON the wildcard, which
+                    # is scored on the fixtures that FOLLOW it. Phase 1 comes
+                    # from `solve_opening`, the same call the planner makes, so a
+                    # draft cannot show one fifteen at the top of the page and a
+                    # different one down here.
                     def _solve(strategy, ow, omap, _s=spec):
                         return solve_draft(
                             _tuned_board(float(_s.get("minutes_gate", 0.5))),
@@ -3105,7 +3203,7 @@ with tab_ab:
                             max_attackers_per_club=None if not _s.get("cap_attackers") else 1)
 
                     phases = build_phases(spec, _solve, _window_map, window[0], window[1],
-                                          board=board)
+                                          board=board, first=solve_opening(spec))
                     if not phases:
                         st.warning(f"**{spec['name']}** has no feasible squad · skipped.")
                         continue
@@ -3319,20 +3417,33 @@ with tab_ab:
                             _s = _cd
                     from analytics.gw_projection import best_xi as _bxi
                     _x = _bxi(_s, PROJ, _sq_gw)
-                    _wk.append((_n, sum(PROJ.points(int(c), _sq_gw)
-                                        for c in _s["code"] if int(c) in _x)))
+                    # What this draft ACTUALLY scores this week under its own
+                    # chip plan. A Boost week is fifteen players, not eleven,
+                    # and that is the whole reason two drafts differ · a row
+                    # that always showed the XI hid the thing being compared.
+                    _bbw = _SAVED_BY_NAME.get(_n, {}).get("bench_boost_gw")
+                    _on = _bbw is not None and int(_bbw) == int(_sq_gw)
+                    _who = ([int(c) for c in _s["code"]] if _on else list(_x))
+                    _v = sum(PROJ.points(int(c), _sq_gw) for c in _who)
+                    if _x:
+                        _v += max(PROJ.points(int(c), _sq_gw) for c in _x)
+                    _wk.append((_n, _v, _on))
                 _bits = "".join(
                     f'<span style="display:inline-flex;align-items:center;gap:6px;'
                     f'margin-right:14px;">{_badge(_ids[_n], 18)}'
                     f'<span class="ff-display" style="font-size:16px;font-weight:800;'
-                    f'color:{_ids[_n]["colour"]};">{_v:.1f}</span></span>'
-                    for _n, _v in _wk if _n in _ids)
+                    f'color:{_ids[_n]["colour"]};">{_v:.1f}</span>'
+                    + (f'<span style="font-size:9px;font-weight:900;color:{V("cyan")};'
+                       f'letter-spacing:0.08em;">BOOST</span>' if _on else "")
+                    + '</span>'
+                    for _n, _v, _on in _wk if _n in _ids)
                 st.markdown(_one_line(
                     f'<div style="display:flex;align-items:center;gap:12px;'
                     f'height:38px;"><span class="ff-display" style="font-size:19px;'
                     f'font-weight:900;color:{V("text")};">GW{_sq_gw}</span>{_bits}'
-                    f'<span style="font-size:11px;color:{V("muted")};">XI points'
-                    f'</span></div>'), unsafe_allow_html=True)
+                    f'<span style="font-size:11px;color:{V("muted")};">'
+                    f'points that week, captain doubled</span></div>'),
+                    unsafe_allow_html=True)
             with _v3:
                 _sq_view = st.segmented_control(
                     "View", ["Pitch", "List"], default="Pitch", key="ab_squad_view",
@@ -3357,8 +3468,26 @@ with tab_ab:
                                              (_cols[1], _b2, _sb - _sa)):
                         with _col:
                             _sqd = _codes[_nm]
-                            _tot = sum(PROJ.points(int(c), _sq_gw)
-                                       for c in _sqd["code"])
+                            # The REAL score for this week, per draft: the best
+                            # eleven, the captain doubled, and the whole fifteen
+                            # if this draft plays its Bench Boost here. It used
+                            # to sum all fifteen every week and call the result
+                            # "XI points", which overstated a normal week by a
+                            # whole bench and ignored the chip that is the only
+                            # reason two drafts differ.
+                            from analytics.gw_projection import best_xi as _bxi
+                            _xi_h = _bxi(_sqd, PROJ, _sq_gw)
+                            _bb_h = (_SAVED_BY_NAME.get(_nm, {})
+                                     .get("bench_boost_gw"))
+                            _boost_h = _bb_h is not None and int(_bb_h) == int(_sq_gw)
+                            _pool_h = ([int(c) for c in _sqd["code"]] if _boost_h
+                                       else list(_xi_h))
+                            _tot = sum(PROJ.points(int(c), _sq_gw) for c in _pool_h)
+                            if _xi_h:
+                                _tot += max(PROJ.points(int(c), _sq_gw)
+                                            for c in _xi_h)      # captain
+                            _tot_lab = ("all 15 + captain, Boost on" if _boost_h
+                                        else "XI + captain")
                             _id = _ids.get(_nm, {"letter": "?", "colour": colour[_nm]})
                             st.markdown(_one_line(
                                 f'<div style="display:flex;align-items:center;gap:9px;'
@@ -3368,7 +3497,9 @@ with tab_ab:
                                 f'font-weight:800;color:{_id["colour"]};white-space:nowrap;'
                                 f'overflow:hidden;text-overflow:ellipsis;">{_nm}</div>'
                                 f'<div style="font-size:11px;color:{V("muted")};">'
-                                f'{len(_only)} unique · {_tot:.1f} pts in GW{_sq_gw}'
+                                f'{len(_only)} unique · <b style="color:'
+                                f'{V("mint") if _boost_h else V("text")};">'
+                                f'{_tot:.1f}</b> in GW{_sq_gw} · {_tot_lab}'
                                 f'</div></div></div>'), unsafe_allow_html=True)
 
                             if _sq_view == "Pitch":

@@ -50,7 +50,8 @@ class GwProjection(object):
     def __init__(self, board: pd.DataFrame, fixtures_by_gw: Dict,
                  ffh_long: Optional[pd.DataFrame] = None,
                  season_col: str = "consensus_points",
-                 miss_gws: Optional[Dict[int, List[int]]] = None):
+                 miss_gws: Optional[Dict[int, List[int]]] = None,
+                 gw_points: Optional[Dict[int, Dict[int, float]]] = None):
         self._fix = fixtures_by_gw or {}
         col = season_col if season_col in board.columns else "projected_points"
         scale = 1.0
@@ -84,17 +85,30 @@ class GwProjection(object):
         # because missing the opening two weeks says nothing about April.
         self._miss = {int(c): set(int(g) for g in gws)
                       for c, gws in (miss_gws or {}).items()}
+        # A hand-set score for one gameweek. `miss_gws` already says "he is not
+        # playing"; this says "he plays, and here is what I think he returns",
+        # which is the other half of the same call and the only way to overrule
+        # a match model that is wrong about a specific fixture.
+        self._set = {int(c): {int(g): float(v) for g, v in d.items()}
+                     for c, d in (gw_points or {}).items()}
         self.window = sorted({gw for _, gw in self._match}) if self._match else []
 
     # ── one cell ──────────────────────────────────────────────────────────────
     def points(self, code: int, gw: int) -> float:
         if int(gw) in self._miss.get(int(code), ()):
             return 0.0
+        # A hand-set score beats every model. It is the most explicit statement
+        # of intent there is, so nothing downstream may quietly rescale it.
+        hand = self._set.get(int(code), {}).get(int(gw))
+        if hand is not None:
+            return hand
         v = self._match.get((int(code), int(gw)))
         return v if v is not None else self._shape(code, gw)
 
     def source(self, code: int, gw: int) -> str:
         if int(gw) in self._miss.get(int(code), ()):
+            return SRC_MANUAL
+        if int(gw) in self._set.get(int(code), {}):
             return SRC_MANUAL
         return SRC_MATCH if (int(code), int(gw)) in self._match else SRC_SHAPE
 
@@ -145,7 +159,7 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
     except Exception as exc:
         logger.warning("per-gameweek match forecasts unavailable: %s", exc)
 
-    miss, early = {}, {}
+    miss, early, hand = {}, {}, {}
     try:
         from analytics.projection_overrides import load_overrides
         for code, adj in load_overrides().items():
@@ -154,8 +168,13 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
                 miss[int(code)] = [int(g) for g in gws]
             if adj.get("early_nailedness") is not None:
                 early[int(code)] = float(adj["early_nailedness"])
+            pts = adj.get("gw_points")
+            if pts:
+                hand[int(code)] = {int(g): float(v) for g, v in pts.items()}
         if miss:
             logger.info("per-gameweek unavailability for %d players", len(miss))
+        if hand:
+            logger.info("hand-set gameweek scores for %d players", len(hand))
     except Exception as exc:
         logger.warning("miss_gws overrides skipped: %s", exc)
 
@@ -199,7 +218,8 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
         if no_record:
             long = _damp_no_record(long, no_record)
 
-    return GwProjection(board, fixtures_by_gw, long, miss_gws=miss)
+    return GwProjection(board, fixtures_by_gw, long, miss_gws=miss,
+                        gw_points=hand)
 
 
 # Our shape / the Hub's, for players with no Premier League record. Measured,

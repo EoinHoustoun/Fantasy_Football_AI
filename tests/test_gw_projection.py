@@ -163,3 +163,38 @@ def test_best_xi_prefers_the_higher_scorers():
     outside = [proj.points(int(c), 1) for c in squad["code"] if c not in xi]
     # nobody benched outscores the weakest starter once the shape is legal
     assert all(o <= inside + 1e-9 for o in outside) or len(outside) == 4
+
+
+# ── a hand-set gameweek score ────────────────────────────────────────────────
+
+def test_a_hand_set_gameweek_score_wins():
+    """The most explicit statement of intent there is. Nothing may rescale it."""
+    from analytics.gw_projection import GwProjection
+    p = GwProjection(_board(), {}, gw_points={10: {2: 4.0, 3: 5.0}})
+    assert p.points(10, 2) == 4.0
+    assert p.points(10, 3) == 5.0
+
+
+def test_a_hand_set_score_is_labelled_manual():
+    from analytics.gw_projection import GwProjection, SRC_MANUAL
+    p = GwProjection(_board(), {}, gw_points={10: {2: 4.0}})
+    assert p.source(10, 2) == SRC_MANUAL
+
+
+def test_untouched_gameweeks_are_unaffected():
+    from analytics.gw_projection import GwProjection, SRC_MANUAL
+    p = GwProjection(_board(), {}, gw_points={10: {2: 4.0}})
+    assert p.source(10, 5) != SRC_MANUAL
+
+
+def test_not_playing_beats_a_hand_set_score():
+    """Both are hand calls, but "he is not playing" is the stronger one."""
+    from analytics.gw_projection import GwProjection
+    p = GwProjection(_board(), {}, miss_gws={10: [2]}, gw_points={10: {2: 4.0}})
+    assert p.points(10, 2) == 0.0
+
+
+def test_a_hand_set_score_reaches_the_matrix():
+    from analytics.gw_projection import GwProjection
+    p = GwProjection(_board(), {}, gw_points={10: {2: 4.0}})
+    assert p.matrix([10], [2]).loc[10, 2] == 4.0

@@ -201,12 +201,32 @@ def build_board() -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
         logger.warning("promoted DEFCON bonus skipped: %s", exc)
         load_warnings.append("Promoted-club DEFCON adjustment did not apply.")
 
+    # A name you can actually pick. Thirteen `web_name`s are shared by two or
+    # three players · Palmer is a Chelsea midfielder AND an Ipswich goalkeeper,
+    # Martinez is an Aston Villa keeper AND a Man Utd defender. Anything that
+    # resolves a name with `board[board.web_name == n].iloc[0]` therefore picked
+    # whichever happened to sort first, so locking "Palmer" could bind a £4.0m
+    # keeper. Only the ambiguous ones get a club suffix, so the common case
+    # still reads as a plain name.
+    verdicts["uniq_name"] = _unique_names(verdicts)
+
     bt = dict(trained["backtest"][trained["winner"]])
     bt["model"] = trained["winner"]
     # Threaded through `bt` so a model input failing loudly reaches the page
     # instead of dying in a log line. Callers that ignore it are unaffected.
     bt["load_warnings"] = load_warnings
     return verdicts, scout, bt, validation
+
+
+def _unique_names(df: pd.DataFrame) -> pd.Series:
+    """`web_name`, with a club suffix only where the name is shared."""
+    nm = df["web_name"].astype(str)
+    dup = nm.duplicated(keep=False)
+    club = df.get("team_short")
+    if club is None:
+        club = df.get("team_name", pd.Series([""] * len(df), index=df.index))
+    suffix = " (" + club.astype(str).str.slice(0, 3).str.upper() + ")"
+    return nm.where(~dup, nm + suffix)
 
 
 def _add_consensus(verdicts: pd.DataFrame, live_bs: dict) -> pd.DataFrame:
@@ -325,8 +345,14 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     from analytics.squad_milp import optimize_squad
 
     def _code(name: str):
-        m = board[board["web_name"] == name]
-        return int(m.iloc[0]["code"]) if not m.empty else None
+        # `uniq_name` first · `web_name` is shared by up to three players, so
+        # matching on it alone could lock or veto a stranger.
+        for col in ("uniq_name", "web_name"):
+            if col in board.columns:
+                m = board[board[col] == name]
+                if not m.empty:
+                    return int(m.iloc[0]["code"])
+        return None
 
     # A premium call is a LOCK, not a strategy · the old branches that matched
     # "Haaland + Fernandes" and "no Haaland" out of the strategy string became
