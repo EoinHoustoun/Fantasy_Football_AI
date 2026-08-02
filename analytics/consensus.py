@@ -207,6 +207,24 @@ def build_consensus(board: pd.DataFrame,
     if scout_matched is not None and not scout_matched.empty and "scout_pts" in scout_matched.columns:
         s = scout_matched.set_index("code")["scout_pts"]
         aligned = out["code"].map(s)
+
+        # Rate My Team's GW1-38 total, where we have it, in preference to the
+        # season file's points. Same source, same model, refreshed by hand more
+        # recently · the season file still supplies minutes, goals and clean
+        # sheets, and the promoted-club backfill, which this table does not have.
+        try:
+            from analytics import scout_rmt
+            fresh = scout_rmt.season_by_code(scout_rmt.load_season(), out)
+            if not fresh.empty:
+                newer = out["code"].map(fresh)
+                n_new = int((newer.notna() & aligned.notna()).sum())
+                aligned = newer.fillna(aligned)
+                diag["scout_refreshed"] = n_new
+                logger.info("Scout season points refreshed for %d players from "
+                            "the GW1-38 table", n_new)
+        except Exception as exc:
+            logger.warning("fresher Scout season totals unavailable: %s", exc)
+
         k = robust_scale(ours, aligned)
         cols["scout"] = (aligned * k).round(1)
         diag.update(scale_scout=round(k, 3), n_scout=int(aligned.notna().sum()))

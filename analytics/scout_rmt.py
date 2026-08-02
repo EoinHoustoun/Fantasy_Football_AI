@@ -142,3 +142,66 @@ def per_gw_by_code(snap: pd.DataFrame, board: pd.DataFrame) -> pd.DataFrame:
                 rows.append({"code": int(r["code"]), "gw": int(c[2:]),
                              "pts": float(v)})
     return pd.DataFrame(rows)
+
+
+SEASON_PATH = CACHE_DIR / ("scout_rmt_season_%s.csv" % NEXT_SEASON.replace("-", "_"))
+
+
+def load_season(path=None) -> Optional[pd.DataFrame]:
+    """Scout's GW1-38 season total per player · the freshest season read we have.
+
+    The older `scout_projections_*.csv` carries minutes, goals and clean sheets
+    as well, so it is not replaced. This supplies the POINTS, which is the one
+    number the consensus blends and the one that goes stale fastest.
+    """
+    path = path or SEASON_PATH
+    if not path.exists():
+        logger.info("no Scout season snapshot at %s", path)
+        return None
+    df = pd.read_csv(path)
+    if not {"name", "team", "pos", "season_total"} <= set(df.columns):
+        logger.warning("Scout season snapshot missing columns")
+        return None
+    df = df.copy()
+    df["team_short"] = df["team"].astype(str).str.strip().map(CLUB_TO_SHORT)
+    df["pos"] = df["pos"].astype(str).str.strip().map(POS_TO_FPL)
+    df["season_total"] = pd.to_numeric(df["season_total"], errors="coerce")
+    logger.info("loaded Scout season snapshot · %d players", len(df))
+    return df
+
+
+def season_by_code(snap: pd.DataFrame, board: pd.DataFrame) -> pd.Series:
+    """code -> Scout season points, joined the same guarded way as everything else."""
+    from analytics.scout_projections import normalise_name, surname_key
+
+    if snap is None or snap.empty or board is None or board.empty:
+        return pd.Series(dtype=float)
+
+    s = snap.copy()
+    s["_key"] = s["name"].map(normalise_name)
+    b = board.copy()
+    b["_key"] = b["web_name"].map(normalise_name)
+    b["pos"] = b["position"]
+
+    j = b.merge(s[["_key", "team_short", "pos", "season_total"]],
+                on=["_key", "team_short", "pos"], how="left")
+    miss = j["season_total"].isna()
+    if miss.any():
+        bs = j.loc[miss, ["code", "web_name", "team_short", "pos"]].copy()
+        bs["_sur"] = bs["web_name"].map(surname_key)
+        bs = bs[bs.groupby(["_sur", "team_short", "pos"])["code"]
+                .transform("size") == 1]
+        ss = s.copy()
+        ss["_sur"] = ss["name"].map(surname_key)
+        ss = ss[ss.groupby(["_sur", "team_short", "pos"])["name"]
+                .transform("size") == 1]
+        pair = bs.merge(ss[["_sur", "team_short", "pos", "season_total"]],
+                        on=["_sur", "team_short", "pos"], how="inner")
+        if not pair.empty:
+            fill = pair.set_index("code")["season_total"]
+            j["season_total"] = j["season_total"].fillna(
+                pd.Series(j["code"].map(fill).values, index=j.index))
+            logger.info("Scout season surname rescue matched %d", len(pair))
+    out = j.set_index("code")["season_total"].dropna()
+    logger.info("Scout season points for %d of %d board rows", len(out), len(board))
+    return out

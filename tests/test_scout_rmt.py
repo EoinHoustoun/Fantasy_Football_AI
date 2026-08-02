@@ -120,3 +120,32 @@ def test_the_hub_survives_when_scout_has_no_view():
     empty = pd.DataFrame(columns=["code", "gw", "pts"])
     out = _blend_match_sources(_hub(0.8, mins=15.0), empty)
     assert float(out.iloc[0]["pts"]) == 0.8
+
+
+# ── the season total ─────────────────────────────────────────────────────────
+
+def _season_snap():
+    return pd.DataFrame({
+        "name": ["Alpha", "Beta"], "team": ["Arsenal", "Spurs"],
+        "pos": ["M", "D"], "season_total": [180.0, 120.0]})
+
+
+def test_season_points_join_by_name_club_and_position():
+    s = _season_snap()
+    s["team_short"] = s["team"].map(RMT.CLUB_TO_SHORT)
+    s["pos"] = s["pos"].map(RMT.POS_TO_FPL)
+    out = RMT.season_by_code(s, _board())
+    assert out.loc[1] == 180.0
+
+
+def test_season_points_use_the_surname_when_the_exact_name_misses():
+    """The board says "M.Beta"; Scout says "Beta"."""
+    s = _season_snap()
+    s["team_short"] = s["team"].map(RMT.CLUB_TO_SHORT)
+    s["pos"] = s["pos"].map(RMT.POS_TO_FPL)
+    out = RMT.season_by_code(s, _board())
+    assert out.loc[2] == 120.0
+
+
+def test_no_season_snapshot_is_not_an_error():
+    assert RMT.season_by_code(None, _board()).empty
