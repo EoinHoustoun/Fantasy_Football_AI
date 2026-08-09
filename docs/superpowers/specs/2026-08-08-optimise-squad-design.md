@@ -184,6 +184,21 @@ Roughly 60 lines in `views/18_draft_2026_27.py`, one new test module. No new
 modules, no changes to `analytics/`, no changes to `consensus.py` or the xP
 engine.
 
+### Deviation taken during implementation (2026-08-08)
+
+"No changes to `analytics/`" did not survive contact with the tests. Two pure
+pieces moved into `analytics/squad_rules.py`, which exists for exactly this
+reason ("These lived inside a Streamlit view where nothing could reach them"):
+
+- `plan_window(wildcard_gw)` · the window derivation, which was duplicated in
+  **three** places in the view (the tuning caption, `solve_opening`, and
+  `OPT_WINDOW`). All three now call it.
+- `squad_diff(before, after, price_by_code)` · out/in joined on code, sorted
+  most expensive first, with unpriced codes named rather than dropped.
+
+Nothing in the optimiser itself changed. `solve_opening`, `squad_milp` and the
+consensus blend are untouched.
+
 ## Not in this work
 
 - Chip-calendar route search (BB week × WC week), deferred by agreement.

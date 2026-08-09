@@ -20,6 +20,61 @@ XI_SIZE = 11
 HIT_COST = 4
 
 
+def plan_window(wildcard_gw) -> Optional[tuple]:
+    """The gameweeks an opening squad is actually built for.
+
+    You own the fifteen until you wildcard, so that is the window worth
+    optimising. Scoring it over a whole season rewards players who pay off in
+    weeks you will have already torn the squad up before reaching.
+
+    Returns None when there is no wildcard to build up to, which means "score
+    the season" · and also when the wildcard is GW1, because a squad you replace
+    before a ball is kicked has no window at all.
+    """
+    if wildcard_gw in (None, ""):
+        return None
+    try:
+        wc = int(wildcard_gw)
+    except (TypeError, ValueError):
+        return None
+    return (1, wc - 1) if wc > 1 else None
+
+
+def squad_diff(before: Iterable[int], after: Iterable[int],
+               price_by_code: Dict) -> Dict:
+    """What the optimiser changed, joined on code and never on name.
+
+    Both lists come back most expensive first, so the move that spent the money
+    is the one the eye meets. A code the board no longer carries still appears
+    in `out` and is named in `unpriced` · omitting it would make a player
+    disappear from the squad with nothing said, which is exactly the silent
+    failure this diff exists to surface.
+    """
+    b = [int(c) for c in before]
+    a = [int(c) for c in after]
+
+    def _price(code):
+        try:
+            return float(price_by_code[code])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _by_price(codes):
+        return sorted(codes, key=lambda c: (-(_price(c) or 0.0), c))
+
+    def _spend(codes):
+        return round(sum(p for p in (_price(c) for c in codes)
+                         if p is not None), 1)
+
+    return {
+        "out": _by_price(set(b) - set(a)),
+        "in": _by_price(set(a) - set(b)),
+        "spend_before": _spend(b),
+        "spend_after": _spend(a),
+        "unpriced": sorted(c for c in set(b) | set(a) if _price(c) is None),
+    }
+
+
 def formation_of(codes: Iterable[int], pos_by_code: Dict) -> Dict[str, int]:
     """How many of each position these players are."""
     out = {p: 0 for p in POS_ORDER}

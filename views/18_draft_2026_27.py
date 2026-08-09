@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -413,6 +414,9 @@ from config import DRAFT_BAR_FLOORS, DRAFT_UI
 
 POOL_PAGE = int(DRAFT_UI["pool_page"])
 POOL_FLOOR = float(DRAFT_UI["pool_floor_points"])
+# Two squads side by side get half the width each, so the pitch is scaled down
+# as a whole rather than just narrowed · see `pitch_view.render_squad_pitch`.
+COMPARE_SCALE = 0.78
 PRICE_BAND = float(DRAFT_UI["price_band"])
 GRADE_GOOD = float(DRAFT_UI["grade_good"])
 GRADE_FAIR = float(DRAFT_UI["grade_fair"])
@@ -437,6 +441,29 @@ PTS_COL = "consensus_points" if HAS_CONSENSUS else "projected_points"
 # a club suffix only where it has to.
 NAME_COL = "uniq_name" if "uniq_name" in board.columns else "web_name"
 NAMES = sorted(board[NAME_COL].tolist())
+
+
+def _new_draft_defaults() -> Dict:
+    """Eoin's standing opening assumptions, as a draft spec.
+
+    Team SHORT codes in config are resolved to live `team_id`s here · club ids
+    are reassigned between seasons, so a hardcoded integer would quietly point
+    at a different club. A veto or lock naming somebody not on this season's
+    board is dropped rather than carried as a dead string.
+    """
+    from config import NEW_DRAFT_DEFAULTS as _D
+    _short_to_id = {str(r.team_short): int(r.team_id)
+                    for r in board[["team_short", "team_id"]]
+                    .dropna().drop_duplicates().itertuples()}
+    _names = set(board[NAME_COL].astype(str))
+    return {
+        "bench_boost_gw": _D["bench_boost_gw"],
+        "wildcard_gw": _D["wildcard_gw"],
+        "locks": [n for n in _D["locks"] if n in _names],
+        "vetoes": [n for n in _D["vetoes"] if n in _names],
+        "cover": [[_short_to_id[t], k, n] for t, k, n in _D["cover"]
+                  if t in _short_to_id],
+    }
 _NAME_SET = set(NAMES)
 
 # Drafts saved before the pick names changed hold the bare `web_name`, so a
@@ -855,8 +882,11 @@ with _new_col:
         while ("untitled-%d" % _n) in _taken:
             _n += 1
         _new_id, _new_name = "untitled-%d" % _n, "Untitled draft %d" % _n
-        DR.save_draft(_new_name, {k: _base.get(k) for k in DR.BASE if k != "squad"},
-                      draft_id=_new_id,
+        _fresh = {k: _base.get(k) for k in DR.BASE if k != "squad"}
+        # A new draft starts from the standing plan, not from whatever the last
+        # draft happened to be tuned to · see config.NEW_DRAFT_DEFAULTS.
+        _fresh.update(_new_draft_defaults())
+        DR.save_draft(_new_name, _fresh, draft_id=_new_id,
                       allow_clear=("bench_boost_gw", "wildcard_gw"))
         st.session_state["_want_draft"] = _new_name
         st.session_state["just_created"] = True
@@ -1068,6 +1098,53 @@ with _open_controls:
                  "club, so a bad week for that club cannot sink two picks. It "
                  "costs points whenever you deliberately want two.")
         two_att = not cap_attackers
+
+    # ── "I want cover from this club" ────────────────────────────────────────
+    # Locking a NAMED player answers a question you often cannot answer: which
+    # Arsenal defender starts GW1. This states only the exposure you want and
+    # lets the optimiser buy it the cheapest legal way, which is the better
+    # trade whenever your conviction is about a CLUB rather than a person.
+    #
+    # Defensive cover is keeper-or-defender because both cash the same clean
+    # sheet; attacking cover is midfielder-or-forward because both cash goals.
+    _clubs = (board[["team_id", "team_name"]].dropna().drop_duplicates()
+              .sort_values("team_name"))
+    _club_name = {int(r.team_id): str(r.team_name) for r in _clubs.itertuples()}
+    _name_club = {v: k for k, v in _club_name.items()}
+    _saved_cover = list(_spec.get("cover") or [])
+
+    # A plain section, not an expander · this block already lives inside one and
+    # Streamlit refuses to nest them.
+    with st.container():
+        st.markdown(_one_line(
+            f'<div style="font-size:11px;font-weight:800;letter-spacing:0.16em;'
+            f'text-transform:uppercase;color:{V("muted")};margin:10px 0 2px;">'
+            f'Cover from a club</div>'
+            f'<div style="font-size:12px;color:{V("muted")};margin-bottom:6px;">'
+            f'Demand exposure to a club without naming the player. Defensive '
+            f'counts keepers and defenders; attacking counts midfielders and '
+            f'forwards.</div>'), unsafe_allow_html=True)
+        _def_default = [_club_name[t] for t, k, _n in _saved_cover
+                        if k == "def" and t in _club_name]
+        _att_default = [_club_name[t] for t, k, _n in _saved_cover
+                        if k == "att" and t in _club_name]
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            _def_clubs = st.multiselect(
+                "At least one defensive asset from", list(_name_club),
+                default=_def_default, key=f"covdef_{_k}",
+                help="A goalkeeper OR a defender from each club chosen.")
+        with cc2:
+            _att_clubs = st.multiselect(
+                "At least one attacking asset from", list(_name_club),
+                default=_att_default, key=f"covatt_{_k}",
+                help="A midfielder OR a forward from each club chosen.")
+        cover = tuple([(int(_name_club[c]), "def", 1) for c in _def_clubs]
+                      + [(int(_name_club[c]), "att", 1) for c in _att_clubs])
+        if cover:
+            st.caption("These are hard constraints · if no legal squad satisfies "
+                       "them the solve fails rather than quietly ignoring one.")
+
     # ── The chip that changes the objective ───────────────────────────────
     # A Bench Boost you have already decided on is not something to switch on
     # after the squad exists · it changes what "best fifteen" MEANS. Without it
@@ -1108,8 +1185,19 @@ with _open_controls:
             help="Wildcarding at GW4 means this fifteen only has to be good for "
                  "GW1-3, so the optimiser scores it over those weeks instead of "
                  "a season you are going to tear up."))
+        # The horizon is this number, read the other way round. It gets its own
+        # line because "3 gameweeks" is what you plan in, but NOT its own widget
+        # · two controls owning one value is how they drift apart.
+        _wc_win = SR.plan_window(wildcard_gw)
+        st.markdown(_one_line(
+            f'<div style="font-size:11px;color:{V("muted")};margin-top:-6px;">'
+            + (f'Plan horizon · <b style="color:{V("text")};">'
+               f'{_wc_win[1] - _wc_win[0] + 1} gameweeks</b> '
+               f'(GW{_wc_win[0]}-{_wc_win[1]})' if _wc_win
+               else 'Plan horizon · the full season')
+            + '</div>'), unsafe_allow_html=True)
     with b3:
-        _win_hi = (int(wildcard_gw) - 1) if wildcard_gw and int(wildcard_gw) > 1 else None
+        _win_hi = _wc_win[1] if _wc_win else None
         if boost_gw and _win_hi:
             _msg = (f'Built for <b style="color:{V("cyan")};">GW1-{_win_hi}</b> '
                     f'with all fifteen scoring in <b style="color:{V("cyan")};">'
@@ -1144,6 +1232,9 @@ with _open_controls:
         "strategy": mode, "locks": list(locked), "vetoes": list(excluded),
         "budget": float(budget), "risk": float(risk), "opening": float(opening),
         "minutes_gate": float(minutes_gate), "cap_attackers": bool(cap_attackers),
+        # Cover is a constraint, so changing it makes the draft dirty like any
+        # other. Compared as lists · the widget yields tuples.
+        "cover": [list(c) for c in cover],
         "bench_boost_gw": boost_gw,
         "wildcard_gw": wildcard_gw,
     }
@@ -1156,7 +1247,26 @@ with _open_controls:
     # the fifteen you are looking at · asking for a name up here, before the
     # squad exists, was the confusing part. "Save as a copy" is gone too: the
     # New draft button already copies, so there were two ways to fork.
-    _s1, _s2 = st.columns([5, 2])
+    _s1, _s2, _s3 = st.columns([3, 2, 2])
+    with _s2:
+        # A saved fifteen is frozen on purpose · the dials must not silently
+        # rebuild a squad you picked by hand. But the only way out of that freeze
+        # was to VETO someone, so "just optimise it from my settings" was a thing
+        # the page could not do. This is that button. It proposes, it does not
+        # overwrite · the diff and the confirmation come later.
+        #
+        # The solve cannot happen here: `solve_opening` and `_LIVE_SPEC` are
+        # built further down the script. So this raises a flag the same way the
+        # pitch's "Boost GWn" button does, and the solve reads it in place.
+        if DR.has_squad(_spec):
+            _win_lbl = ("GW%d-%d" % _wc_win) if _wc_win else "the season"
+            if st.button(":material/auto_awesome: Optimise for %s" % _win_lbl,
+                         use_container_width=True, key="ctrl_optimise",
+                         help="Rebuild all fifteen from the dials above. Vetoing "
+                              "a player frees his money for the whole squad, so "
+                              "the answer can be a more expensive signing paid "
+                              "for by downgrading someone else."):
+                st.session_state["_want_optimise"] = True
     with _s1:
         st.markdown(_one_line(
             f'<div style="font-size:11.5px;color:{V("mint") if _changed else V("muted")};'
@@ -1167,7 +1277,7 @@ with _open_controls:
                else "Nothing changed yet. Move a dial and the squad below "
                     "rebuilds straight away.")
             + '</div>'), unsafe_allow_html=True)
-    with _s2:
+    with _s3:
         if st.button(":material/save: Keep these settings",
                      use_container_width=True, key="ctrl_save_same",
                      disabled=bool(_spec.get("preset")) or not _changed,
@@ -1290,7 +1400,12 @@ def _window_board(_base: pd.DataFrame, lo: int, hi: int, stamp: str) -> pd.DataF
     # to become the window total · setting only the consensus column leaves the
     # solver quietly maximising a season it is never going to play, which is the
     # exact bug this function exists to fix.
-    season = pd.to_numeric(d[PTS_COL], errors="coerce").replace(0, pd.NA)
+    # float("nan"), not pd.NA · replacing into a float column with pd.NA flips
+    # the whole Series to object, and astype(float) then refuses the NAType.
+    # Latent until a snapshot refresh first gave somebody a season total of
+    # exactly 0, which is what makes the replace fire at all. Same fix and same
+    # reason as `value_board.solve_draft`.
+    season = pd.to_numeric(d[PTS_COL], errors="coerce").replace(0, float("nan"))
     ratio = (run / season).astype(float).clip(0, 5).fillna(0.0)
     if "proj_lo" in d.columns:
         # The floor keeps its RELATIVE distance from the mean, so the risk dial
@@ -1326,8 +1441,7 @@ def solve_opening(spec: Dict) -> Optional[Dict]:
             return {"squad": sq, "explicit": True}
 
     b = _tuned_board(float(spec.get("minutes_gate", 0.5)))
-    wc = spec.get("wildcard_gw")
-    win = (1, int(wc) - 1) if wc and int(wc) > 1 else None
+    win = SR.plan_window(spec.get("wildcard_gw"))
     omap, ow = (), float(spec.get("opening", 0.35))
     if win:
         b = _window_board(b, win[0], win[1], BOARD_STAMP)
@@ -1337,12 +1451,15 @@ def solve_opening(spec: Dict) -> Optional[Dict]:
     strategy = spec.get("strategy") or "⚖️ Optimal value"
     cap = None if not spec.get("cap_attackers") else 1
 
+    _cover = tuple(tuple(c) for c in (spec.get("cover") or ()))
+
     def _arm(frame, bench_col):
         return solve_draft(frame, strategy, float(spec.get("budget", 100.0)),
                            float(spec.get("risk", 0.3)),
                            tuple(spec.get("vetoes", [])), ow,
                            force_names=tuple(spec.get("locks", [])),
                            opening_map=omap, max_attackers_per_club=cap,
+                           min_club_cover=_cover,
                            bench_pts_col=bench_col)
 
     def _weekly(frame, gw_cols, boost_col):
@@ -1351,6 +1468,7 @@ def solve_opening(spec: Dict) -> Optional[Dict]:
                            tuple(spec.get("vetoes", [])), ow,
                            force_names=tuple(spec.get("locks", [])),
                            opening_map=omap, max_attackers_per_club=cap,
+                           min_club_cover=_cover,
                            gw_pts_cols=gw_cols, boost_col=boost_col)
 
     bb = spec.get("bench_boost_gw")
@@ -1383,12 +1501,13 @@ def solve_opening(spec: Dict) -> Optional[Dict]:
 SOLVE_BOARD = _tuned_board(minutes_gate)
 _omap, _oweight = (), opening
 
+
 # An early Wildcard changes what "optimal" MEANS. Score the opening squad over
 # the weeks you will actually own it, not over a season you are going to tear up.
 # The TUNED week, not the saved one · the dial has to move the squad before you
 # save, or you are tuning blind.
 _wc = wildcard_gw
-OPT_WINDOW = (1, int(_wc) - 1) if _wc and int(_wc) > 1 else None
+OPT_WINDOW = SR.plan_window(_wc)
 if OPT_WINDOW:
     SOLVE_BOARD = _window_board(SOLVE_BOARD, OPT_WINDOW[0], OPT_WINDOW[1],
                                 BOARD_STAMP)
@@ -1407,10 +1526,29 @@ if OPT_WINDOW:
         unsafe_allow_html=True)
 
 _SAVED_SQUAD = None
+# A saved fifteen is deliberately frozen · it is the squad you built by hand and
+# the dials must not silently rebuild it under you. But a VETO is not a dial. It
+# names a specific player and says "never pick this one", and leaving him sitting
+# in the squad made the control look broken: you added him to "Do not want" and
+# nothing happened at all.
+#
+# So a veto that lands on the saved fifteen re-solves the WHOLE squad from the
+# settings · it does not evict that one player and force the other fourteen back
+# in. Banning a £15.5m striker frees £15.5m, and the right answer is almost never
+# "the same fourteen plus the best £15.5m replacement". It is a different squad:
+# the money goes wherever it buys most, which is what the optimiser is for.
+# Preserving fourteen slots would be trading points for familiarity.
+_EVICTED: List[str] = []
 if DR.has_squad(_spec):
     _codes = [int(c) for c in _spec["squad"] if int(c) in set(board["code"].astype(int))]
     if len(_codes) == 15:
-        _SAVED_SQUAD = _codes
+        _veto_codes = set(board[board[NAME_COL].isin(excluded)]["code"].astype(int))
+        _bad = [c for c in _codes if c in _veto_codes]
+        if _bad:
+            _by_code = board.set_index("code")[NAME_COL]
+            _EVICTED = [str(_by_code.get(c, c)) for c in _bad]
+        else:
+            _SAVED_SQUAD = _codes
 
 # The LIVE spec · the dials as they are right now, which is what tuning means.
 # It goes through `solve_opening` exactly like a saved draft does in the
@@ -1420,6 +1558,7 @@ _LIVE_SPEC = {
     "budget": float(budget), "risk": float(risk), "opening": float(opening),
     "minutes_gate": float(minutes_gate), "cap_attackers": bool(cap_attackers),
     "bench_boost_gw": boost_gw, "wildcard_gw": wildcard_gw, "squad": None,
+    "cover": list(cover),
 }
 
 # A declared Bench Boost week enters the OBJECTIVE, not a post-hoc weighting.
@@ -1432,6 +1571,7 @@ def _solve_arm(frame, bench_col):
     return solve_draft(frame, mode, budget, risk, tuple(excluded), _oweight,
                        force_names=tuple(locked), opening_map=_omap,
                        max_attackers_per_club=None if two_att else 1,
+                       min_club_cover=tuple(cover),
                        bench_pts_col=bench_col)
 
 
@@ -1440,6 +1580,8 @@ _plan_gws = (list(range(OPT_WINDOW[0], OPT_WINDOW[1] + 1)) if OPT_WINDOW else []
 res = None
 if _SAVED_SQUAD is None:
     res = solve_opening(_LIVE_SPEC)
+# The eviction is deliberately silent. The squad visibly changes and the vetoed
+# player is visibly gone · a banner restating that was noise on every rerun.
 if _SAVED_SQUAD is None and res is None:
     why = ""
     if locked:
@@ -1487,6 +1629,157 @@ if _SAVED_SQUAD is not None:
     SOLVED["is_captain"] = False
 else:
     SOLVED = res["squad"]
+
+# ── Say whether this is THE best fifteen or merely a good one ────────────────
+# `optimize_squad` already returns `proven_optimal`, and nothing has ever read
+# it. When CBC hits its time limit it returns the best squad it found so far
+# and the page presented that exactly like a proven optimum · so "is this
+# actually the best?" was a question the interface could not answer. It can now.
+_PROVEN = bool(res.get("proven_optimal", True)) if isinstance(res, dict) else True
+if not _PROVEN:
+    st.warning(
+        "**This is the best fifteen the solver found, not a proven optimum.** "
+        "It ran out of time before it could prove no better squad exists, which "
+        "usually means the pool is very large or the constraints are unusual. "
+        "Narrowing the pool (raise the minutes gate) or locking one more player "
+        "normally gets it to a proven answer.")
+
+
+# ── Optimise · rebuild a saved fifteen from the dials ────────────────────────
+# The freeze at the top of this file is right: a squad you built by hand must not
+# silently rebuild under you. But it left no way to ASK for a rebuild short of
+# vetoing someone, so the dials looked broken. The button in the tuning panel
+# raises `_want_optimise` and this is where it lands, because `solve_opening` and
+# `_LIVE_SPEC` only exist by here.
+#
+# `_LIVE_SPEC["squad"]` is already None, so `solve_opening` re-solves from the
+# dials rather than handing the saved fifteen straight back. Nothing about the
+# optimiser needed changing · only a way to reach it.
+def _optimise_now() -> None:
+    from components.loading import LINES_SOLVER, fpl_loader
+    try:
+        with fpl_loader("Rebuilding all fifteen", LINES_SOLVER):
+            out = solve_opening(_LIVE_SPEC)
+    except Exception:                        # noqa: BLE001
+        logger.exception("optimise solve failed")
+        st.session_state["_optimise_error"] = (
+            "The solver failed on these settings. Nothing has changed.")
+        return
+    if not out or out.get("squad") is None or out["squad"].empty:
+        # Never open an empty dialog · name the constraint that blocked it, the
+        # same way the auto-solve path does.
+        why = ""
+        try:
+            from analytics.squad_milp import diagnose_infeasible
+            _d = SOLVE_BOARD.rename(
+                columns={"actual_price": "price", "projected_points": "pts"})
+            why = diagnose_infeasible(
+                _d, budget=budget, pts_col="pts",
+                force_codes=[int(c) for c in
+                             board[board[NAME_COL].isin(locked)]["code"]],
+                exclude_codes=[int(c) for c in
+                               board[board[NAME_COL].isin(excluded)]["code"]],
+                max_attackers_per_club=None if two_att else 1) or ""
+        except Exception:                    # noqa: BLE001
+            logger.exception("infeasibility diagnosis failed")
+        st.session_state["_optimise_error"] = (
+            "No legal fifteen fits these settings."
+            + (" The binding constraint is %s." % why if why else ""))
+        return
+    st.session_state["_optimise_result"] = {
+        "codes": [int(c) for c in out["squad"]["code"]],
+        "proven": bool(out.get("proven_optimal", True)),
+    }
+
+
+if st.session_state.pop("_want_optimise", False):
+    _optimise_now()
+
+if "_optimise_error" in st.session_state:
+    st.error(st.session_state.pop("_optimise_error"))
+
+
+@st.dialog("Optimise squad", width="large")
+def _optimise_dialog(proposal: Dict) -> None:
+    _after = proposal["codes"]
+    _before = _SAVED_SQUAD or [int(c) for c in SOLVED["code"]]
+    _price = {int(r["code"]): float(r["actual_price"])
+              for _, r in board.iterrows()}
+    # `web_name`, not NAME_COL · `uniq_name` carries the picker's disambiguators
+    # and renders as "Sangaré (NFO) (Sangare)" in a table that has its own price
+    # column to tell two players apart.
+    _name = board.set_index("code")["web_name"].to_dict()
+    d = SR.squad_diff(_before, _after, _price)
+
+    _win_lbl = ("GW%d-%d" % OPT_WINDOW) if OPT_WINDOW else "the season"
+    _chip = (" · Boost GW%d" % boost_gw) if boost_gw else ""
+    st.markdown(_one_line(
+        f'<div style="display:flex;justify-content:space-between;'
+        f'align-items:baseline;gap:10px;margin-bottom:10px;">'
+        f'<span style="font-size:12px;color:{V("muted")};">{_win_lbl}{_chip}</span>'
+        f'<span style="font-size:11px;color:{V("mint") if proposal["proven"] else V("orange")};">'
+        + ("Proven optimal" if proposal["proven"]
+           else "Best found, not proven optimal")
+        + '</span></div>'), unsafe_allow_html=True)
+
+    if not d["out"]:
+        st.success("Your fifteen is already the optimal squad for these settings.")
+    else:
+        _rows = []
+        for i in range(max(len(d["out"]), len(d["in"]))):
+            _o = d["out"][i] if i < len(d["out"]) else None
+            _i = d["in"][i] if i < len(d["in"]) else None
+            _rows.append({
+                "Out": _name.get(_o, "code %s" % _o) if _o is not None else "",
+                "£m out": round(_price.get(_o, 0.0), 1) if _o is not None else None,
+                "In": _name.get(_i, "code %s" % _i) if _i is not None else "",
+                "£m in": round(_price.get(_i, 0.0), 1) if _i is not None else None,
+            })
+        st.dataframe(pd.DataFrame(_rows), hide_index=True,
+                     use_container_width=True)
+
+    # A saved code the board no longer carries is named, never quietly dropped.
+    if d["unpriced"]:
+        st.warning("Not on the current board, so priced at nothing: "
+                   + ", ".join(str(_name.get(c, c)) for c in d["unpriced"]))
+
+    _sq_after = board[board["code"].isin(_after)].copy()
+    _sq_before = board[board["code"].isin(_before)].copy()
+    if _plan_gws:
+        _pts_a = OPLAN.plan_total(_sq_after, PROJ, _plan_gws, boost_gw)
+        _pts_b = OPLAN.plan_total(_sq_before, PROJ, _plan_gws, boost_gw)
+        _delta = _pts_a - _pts_b
+        st.markdown(_one_line(
+            f'<div style="display:flex;gap:22px;font-size:12.5px;margin-top:6px;">'
+            f'<span style="color:{V("muted")};">Spend '
+            f'<b style="color:{V("text")};">£{d["spend_before"]:.1f}m → '
+            f'£{d["spend_after"]:.1f}m</b></span>'
+            f'<span style="color:{V("muted")};">{_win_lbl} '
+            f'<b style="color:{V("text")};">{_pts_b:.1f} → {_pts_a:.1f}</b></span>'
+            f'<span style="color:{V("mint") if _delta >= 0 else V("red")};">'
+            f'<b>{_delta:+.1f}</b></span></div>'), unsafe_allow_html=True)
+
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        if st.button("Use this fifteen", type="primary",
+                     use_container_width=True, key="opt_accept",
+                     disabled=not d["out"]):
+            DR.save_draft(_spec["name"], dict(_LIVE_SPEC, squad=_after),
+                          draft_id=_spec["id"],
+                          allow_clear=("bench_boost_gw", "wildcard_gw"))
+            st.session_state.pop("_optimise_result", None)
+            _reset_draft_state()
+            st.toast("Optimised fifteen saved to %s" % _spec["name"], icon="✨")
+            st.rerun()
+    with _c2:
+        if st.button("Keep mine", use_container_width=True, key="opt_reject"):
+            st.session_state.pop("_optimise_result", None)
+            st.rerun()
+
+
+# The dialog is OPENED further down, after `_reset_draft_state` exists · it
+# clears pending swaps, and swaps queued against the old fifteen mean nothing
+# once the squad underneath them has been replaced.
 
 
 # ── Which week to Boost · solve every option and rank them ───────────────────
@@ -1604,46 +1897,65 @@ if locked and res is not None:
     # money returns more.
     # Solved the SAME way as the locked squad · comparing a bench-aware squad
     # against a bench-blind one would price the chip, not the conviction.
-    def _free_arm(frame, bench_col):
-        return solve_draft(frame, mode, budget, risk, tuple(excluded), _oweight,
-                           opening_map=_omap,
-                           max_attackers_per_club=None if two_att else 1,
-                           bench_pts_col=bench_col)
+    # Solve the unlocked squad through the SAME entry point, so it gets the same
+    # weekly-lineup treatment, the same board and the same rules. Building it a
+    # different way handicaps it and prices the method, not the conviction.
+    free = solve_opening(dict(_LIVE_SPEC, locks=[]))
 
-    if boost_gw and _plan_gws and int(boost_gw) in _plan_gws:
-        free = OPLAN.solve_plan(SOLVE_BOARD, PROJ, _plan_gws, int(boost_gw),
-                                _free_arm)
-    else:
-        free = _free_arm(SOLVE_BOARD, None)
     lk = board[board[NAME_COL].isin(locked)]
     spend = float(lk["actual_price"].sum())
-    # Priced on the PLAN total where there is one · that is the number the user
-    # is actually trying to maximise. `xi_points` is an objective value and does
-    # not include the boosted bench.
-    if free is None:
-        cost = None
-    elif "plan_total" in res and "plan_total" in free:
-        cost = res["plan_total"] - free["plan_total"]
-    else:
-        cost = res["xi_points"] - free["xi_points"]
+
+    # ── Score BOTH squads with one metric, computed here ─────────────────────
+    # This used to read `res["xi_points"] - free["xi_points"]` whenever either
+    # result lacked `plan_total` · and `solve_window`, the weekly-lineup path
+    # that now produces most squads, does not set it. Those two keys do not mean
+    # the same thing: the weekly solver's `xi_points` is GW1's eleven ALONE,
+    # while a fixed-lineup solve on a windowed board reports the eleven's total
+    # over the WHOLE window. Subtracting a one-week number from a three-week one
+    # reported locking Haaland at "about 116 points", which is most of the
+    # window's entire score and was never a real figure.
+    #
+    # `plan_total` re-scores a finished squad over the plan · same fifteen, same
+    # gameweeks, same chip, best eleven each week. It does not care how either
+    # squad was solved, which is exactly the property this comparison needs.
+    def _plan_score(r):
+        if not r or "squad" not in r:
+            return None
+        if _plan_gws:
+            return float(OPLAN.plan_total(r["squad"], PROJ, _plan_gws,
+                                          int(boost_gw) if boost_gw else None))
+        return float(r.get("plan_total", r.get("xi_points", 0.0)))
+
+    _mine, _theirs = _plan_score(res), _plan_score(free)
+    cost = None if (_mine is None or _theirs is None) else (_mine - _theirs)
     _tok = ("mint" if (cost is None or cost > CONVICTION_FREE)
             else "orange" if cost > CONVICTION_REAL else "red")
     # Say what it MEANS, not what it measures. "-36 XI pts vs the free optimum ·
     # an expensive conviction" is a description of an arithmetic operation; the
     # reader wants to know whether insisting on these players is costing them.
     _names = ", ".join(locked)
-    _pts = (lambda n: "%.0f point%s" % (abs(n), "" if abs(round(n)) == 1 else "s"))
+    _pts = (lambda n: "%.1f point%s" % (abs(n), "" if abs(n) == 1 else "s"))
+    # Name the horizon. "116 points" with no window attached reads like a season
+    # number, and a three-gameweek total only runs to about 190 in the first
+    # place · a cost has to be quotable against the thing it is a share of.
+    _horizon = ("over GW%d-%d" % (_plan_gws[0], _plan_gws[-1])
+                if _plan_gws else "on this week's eleven")
     if cost is None:
         _line = f"You have insisted on {_names}."
+    elif cost >= 0:
+        _line = (f"Insisting on {_names} costs you nothing {_horizon} · the "
+                 f"optimiser would pick them anyway. Keep them.")
     elif cost > CONVICTION_FREE:
-        _line = (f"Insisting on {_names} costs you almost nothing · about "
-                 f"{_pts(cost)} over the window. Keep them.")
+        _line = (f"Insisting on {_names} costs about {_pts(cost)} {_horizon}, "
+                 f"out of roughly {_theirs:.0f}. That is noise · keep them.")
     elif cost > CONVICTION_REAL:
-        _line = (f"Insisting on {_names} costs about {_pts(cost)}. "
-                 f"Worth it if you believe in them more than the model does.")
+        _line = (f"Insisting on {_names} costs about {_pts(cost)} {_horizon}, "
+                 f"out of roughly {_theirs:.0f}. Worth it if you believe in "
+                 f"them more than the model does.")
     else:
-        _line = (f"Insisting on {_names} costs about {_pts(cost)}. "
-                 f"That is a lot · the money would do more spread around.")
+        _line = (f"Insisting on {_names} costs about {_pts(cost)} {_horizon}, "
+                 f"out of roughly {_theirs:.0f}. That is a real price · the "
+                 f"money would do more spread around.")
     st.markdown(_one_line(
         f'<div style="display:flex;align-items:flex-start;gap:8px;'
         f'font-size:12.5px;margin:-4px 0 8px;">'
@@ -1661,6 +1973,12 @@ def _reset_draft_state(**overrides) -> None:
             st.session_state[_sk(_name)] = overrides[_name]
         elif _name != "draft_gw":       # the viewed week survives a squad reset
             st.session_state[_sk(_name)] = _make()
+
+
+# Open the optimise confirmation here, not where it is defined · accepting calls
+# `_reset_draft_state`, which only exists from this point on.
+if "_optimise_result" in st.session_state:
+    _optimise_dialog(st.session_state["_optimise_result"])
 
 
 def _squad_from_codes(codes: List[int]) -> pd.DataFrame:
@@ -1689,7 +2007,79 @@ def _current_squad(gw: Optional[int] = None) -> pd.DataFrame:
     return _squad_from_codes(codes)
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
+# ── The weekly ceiling, warmed before you ask for it ─────────────────────────
+# Every gameweek's ceiling is its own MILP, about 650 ms, and it was solved the
+# first time you STEPPED to that week. So the gameweek stepper · the control you
+# press most on this page · paid for a solver run on every new week, and the
+# pitch sat there while it ran.
+#
+# Two changes. The results now live in a process-level memo rather than only in
+# Streamlit's cache, so a background thread can fill it; and a daemon thread
+# fills the opening window at import, the same shape as `model_store.prewarm_async`.
+# By the time a human has read the page the weeks they are about to step through
+# are already solved. Nothing regresses if the thread is slow or dies: a miss
+# still computes synchronously, exactly as before.
+# `@st.cache_resource` because a page script is re-executed top to bottom on
+# EVERY rerun · a plain module-level dict here was silently recreated each time,
+# so the background solver kept writing into a dict nobody would ever read again
+# and the ceiling never appeared. cache_resource hands back the same object for
+# the life of the process, which is the only place a cross-rerun memo can live.
+@st.cache_resource(show_spinner=False)
+def _ceiling_store() -> Dict:
+    return {"done": {}, "running": set(), "warmed": False}
+
+
+_CEILING_STORE = _ceiling_store()
+_CEILING: Dict = _CEILING_STORE["done"]
+_CEILING_RUNNING: set = _CEILING_STORE["running"]
+# The weeks a draft is actually stepped through. Warming all 38 would spend
+# 25 seconds of CPU on gameweeks nobody opens before wildcarding.
+WARM_GWS = 8
+
+
+def _perfect_week_uncached(gw: int, budget: float) -> float:
+    from analytics.squad_milp import optimize_squad
+    d = board.rename(columns={"actual_price": "price"}).copy()
+    d["pts"] = [round(PROJ.points(int(c), int(gw)), 2) for c in d["code"]]
+    # bench_weight 0 · a Free Hit bench scores nothing, and letting it count
+    # would raise the ceiling with points nobody can actually take.
+    res = optimize_squad(d, budget=float(budget), pts_col="pts",
+                         bench_weight=0.0, time_limit=25)
+    return float(res["xi_points"]) if res else 0.0
+
+
+def _ceiling_now(gw: int, budget: float, stamp: str):
+    """This week's ceiling IF it is already solved, else None · never blocks.
+
+    The ceiling is a MILP per gameweek and it was on the interaction path: a
+    measured 5.0 of the 5.4 seconds a gameweek step took was spent right here,
+    with the pitch not yet drawn. Nobody is waiting to read a percentage · they
+    are waiting to see the team.
+
+    So this returns whatever is known now and starts the solve in the background
+    if it is not. The pitch draws immediately with a placeholder in the score
+    slot, and `_ceiling_watcher` swaps the real number in when it lands.
+    """
+    key = (int(gw), round(float(budget), 1), str(stamp))
+    if key in _CEILING:
+        return _CEILING[key]
+    if key not in _CEILING_RUNNING:
+        _CEILING_RUNNING.add(key)
+
+        def _run():
+            try:
+                _CEILING[key] = _perfect_week_uncached(int(gw), float(budget))
+            except Exception:  # noqa: BLE001 · a benchmark must never break a page
+                logger.warning("ceiling solve failed for GW%d", gw)
+                _CEILING[key] = 0.0
+            finally:
+                _CEILING_RUNNING.discard(key)
+
+        threading.Thread(target=_run, name="ff-ceiling-%d" % gw,
+                         daemon=True).start()
+    return None
+
+
 def _perfect_week(gw: int, budget: float, stamp: str) -> float:
     """The most any legal £100m squad could score in this one gameweek.
 
@@ -1700,14 +2090,34 @@ def _perfect_week(gw: int, budget: float, stamp: str) -> float:
     week where the ceiling is 70 is a good squad; 60 where the ceiling is 110
     means you own the wrong players for those fixtures.
     """
-    from analytics.squad_milp import optimize_squad
-    d = board.rename(columns={"actual_price": "price"}).copy()
-    d["pts"] = [round(PROJ.points(int(c), int(gw)), 2) for c in d["code"]]
-    # bench_weight 0 · a Free Hit bench scores nothing, and letting it count
-    # would raise the ceiling with points nobody can actually take.
-    res = optimize_squad(d, budget=float(budget), pts_col="pts",
-                         bench_weight=0.0, time_limit=25)
-    return float(res["xi_points"]) if res else 0.0
+    key = (int(gw), round(float(budget), 1), str(stamp))
+    if key not in _CEILING:
+        _CEILING[key] = _perfect_week_uncached(int(gw), float(budget))
+    return _CEILING[key]
+
+
+def _warm_ceilings_async(budget: float, stamp: str) -> None:
+    """Solve the opening weeks' ceilings in the background, once per process."""
+    if _CEILING_STORE.get("warmed"):
+        return
+    _CEILING_STORE["warmed"] = True
+
+    def _run():
+        for g in range(1, min(int(MAX_GW), WARM_GWS) + 1):
+            key = (int(g), round(float(budget), 1), str(stamp))
+            if key in _CEILING:
+                continue
+            try:
+                _CEILING[key] = _perfect_week_uncached(g, budget)
+            except Exception:  # noqa: BLE001 · a warm-up must never break a page
+                logger.warning("ceiling warm failed for GW%d", g)
+                return
+
+    threading.Thread(target=_run, name="ff-ceiling-warm", daemon=True).start()
+
+# Kick the weekly-ceiling warm as soon as the board and the budget are known.
+# Daemon thread, once per process, best-effort · see `_warm_ceilings_async`.
+_warm_ceilings_async(float(budget), BOARD_STAMP)
 
 
 def _transfer_ledger(upto_gw: int) -> Dict:
@@ -1767,7 +2177,7 @@ def _run_chips(fixtures: List[Dict]) -> str:
                        'font-weight:800;">BLK</span>')
             continue
         c = theme.FDR_COLORS.get(int(round(float(fx.get("fdr", 3) or 3))), "#FFD60A")
-        side = "" if fx.get("home") else "·a"
+        side = "(H)" if fx.get("home") else "(A)"
         out.append(f'<span style="background:{c};color:#000;border-radius:4px;'
                    f'padding:2px 6px;font-size:10px;font-weight:800;">'
                    f'{fx.get("opp", "?")}{side}</span>')
@@ -2035,15 +2445,39 @@ def _model_chart(row: pd.Series, code: int) -> None:
     makes the SPREAD the thing you see, which is the question actually being
     asked: do they agree, and by how much.
     """
-    labels, values, cols = [], [], []
+    # A model can have a NUMBER and still not have a VOTE. `consensus` drops a
+    # source from the season blend in two cases · a player whose "our" figure is
+    # really the Scout backfill (one opinion arriving twice, so ours and the Hub
+    # both stand down), and a player the Hub expects almost no early minutes
+    # from, whose window total is an availability report rather than a scoring
+    # rate. The blend was already right; the CHART was not, because it plotted
+    # every number it could find and then measured a spread across models that
+    # had abstained. A dot the blend ignores now says so.
+    _echo = bool(row.get("consensus_echoed_scout", False))
+    _no_mins = bool(row.get("ffh_no_early_minutes", False))
+    VOTED = {"src_ours": not _echo,
+             "src_scout": True,
+             "src_ffh": not (_echo or _no_mins)}
+    WHY_SILENT = {
+        "src_ours": " · no PL record, so this IS the Scout number (not a "
+                    "second opinion)",
+        "src_scout": "",
+        "src_ffh": (" · no PL record, so its season extrapolation does not vote"
+                    if _echo else
+                    " · expects too few early minutes to imply a season rate"),
+    }
+
+    labels, values, cols, notes = [], [], [], []
     for col, lab, tok in (("src_ours", "Ours", "mint"),
                           ("src_scout", "Scout", "gold"),
                           ("src_ffh", "Hub", "cyan")):
         v = row.get(col)
         if pd.notna(v):
-            labels.append(lab)
+            voted = VOTED[col]
+            labels.append(lab if voted else "%s (no vote)" % lab)
             values.append(round(float(v), 0))
-            cols.append(theme.fill(tok))
+            cols.append(theme.fill(tok) if voted else theme.fill("muted2"))
+            notes.append("" if voted else WHY_SILENT[col])
     # Every model's number, stated. The chart shows the SPREAD, but the reader
     # also wants to know who said what · a blend of 109 means something very
     # different when it is 118 against 102 than when all three sit on 109.
@@ -2053,17 +2487,22 @@ def _model_chart(row: pd.Series, code: int) -> None:
             ("src_scout", "Scout", "gold", "their season projection"),
             ("src_ffh", "Hub", "cyan", "four-gameweek forecast, scaled to a season")):
         v = row.get(col)
+        _voted = VOTED[col] and pd.notna(v)
+        _tok = tok if _voted else "muted2"
         _rows.append(
             f'<div style="display:flex;align-items:center;gap:10px;padding:4px 0;">'
             f'<span style="width:9px;height:9px;border-radius:50%;flex-shrink:0;'
-            f'background:{V(tok) if pd.notna(v) else V("muted2")};"></span>'
+            f'background:{V(_tok)};"></span>'
             f'<span style="font-size:12px;font-weight:700;color:{V("text")};'
             f'width:44px;">{lab}</span>'
             f'<span class="ff-display" style="font-size:15px;font-weight:800;'
-            f'color:{V(tok) if pd.notna(v) else V("muted2")};width:46px;'
+            f'color:{V(_tok)};width:46px;'
             f'text-align:right;">'
             f'{("%.0f" % float(v)) if pd.notna(v) else "no view"}</span>'
-            f'<span style="font-size:11px;color:{V("muted")};">{what}</span></div>')
+            f'<span style="font-size:11px;color:{V("muted")};">{what}'
+            + ('' if _voted or pd.isna(v)
+               else f'<b style="color:{V("muted2")};"> · does not vote</b>')
+            + '</span></div>')
     _blend = float(row.get(PTS_COL) or 0)
     _rows.append(
         f'<div style="display:flex;align-items:center;gap:10px;padding:7px 0 0;'
@@ -2089,12 +2528,26 @@ def _model_chart(row: pd.Series, code: int) -> None:
                 "cross-check. Treat the number as a single opinion.")
         return
     blend = float(row.get(PTS_COL) or 0)
-    charts.render(charts.model_spread_option(labels, values, blend, cols),
+    charts.render(charts.model_spread_option(labels, values, blend, cols,
+                                             notes=notes),
                   height="180px", key=f"dlg_models_{code}")
 
+    # Measure the spread across the models that actually VOTED. Including an
+    # abstaining model made the headline gap disagree with the confidence tier
+    # sitting beside it · "73 points between the models" under a Low badge that
+    # was computed from one opinion.
+    _voting = [v for v, nt in zip(values, notes) if not nt]
     conf = str(row.get("consensus_confidence", "") or "")
-    gap = max(values) - min(values)
     tok = CONF_TOKEN.get(conf, "muted")
+    if len(_voting) < 2:
+        st.markdown(_one_line(
+            f'<div style="{CARD}border-left:3px solid {V(tok)};padding:10px 14px;">'
+            f'<div style="font-size:13px;color:{V("text")};line-height:1.55;">'
+            f'Only <b>one model votes</b> on his season · the greyed dots have a '
+            f'number but no say. Treat this as a single opinion, not a '
+            f'consensus.</div></div>'), unsafe_allow_html=True)
+        return
+    gap = max(_voting) - min(_voting)
     verdict = ("They agree, so the number is worth trusting."
                if conf == "High" else
                "They disagree enough that the middle is a guess. Decide this one "
@@ -2103,8 +2556,8 @@ def _model_chart(row: pd.Series, code: int) -> None:
     st.markdown(_one_line(
         f'<div style="{CARD}border-left:3px solid {V(tok)};padding:10px 14px;">'
         f'<div style="font-size:13px;color:{V("text")};line-height:1.55;">'
-        f'<b>{gap:.0f} points</b> between the most and least optimistic model. '
-        f'{verdict}</div></div>'), unsafe_allow_html=True)
+        f'<b>{gap:.0f} points</b> between the most and least optimistic '
+        f'<b>voting</b> model. {verdict}</div></div>'), unsafe_allow_html=True)
 
 
 def _run_chart(code: int, row: pd.Series, team_id: int, key: str) -> None:
@@ -2286,11 +2739,26 @@ def _player_dialog(code: int) -> None:
         f'Green beats most players in his position, amber is mid-table, red is '
         f'behind. DEFCON is graded against the rule\'s bar, not against other '
         f'players · clearing it is a flat 2 points.</div>'), unsafe_allow_html=True)
-    t1, t2, t3, t4 = st.tabs([":material/insights: Opening run",
-                              ":material/balance: Model agreement",
-                              ":material/radar: Value for money",
-                              ":material/history: Last season"])
-    with t1:
+    # ── One panel at a time, and only the one you are looking at ─────────────
+    # `st.tabs` renders EVERY tab body on every run, so opening this dialog
+    # mounted three ECharts iframes at once. That cost about 1.8 seconds of the
+    # 2.5 the popup took to appear, and it also broke the charts: a chart that
+    # mounts inside a hidden tab measures its container at ~90px, draws itself
+    # at that width, and never re-measures when the tab is shown · which is why
+    # the model chart arrived with "ScoutOursHub" printed on top of itself.
+    #
+    # A segmented control is a dialog-scoped widget, so switching panels reruns
+    # the dialog fragment only, and the chart mounts while it is VISIBLE and
+    # sizes itself correctly. One iframe instead of three, drawn at the width it
+    # actually has.
+    PANELS = ["Opening run", "Model agreement", "Value for money", "Last season"]
+    _pk = f"dlg_panel_{code}"
+    panel = st.segmented_control(
+        "View", PANELS, key=_pk,
+        default=st.session_state.get(_pk) or PANELS[0],
+        label_visibility="collapsed") or PANELS[0]
+
+    if panel == "Opening run":
         _run_chart(code, r, team_id, f"dlg_run_{code}")
         from components.fixture_ticker import player_fixture_strip, run_summary
         st.markdown(player_fixture_strip(_FIX, team_id, 1, 12), unsafe_allow_html=True)
@@ -2301,11 +2769,11 @@ def _player_dialog(code: int) -> None:
             f'<div style="font-size:12.5px;color:{V("muted")};margin-top:4px;">'
             f'Opening six average <b>{f6 if f6 is not None else "n/a"}</b> difficulty '
             f'({read}), {s6["home"]} at home.</div>'), unsafe_allow_html=True)
-    with t2:
+    elif panel == "Model agreement":
         _model_chart(r, code)
-    with t3:
+    elif panel == "Value for money":
         _band_chart(code, r, p, f"dlg_band_{code}")
-    with t4:
+    else:
         ls = _last_season_stats()
         if code in ls.index:
             lsr = ls.loc[code]
@@ -2519,6 +2987,29 @@ def _candidates_multi(sq: pd.DataFrame, out_codes: List[int], budget: float,
     return alt[alt["team_id"].map(lambda t: clubs.get(t, 0)) < 3]
 
 
+# A one-second heartbeat that exists only to notice the ceiling arriving.
+# It draws nothing · a fragment cannot rerun its parent, so when the number
+# lands it asks for a single app rerun and then gets out of the way. The team is
+# already on screen throughout; this only swaps a placeholder for a percentage.
+#
+# TWO guards, and both are load-bearing. A `run_every` fragment keeps executing
+# with the arguments it was CREATED with, so stepping through gameweeks leaves a
+# trail of live watchers still asking about weeks you have left · measured, that
+# was five extra app reruns of 1-2.5s each after a single step. So a watcher
+# stands down if it is no longer about the week on screen, and fires at most one
+# rerun per (week, budget, board) whatever happens.
+@st.fragment(run_every="1s")
+def _ceiling_watcher(gw: int, budget: float, stamp: str) -> None:
+    if int(st.session_state.get(_sk("draft_gw"), gw)) != int(gw):
+        return
+    seen = "_ceil_shown_%d_%s_%s" % (int(gw), round(float(budget), 1), stamp)
+    if st.session_state.get(seen):
+        return
+    if _ceiling_now(gw, budget, stamp) is not None:
+        st.session_state[seen] = True
+        st.rerun()
+
+
 @st.fragment
 def planner() -> None:
     gw = int(st.session_state[_sk("draft_gw")])
@@ -2712,12 +3203,14 @@ def planner() -> None:
     # "wrong players for these games" in a way a total cannot. A Bench Boost can
     # push it past 100, and should · the ceiling is an eleven and you played
     # fifteen.
-    _perfect = _perfect_week(int(gw), float(budget), BOARD_STAMP)
-    _score = (100.0 * xi_pts / _perfect) if _perfect > 0 else 0.0
+    _perfect = _ceiling_now(int(gw), float(budget), BOARD_STAMP)
+    _pending = _perfect is None
+    _score = (100.0 * xi_pts / _perfect) if (_perfect or 0) > 0 else 0.0
     _score_tok = ("mint" if _score >= 88 else "gold" if _score >= 78
                   else "orange" if _score >= 68 else "red")
-    _score_sub = ("best possible was %.0f" % _perfect if _perfect else
-                  "no ceiling available")
+    _score_sub = ("best possible was %.0f" % _perfect if _perfect
+                  else "working out this week's ceiling…" if _pending
+                  else "no ceiling available")
     if boost_on and _score > 100:
         _score_sub = "over the eleven-man ceiling · Boost"
 
@@ -2731,7 +3224,10 @@ def planner() -> None:
         # Beside the total, where you are already looking · the total on its
         # own cannot tell you whether 79.7 is a good week or a wasted one.
         score_pct=_score if _perfect else None, score_colour=theme.fill(_score_tok),
+        score_pending=_pending,
         key="draft_pitch"), "_pitch_nonce")
+    if _pending:
+        _ceiling_watcher(int(gw), float(budget), BOARD_STAMP)
     if click:
         action, cid = click.get("action"), int(click.get("id") or 0)
         if action == "detail":
@@ -2785,6 +3281,7 @@ def planner() -> None:
         "budget": float(budget), "risk": float(risk),
         "opening": float(opening), "minutes_gate": float(minutes_gate),
         "cap_attackers": bool(cap_attackers),
+        "cover": [list(c) for c in cover],
         "bench_boost_gw": _spec.get("bench_boost_gw"),
         "wildcard_gw": _spec.get("wildcard_gw"),
         "squad": [int(c) for c in sq["code"]],
@@ -2870,7 +3367,8 @@ def planner() -> None:
          (f"Boost on · +{bench_pts:.1f} from the bench" if boost_on
           else f"p10 {_band['lo']:.0f} · p90 {_band['hi']:.0f}"),
          "mint" if boost_on else "gold"),
-        ("Squad score", f"{_score:.0f}%", _score_sub, _score_tok),
+        ("Squad score", "···" if _pending else f"{_score:.0f}%",
+         _score_sub, "muted2" if _pending else _score_tok),
         (f"Bench · GW{gw}", f"{bench_pts:.1f}", _bb_grade["call"],
          _bb_grade["token"]),
         ("Non-starters", str(len(dead)),
@@ -2959,7 +3457,11 @@ def planner() -> None:
         if alt.empty:
             st.info("Nothing matches those filters.")
         else:
-            _hi4 = min(38, gw + 3)
+            # Three gameweeks, not four · with the Wildcard at GW4 the fourth
+            # column is a week this squad will not exist for, and it was
+            # quietly pulling the ranking toward players who peak after the
+            # squad gets torn up.
+            _hi4 = min(38, gw + 2)
 
             # The top three as cards, before the list. Twenty-two rows is a
             # research tool; three cards is an answer, and an answer is what you
@@ -2984,7 +3486,7 @@ def planner() -> None:
                     f'<span style="background:{theme.FDR_COLORS.get(int(round(float(f.get("fdr", 3)))), "#FFD60A")};'
                     f'color:#000;border-radius:4px;padding:1px 5px;font-size:9px;'
                     f'font-weight:900;">{str(f.get("opp", "?"))[:3]}'
-                    f'{"" if f.get("home") else "·a"}</span>' for f in _runs)
+                    f'{"(H)" if f.get("home") else "(A)"}</span>' for f in _runs)
                 _mins = PROJ.expected_minutes(_cc, gw)
                 # The SAME ceiling the table below uses · bank plus what the
                 # player he replaces sells for. `_budget` already includes the
@@ -3120,7 +3622,7 @@ def planner() -> None:
                 key="pool_pos", label_visibility="collapsed")
         with f2:
             horizon = st.slider(
-                "Points over the next N gameweeks", 1, 8, 4, key="pool_horizon",
+                "Points over the next N gameweeks", 1, 8, 3, key="pool_horizon",
                 help="Ranks the table on expected points over this many "
                      "gameweeks from the one you are viewing. Drop it to 1 for a "
                      "one-week punt, raise it for a keeper.")
@@ -3830,10 +4332,14 @@ with tab_ab:
                                         "penalties_order": _r.get("pens_order"),
                                         "swap_ok": _c in _only,
                                     })
+                                # Two pitches share the width one normally gets,
+                                # so they are scaled down together · shrinking
+                                # the card alone would clip the fixture chips.
                                 render_squad_pitch(
                                     _plist, stat_label=f"GW{_sq_gw}",
                                     title_right=f"{_id['letter']} · GW{_sq_gw}",
-                                    compact=True, key=f"ab_pitch_{_id['letter']}")
+                                    compact=True, scale=COMPARE_SCALE,
+                                    key=f"ab_pitch_{_id['letter']}")
                             else:
                                 _rows = _pool_rows(
                                     board[board["code"].isin(_sqd["code"])], _sq_gw)
