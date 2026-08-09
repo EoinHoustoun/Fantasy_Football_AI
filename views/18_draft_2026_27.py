@@ -1417,6 +1417,36 @@ def _window_board(_base: pd.DataFrame, lo: int, hi: int, stamp: str) -> pd.DataF
 
 
 def solve_opening(spec: Dict) -> Optional[Dict]:
+    """Cached wrapper · the solve is in `_solve_opening_uncached`.
+
+    This is a MILP, and it used to run on EVERY app rerun. Clicking a player's
+    shirt is an app rerun, so opening the card re-solved the fifteen it had just
+    solved. Measured on the real page: 41 SECONDS for that one click, against
+    161ms for the identical solve with the CPU free · the gap is this solve
+    competing with the eight background ceiling MILPs the page kicks off.
+
+    The spec and the board fully determine the answer, so a rerun that changes
+    neither can reuse it.
+    """
+    return _solve_opening_cached(SR.spec_key(spec), BOARD_STAMP, spec)
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=64)
+def _solve_opening_cached(key: str, stamp: str, _spec: Dict) -> Optional[Dict]:
+    """`key` and `stamp` ARE the cache key · `_spec` is along for the ride.
+
+    Streamlit rebuilds the spec dict from widgets every run, so letting it hash
+    the dict would miss on insertion order alone. Hence the underscore: `key`
+    (from `SR.spec_key`) already describes the spec exactly, and `stamp`
+    re-solves when the board moves under an unchanged spec. This is the one
+    sanctioned use of the underscore · a value fully described by an adjacent
+    hashed argument.
+    """
+    del key, stamp
+    return _solve_opening_uncached(_spec)
+
+
+def _solve_opening_uncached(spec: Dict) -> Optional[Dict]:
     """The opening fifteen for a draft spec, built the ONE way.
 
     Both the planner at the top of the page and the side-by-side comparison go

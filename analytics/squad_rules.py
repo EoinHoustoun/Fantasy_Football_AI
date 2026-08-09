@@ -40,6 +40,38 @@ def plan_window(wildcard_gw) -> Optional[tuple]:
     return (1, wc - 1) if wc > 1 else None
 
 
+def spec_key(spec: Dict) -> str:
+    """A stable cache key for a draft spec.
+
+    Solving the opening fifteen is a MILP, and it was running on every app
+    rerun. Clicking a player's shirt is an app rerun, so opening the card
+    re-solved the squad it had just solved: measured at 41 seconds on the real
+    page, because that solve competes with the background ceiling MILPs.
+
+    Two things this must get right or the cache never hits. Streamlit rebuilds
+    the spec from widgets on every run, so **insertion order is not stable** and
+    keying on it would miss every time. And list-valued dials (locks, vetoes,
+    cover) come back in widget-click order, which carries no meaning, so they
+    sort before hashing.
+    """
+    import hashlib
+    import json
+
+    def _norm(v):
+        if isinstance(v, dict):
+            return {str(k): _norm(v[k]) for k in sorted(v, key=str)}
+        if isinstance(v, (list, tuple, set)):
+            return sorted((_norm(x) for x in v), key=repr)
+        if isinstance(v, bool) or v is None:
+            return v
+        if isinstance(v, (int, float)):
+            return round(float(v), 6)
+        return str(v)
+
+    blob = json.dumps(_norm(dict(spec)), sort_keys=True, default=str)
+    return hashlib.blake2b(blob.encode(), digest_size=12).hexdigest()
+
+
 def squad_diff(before: Iterable[int], after: Iterable[int],
                price_by_code: Dict) -> Dict:
     """What the optimiser changed, joined on code and never on name.
