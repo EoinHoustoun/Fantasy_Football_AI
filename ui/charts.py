@@ -709,10 +709,31 @@ def model_spread_option(labels: List[str], values: List[float],
 
 
 
+def _light_swap() -> Dict[str, str]:
+    """{dark literal: light literal}, derived from the two palettes.
+
+    Built rather than hand-written. An earlier version referenced a
+    `_LIGHT_SWAP` constant that was never defined anywhere, so every chart in
+    the app raised NameError the moment the light palette was active · quietly,
+    because Streamlit catches it into a red box and the rest of the page still
+    renders. Deriving it from DARK and LIGHT means a new token can never be
+    missing from the map.
+    """
+    from ui.theme import DARK, LIGHT
+    out = {}
+    for k, dark in DARK.items():
+        light = LIGHT.get(k)
+        if light and isinstance(dark, str) and dark != light:
+            out[dark] = light
+            out[dark.upper()] = light
+            out[dark.lower()] = light
+    return out
+
+
 def _retheme(node: Any) -> Any:
     """Recursively swap dark-palette literals for their light equivalents."""
     if isinstance(node, str):
-        return _LIGHT_SWAP.get(node, node)
+        return _light_swap().get(node, node)
     if isinstance(node, dict):
         return {k: _retheme(v) for k, v in node.items()}
     if isinstance(node, (list, tuple)):

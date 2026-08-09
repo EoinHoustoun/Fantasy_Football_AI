@@ -38,6 +38,9 @@ UNHASHED_OK = {
     "18_draft_2026_27::_window_board::_base",
     "18_draft_2026_27::_lane_html::_df",
     "18_draft_2026_27::_routes::_board",
+    # The board, fully described by the hashed `stamp` beside it · the Chip
+    # Planner builds its projector from the same inputs the Draft page does.
+    "14_chip_planner::_projector::_board",
     # The spec dict, fully described by the adjacent hashed `key` from
     # SR.spec_key. Hashing the dict itself would miss the cache on widget
     # insertion order, which is the whole reason spec_key exists.
