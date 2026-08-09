@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,6 +43,10 @@ BASE = {
     "opening": 0.35,
     "minutes_gate": 0.5,
     "cap_attackers": False,   # 1 attacker per club · off by default
+    # Club cover · [[team_id, "def"|"att", n], ...]. "At least one Arsenal
+    # defensive asset" without naming which one. Part of the recipe, so it has
+    # to round-trip through save/load like any other constraint.
+    "cover": [],
     "bench_boost_gw": None,
     "wildcard_gw": None,
     # An explicit fifteen, saved as player codes. When present the planner uses
@@ -126,6 +131,13 @@ def _read() -> Dict[str, Any]:
         return {}
 
 
+# Streamlit runs every browser session as a thread in ONE process, so two tabs
+# on the draft page read-modify-write this store concurrently. The lock covers
+# the whole cycle, not just the write · without it the later save is built from
+# a snapshot taken before the earlier one landed, and silently drops it.
+_STORE_LOCK = threading.RLock()
+
+
 def _write(raw: Dict[str, Any]) -> None:
     """Write atomically · a truncated file loses every saved draft.
 
@@ -133,14 +145,27 @@ def _write(raw: Dict[str, Any]) -> None:
     file is left empty, `_read` returns {} and `load_drafts` re-seeds the
     presets over the top, silently destroying the user's work. Write a temp file
     in the same directory and rename it, which is atomic on POSIX.
+
+    The temp name carries the pid and thread id. It used to be one fixed
+    `saved_drafts.json.tmp` for every writer, so two sessions saving at once
+    raced: the first renamed the file into place and the second found nothing
+    left to rename, taking the whole page down with a FileNotFoundError.
     """
     STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STORE_PATH.with_suffix(".json.tmp")
-    with open(tmp, "w") as fh:
-        json.dump(raw, fh, indent=1)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, STORE_PATH)
+    tmp = STORE_PATH.with_suffix(
+        ".json.%d.%d.tmp" % (os.getpid(), threading.get_ident()))
+    try:
+        with open(tmp, "w") as fh:
+            json.dump(raw, fh, indent=1)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, STORE_PATH)
+    finally:
+        # A failed dump must not leave its scratch file behind.
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 # Keys in the store that are bookkeeping rather than drafts.
@@ -153,13 +178,15 @@ def load_drafts(seed_presets: bool = True) -> List[Dict[str, Any]]:
     A `_seeded` marker means the presets have been laid down once already, so a
     draft the user deleted stays deleted instead of reappearing every session.
     """
-    raw = _read()
-    if seed_presets and not raw.get("_seeded"):
-        for d in preset_drafts():
-            raw.setdefault(d["id"], d)
-        raw["_seeded"] = True
-        _write(raw)
-    return [v for k, v in raw.items() if k not in _META and isinstance(v, dict)]
+    with _STORE_LOCK:
+        raw = _read()
+        if seed_presets and not raw.get("_seeded"):
+            for d in preset_drafts():
+                raw.setdefault(d["id"], d)
+            raw["_seeded"] = True
+            _write(raw)
+        return [v for k, v in raw.items()
+                if k not in _META and isinstance(v, dict)]
 
 
 def last_used() -> Optional[str]:
@@ -173,11 +200,12 @@ def last_used() -> Optional[str]:
 
 
 def remember_last(draft_id: str) -> None:
-    raw = _read()
-    if raw.get("_last") == str(draft_id):
-        return          # no write, no fsync, on every rerun
-    raw["_last"] = str(draft_id)
-    _write(raw)
+    with _STORE_LOCK:
+        raw = _read()
+        if raw.get("_last") == str(draft_id):
+            return      # no write, no fsync, on every rerun
+        raw["_last"] = str(draft_id)
+        _write(raw)
 
 
 
@@ -189,6 +217,13 @@ def save_draft(name: str, spec: Dict[str, Any],
     Saving the same name twice UPDATES that draft rather than making a second
     one, because the working loop is build, save, tweak, save again.
     """
+    with _STORE_LOCK:
+        return _save_draft_locked(name, spec, draft_id, allow_clear)
+
+
+def _save_draft_locked(name: str, spec: Dict[str, Any],
+                       draft_id: Optional[str],
+                       allow_clear: Tuple[str, ...]) -> str:
     raw = _read()
     did = draft_id or _slug(name)
     existing = raw.get(did) if isinstance(raw.get(did), dict) else {}
@@ -220,12 +255,13 @@ def has_squad(spec: Dict[str, Any]) -> bool:
 
 
 def delete_draft(draft_id: str) -> bool:
-    raw = _read()
-    if draft_id in raw:
-        del raw[draft_id]
-        _write(raw)
-        return True
-    return False
+    with _STORE_LOCK:
+        raw = _read()
+        if draft_id in raw:
+            del raw[draft_id]
+            _write(raw)
+            return True
+        return False
 
 
 def reset_to_presets() -> None:
