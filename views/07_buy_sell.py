@@ -23,15 +23,13 @@ POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=1800, show_spinner=False)
 def load_universe():
+    """Shared loader · see data/universe.py. Was a per-page copy with its own TTL."""
+    from analytics import freshness
     from data.fetchers.fpl_api import fetch_bootstrap
-    from data.fetchers.understat import fetch_understat_players
-    from data.processors.player_stats import build_player_universe
+    from data.universe import load_universe as _shared
     bs = fetch_bootstrap()
-    understat_df = fetch_understat_players()
-    players = build_player_universe(bootstrap=bs, understat_df=understat_df)
-    return players, bs
+    return _shared(freshness.inputs_stamp()), bs
 
 
 @st.cache_data(ttl=1800, show_spinner=False)

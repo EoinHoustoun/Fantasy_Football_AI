@@ -15,6 +15,7 @@ Two jobs that want the same facts:
 
 import hashlib
 import os
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -70,6 +71,18 @@ def _paths() -> Dict[str, object]:
     try:
         from analytics.projection_overrides import overrides_path
         out["Overrides"] = overrides_path()
+    except Exception:
+        pass
+    try:
+        # NOT hand-refreshed, and watched anyway. The bootstrap carries live
+        # prices, availability status and team news, and both the board and the
+        # universe are built from it · so without this a refresh changed nothing
+        # on screen. That was survivable while every cache died with the
+        # process. `data.disk_cache` now persists a build across restarts, so a
+        # key blind to the bootstrap could serve yesterday's injury flags for as
+        # long as the snapshots happened not to move.
+        from config import CACHE_DIR
+        out["Bootstrap"] = Path(CACHE_DIR) / "fpl_bootstrap.json"
     except Exception:
         pass
     return out

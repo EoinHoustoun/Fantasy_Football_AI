@@ -18,6 +18,26 @@ logger = logging.getLogger(__name__)
 @st.cache_data(ttl=6 * 3600, show_spinner="Pricing the board · projections vs actual 26/27 prices…")
 def build_board(stamp: str = "") -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
                                           Optional[dict], Optional[dict]]:
+    """Cached wrapper · the work is in `_build_board`.
+
+    Two layers on purpose. Streamlit's cache holds this for the life of a
+    process; the disk layer underneath survives a restart AND survives the stamp
+    moving, which it does every time an override file is edited. Measured, the
+    build is 3.9 seconds and the disk read is about a tenth of that, so an
+    override edit used to cost four seconds on the next interaction.
+    """
+    from data import disk_cache
+    payload = disk_cache.cached(
+        "value_board", stamp or "nostamp",
+        lambda: dict(zip(("verdicts", "scout", "bt", "validation"),
+                         _build_board(stamp))))
+    disk_cache.prune("value_board")
+    return (payload.get("verdicts"), payload.get("scout"),
+            payload.get("bt"), payload.get("validation"))
+
+
+def _build_board(stamp: str = "") -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame],
+                                           Optional[dict], Optional[dict]]:
     """Return (verdicts_df, scout_df, price_backtest, projection_validation).
 
     verdicts_df: every player with a 25/26 projection AND a live price, annotated
