@@ -51,7 +51,8 @@ class GwProjection(object):
                  ffh_long: Optional[pd.DataFrame] = None,
                  season_col: str = "consensus_points",
                  miss_gws: Optional[Dict[int, List[int]]] = None,
-                 gw_points: Optional[Dict[int, Dict[int, float]]] = None):
+                 gw_points: Optional[Dict[int, Dict[int, float]]] = None,
+                 gw_pts_mult: Optional[Dict[int, float]] = None):
         self._fix = fixtures_by_gw or {}
         col = season_col if season_col in board.columns else "projected_points"
         scale = 1.0
@@ -91,6 +92,16 @@ class GwProjection(object):
         # a match model that is wrong about a specific fixture.
         self._set = {int(c): {int(g): float(v) for g, v in d.items()}
                      for c, d in (gw_points or {}).items()}
+        # A rate correction that applies to EVERY week, rather than a score for
+        # one. A manager change is the case it exists for: the season projection
+        # is fitted across both regimes, so it understates a player whose rate
+        # rose under the new man, and `pts_mult` only ever reached the season
+        # number. This reaches the match cells the opening window is scored on.
+        #
+        # A multiplier rather than a hand-set score on purpose · it stays
+        # correct when the next Scout or Hub snapshot lands, where a frozen
+        # number would quietly go stale.
+        self._rate = {int(c): float(m) for c, m in (gw_pts_mult or {}).items()}
         self.window = sorted({gw for _, gw in self._match}) if self._match else []
 
     # ── one cell ──────────────────────────────────────────────────────────────
@@ -103,7 +114,9 @@ class GwProjection(object):
         if hand is not None:
             return hand
         v = self._match.get((int(code), int(gw)))
-        return v if v is not None else self._shape(code, gw)
+        if v is None:
+            v = self._shape(code, gw)
+        return v * self._rate.get(int(code), 1.0)
 
     def source(self, code: int, gw: int) -> str:
         if int(gw) in self._miss.get(int(code), ()):
@@ -159,7 +172,7 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
     except Exception as exc:
         logger.warning("per-gameweek match forecasts unavailable: %s", exc)
 
-    miss, early, hand = {}, {}, {}
+    miss, early, hand, rate = {}, {}, {}, {}
     try:
         from analytics.projection_overrides import load_overrides
         for code, adj in load_overrides().items():
@@ -171,10 +184,14 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
             pts = adj.get("gw_points")
             if pts:
                 hand[int(code)] = {int(g): float(v) for g, v in pts.items()}
+            if adj.get("gw_pts_mult") is not None:
+                rate[int(code)] = float(adj["gw_pts_mult"])
         if miss:
             logger.info("per-gameweek unavailability for %d players", len(miss))
         if hand:
             logger.info("hand-set gameweek scores for %d players", len(hand))
+        if rate:
+            logger.info("per-gameweek rate corrections for %d players", len(rate))
     except Exception as exc:
         logger.warning("miss_gws overrides skipped: %s", exc)
 
@@ -236,7 +253,7 @@ def build(board: pd.DataFrame, fixtures_by_gw: Dict) -> GwProjection:
         logger.warning("Scout RMT per-gameweek projections unavailable: %s", exc)
 
     return GwProjection(board, fixtures_by_gw, long, miss_gws=miss,
-                        gw_points=hand)
+                        gw_points=hand, gw_pts_mult=rate)
 
 
 # How the two per-gameweek providers are weighted where both have a view.

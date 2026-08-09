@@ -1,161 +1,183 @@
 {
-  "_readme": "Manual 2026/27 projection overrides · the things a last-season model cannot know: fitness, new role, regression, and who is unavailable for specific gameweeks. Keyed by FPL player code. `minutes` = expected 26/27 minutes (points are recomputed from the per-90 rate); `pts_mult` = a regression haircut on projected points; `benched`/`nailed` = shortcuts (config.PROJECTION_OVERRIDE minutes); `miss_gws` = a list of gameweeks the player is not expected to feature in, applied per gameweek rather than to the season total. `note` shows on the board. Edit freely · the Value Board reloads this file.",
-  "219168": {
-    "name": "Isak",
-    "minutes": 2600,
-    "note": "Fit-again assumption · Liverpool starter, but only 694 min last year (low confidence)"
-  },
-  "244851": {
-    "name": "Palmer",
-    "minutes": 2600,
-    "note": "Chelsea talisman on penalties · minutes trimmed from 3000, he has not managed a full season"
-  },
-  "219847": {
-    "name": "Havertz",
-    "minutes": 2300,
-    "pts_mult": 0.9,
-    "note": "Fit, but the rate is a small sample and Arsenal rotate up top"
-  },
-  "500040": {
-    "name": "Mosquera",
-    "minutes": 2000,
-    "note": "Starts while Saliba is injured (Saliba flagged 'i', match model has him at zero opening minutes), loses the place when he returns. Nailed early, rotation risk over a season · season minutes trimmed to 2000, opening window set separately.",
-    "early_nailedness": 0.92
-  },
-  "67089": {
-    "name": "Dubravka",
-    "benched": true,
-    "note": "Backup keeper at Spurs · near-zero minutes"
-  },
-  "141746": {
-    "name": "B.Fernandes",
-    "pts_mult": 0.85,
-    "note": "Regression from a career-high haul, but he plays every week · the question is price, not minutes",
-    "nailed": true
-  },
-  "502500": {
-    "name": "Thiago",
-    "pts_mult": 0.82,
-    "note": "Likely overperformed 25/26 · hard to replicate"
-  },
-  "215379": {
-    "name": "Anderson",
-    "minutes": 1900,
-    "pts_mult": 0.7,
-    "note": "Moved Forest to Man City · rotation risk + fewer DEFCON points in a possession side"
-  },
-  "651426": {
-    "name": "Canvot",
-    "minutes": 2700,
-    "note": "Nailed Palace CB · 5th of 136 defenders on DEFCON per start (10.6, 64% hit rate) once he broke in from GW27"
-  },
-  "610799": {
-    "name": "Vuskovic",
-    "minutes": 2700,
-    "pp90": 4.1,
-    "note": "Brighton CB · 0 PL minutes so no rate to fit. 11.5+ CBIT/90 and 6 goals for HSV in the Bundesliga · rate set from a Senesi-like CB profile (4.73 pts/start), discounted for the league step up"
-  },
-  "485055": {
-    "name": "Kinsky",
-    "minutes": 3420,
-    "note": "Spurs No.1 · plays every minute. His per-90 is fitted on 630 minutes (7 starts) in 25/26, which is a thin sample for the rate even though the role is now certain"
-  },
-  "184254": {
-    "name": "Vicario",
-    "benched": true,
-    "note": "Displaced by Kinsky as Spurs No.1 · near-zero minutes unless he moves"
-  },
-  "232928": {
-    "name": "Garner",
-    "miss_gws": [
-      1,
-      2
-    ],
-    "note": "Back late from the World Cup · no minutes in GW1-2"
-  },
-  "441164": {
-    "name": "Pedro Porro",
-    "nailed": true,
-    "note": "The one Spurs defender we are sure of · starts at right back"
-  },
-  "221466": {
-    "name": "Senesi",
-    "pts_mult": 0.92,
-    "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled · Van Hecke may take the place"
-  },
-  "491279": {
-    "name": "Van de Ven",
-    "pts_mult": 0.92,
-    "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled · Van Hecke may take the place"
-  },
-  "469142": {
-    "name": "Van Hecke",
-    "pts_mult": 0.85,
-    "note": "Could start ahead of Senesi or Van de Ven · the pairing is unknown, so no Spurs centre back gets a confident number"
-  },
-  "432422": {
-    "name": "Tonali",
-    "nailed": true,
-    "note": "Will play"
-  },
-  "172780": {
-    "name": "Maddison",
-    "minutes": 2400,
-    "note": "Likely starts · minutes lifted from a part-season sample"
-  },
-  "460842": {
-    "name": "Kudus",
-    "minutes": 2400,
-    "note": "Likely starts · minutes lifted from a part-season sample"
-  },
-  "209244": {
-    "name": "Foden",
-    "minutes": 2400,
-    "note": "Expected to start the opening weeks under the new City manager. Elite rate (5.67 per 90 in 25/26). The match model has him at 32 minutes a game, which is a lower opening-minutes call than we believe · early_nailedness overrides it, season minutes stay at 2400. GW2 and GW3 are hand-set to 4.0 and 5.0 on Eoin's minutes call · the match model does not believe the starts yet.",
-    "early_nailedness": 0.78,
-    "gw_points": {
-      "2": 4.0,
-      "3": 5.0
-    }
-  },
-  "208706": {
-    "name": "Bruno G.",
-    "note": "Expected to leave Newcastle in the window. A move abroad scores zero FPL points, so this is not a form haircut · it prices the chance he is not in the league. Eoin's read, not a model output. Remove this the moment he starts a Premier League game.",
-    "availability_mult": 0.65
-  },
-  "201666": {
-    "name": "Barnes",
-    "pts_mult": 0.9,
-    "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
-  },
-  "98747": {
-    "name": "Pope",
-    "pts_mult": 0.9,
-    "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
-  },
-  "220237": {
-    "name": "Botman",
-    "pts_mult": 0.9,
-    "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
-  },
-  "487838": {
-    "name": "Hall",
-    "pts_mult": 0.9,
-    "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
-  },
-  "180974": {
-    "name": "Joelinton",
-    "pts_mult": 0.9,
-    "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
-  },
-  "538207": {
-    "name": "Osula",
-    "pts_mult": 0.9,
-    "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
-  },
-  "470313": {
-    "name": "Woltemade",
-    "pts_mult": 0.9,
-    "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
-  }
+ "_readme": "Manual 2026/27 projection overrides · the things a last-season model cannot know: fitness, new role, regression, and who is unavailable for specific gameweeks. Keyed by FPL player code. `minutes` = expected 26/27 minutes (points are recomputed from the per-90 rate); `pts_mult` = a regression haircut on projected points; `benched`/`nailed` = shortcuts (config.PROJECTION_OVERRIDE minutes); `miss_gws` = a list of gameweeks the player is not expected to feature in, applied per gameweek rather than to the season total. `note` shows on the board. Edit freely · the Value Board reloads this file.",
+ "219168": {
+  "name": "Isak",
+  "minutes": 2600,
+  "note": "Fit-again assumption · Liverpool starter, but only 694 min last year (low confidence)"
+ },
+ "244851": {
+  "name": "Palmer",
+  "minutes": 2600,
+  "note": "Chelsea talisman on penalties · minutes trimmed from 3000, he has not managed a full season"
+ },
+ "219847": {
+  "name": "Havertz",
+  "minutes": 2300,
+  "pts_mult": 0.9,
+  "note": "Fit, but the rate is a small sample and Arsenal rotate up top"
+ },
+ "500040": {
+  "name": "Mosquera",
+  "minutes": 2000,
+  "note": "Starts while Saliba is injured (Saliba flagged 'i', match model has him at zero opening minutes), loses the place when he returns. Nailed early, rotation risk over a season · season minutes trimmed to 2000, opening window set separately.",
+  "early_nailedness": 0.92
+ },
+ "67089": {
+  "name": "Dubravka",
+  "benched": true,
+  "note": "Backup keeper at Spurs · near-zero minutes"
+ },
+ "141746": {
+  "name": "B.Fernandes",
+  "pts_mult": 0.85,
+  "note": "Carrick correction · 7.59 pts/90 under Carrick (GW22-38, 1530 mins) vs 6.90 across the whole season. The projection is fitted over both managers, so it understates him by 10%.",
+  "nailed": true,
+  "gw_pts_mult": 1.1
+ },
+ "502500": {
+  "name": "Thiago",
+  "pts_mult": 0.82,
+  "note": "Likely overperformed 25/26 · hard to replicate"
+ },
+ "215379": {
+  "name": "Anderson",
+  "minutes": 1900,
+  "pts_mult": 0.7,
+  "note": "Moved Forest to Man City · rotation risk + fewer DEFCON points in a possession side"
+ },
+ "651426": {
+  "name": "Canvot",
+  "minutes": 2700,
+  "note": "Nailed Palace CB · 5th of 136 defenders on DEFCON per start (10.6, 64% hit rate) once he broke in from GW27"
+ },
+ "610799": {
+  "name": "Vuskovic",
+  "minutes": 2700,
+  "pp90": 4.1,
+  "note": "Brighton CB · 0 PL minutes so no rate to fit. 11.5+ CBIT/90 and 6 goals for HSV in the Bundesliga · rate set from a Senesi-like CB profile (4.73 pts/start), discounted for the league step up"
+ },
+ "485055": {
+  "name": "Kinsky",
+  "minutes": 3420,
+  "note": "Spurs No.1 · plays every minute. His per-90 is fitted on 630 minutes (7 starts) in 25/26, which is a thin sample for the rate even though the role is now certain"
+ },
+ "184254": {
+  "name": "Vicario",
+  "benched": true,
+  "note": "Displaced by Kinsky as Spurs No.1 · near-zero minutes unless he moves"
+ },
+ "232928": {
+  "name": "Garner",
+  "miss_gws": [
+   1,
+   2
+  ],
+  "note": "Back late from the World Cup · no minutes in GW1-2"
+ },
+ "441164": {
+  "name": "Pedro Porro",
+  "nailed": true,
+  "note": "The one Spurs defender we are sure of · starts at right back"
+ },
+ "221466": {
+  "name": "Senesi",
+  "pts_mult": 0.92,
+  "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled · Van Hecke may take the place"
+ },
+ "491279": {
+  "name": "Van de Ven",
+  "pts_mult": 0.92,
+  "note": "Expected to start at centre back, but the Spurs pairing is genuinely unsettled · Van Hecke may take the place"
+ },
+ "469142": {
+  "name": "Van Hecke",
+  "pts_mult": 0.85,
+  "note": "Could start ahead of Senesi or Van de Ven · the pairing is unknown, so no Spurs centre back gets a confident number"
+ },
+ "432422": {
+  "name": "Tonali",
+  "nailed": true,
+  "note": "Will play"
+ },
+ "460842": {
+  "name": "Kudus",
+  "minutes": 2400,
+  "note": "Likely starts · minutes lifted from a part-season sample"
+ },
+ "208706": {
+  "name": "Bruno G.",
+  "note": "Expected to leave Newcastle in the window. A move abroad scores zero FPL points, so this is not a form haircut · it prices the chance he is not in the league. Eoin's read, not a model output. Remove this the moment he starts a Premier League game.",
+  "availability_mult": 0.65
+ },
+ "201666": {
+  "name": "Barnes",
+  "pts_mult": 0.9,
+  "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
+ },
+ "98747": {
+  "name": "Pope",
+  "pts_mult": 0.9,
+  "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
+ },
+ "220237": {
+  "name": "Botman",
+  "pts_mult": 0.9,
+  "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
+ },
+ "487838": {
+  "name": "Hall",
+  "pts_mult": 0.9,
+  "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
+ },
+ "180974": {
+  "name": "Joelinton",
+  "pts_mult": 0.9,
+  "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
+ },
+ "538207": {
+  "name": "Osula",
+  "pts_mult": 0.9,
+  "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
+ },
+ "470313": {
+  "name": "Woltemade",
+  "pts_mult": 0.9,
+  "note": "Newcastle rebuild · manager gone, key players sold, first XI unproven. Small on purpose: the models already have Newcastle 16th of 20 on mean consensus, so a large cut double-counts. Thiaw is deliberately NOT downgraded · nailed at 0.97 and the one Eoin rates."
+ },
+ "430871": {
+  "name": "Cunha",
+  "gw_pts_mult": 1.197,
+  "note": "Carrick correction · 6.18 pts/90 under Carrick (GW22-38, 1121 mins) vs 5.16 across the whole season. The projection is fitted over both managers, so it understates him by 20%."
+ },
+ "446008": {
+  "name": "Mbeumo",
+  "gw_pts_mult": 1.083,
+  "note": "Carrick correction · 5.52 pts/90 under Carrick (GW22-38, 1206 mins) vs 5.10 across the whole season. The projection is fitted over both managers, so it understates him by 8%."
+ },
+ "465247": {
+  "name": "Lammens",
+  "gw_pts_mult": 1.174,
+  "note": "Carrick correction · 4.00 pts/90 under Carrick (GW22-38, 1530 mins) vs 3.41 across the whole season. The projection is fitted over both managers, so it understates him by 17%."
+ },
+ "106760": {
+  "name": "Shaw",
+  "gw_pts_mult": 1.341,
+  "note": "Carrick correction · 4.24 pts/90 under Carrick (GW22-38, 1402 mins) vs 3.16 across the whole season. The projection is fitted over both managers, so it understates him by 34%."
+ },
+ "95658": {
+  "name": "Maguire",
+  "gw_pts_mult": 0.798,
+  "note": "Carrick correction · 3.92 pts/90 under Carrick (GW22-38, 1308 mins) vs 4.91 across the whole season. The projection is fitted over both managers, so it overstates him by 20%."
+ },
+ "216051": {
+  "name": "Dalot",
+  "gw_pts_mult": 0.897,
+  "note": "Carrick correction · 3.44 pts/90 under Carrick (GW22-38, 1205 mins) vs 3.83 across the whole season. The projection is fitted over both managers, so it overstates him by 10%."
+ },
+ "493250": {
+  "name": "Amad",
+  "gw_pts_mult": 0.792,
+  "note": "Carrick correction · 2.77 pts/90 under Carrick (GW22-38, 1136 mins) vs 3.50 across the whole season. The projection is fitted over both managers, so it overstates him by 21%."
+ },
+ "_carrick": "2026-08-08 · Man Utd changed manager on 13 Jan 2026, first game GW22. Rates below GW22-38 vs the full season, applied as gw_pts_mult so the correction reaches the per-fixture cells the opening window is scored on (pts_mult only ever moved the season number). Only players with >=800 Carrick minutes and a change beyond 5% are corrected. Delete these entries once 26/27 has enough games to fit a rate from."
 }
