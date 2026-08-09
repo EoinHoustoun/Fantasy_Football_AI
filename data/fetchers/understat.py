@@ -51,6 +51,24 @@ def _is_fresh() -> bool:
     return (time.time() - CACHE_FILE.stat().st_mtime) < CACHE_TTL["understat"]
 
 
+def _ca_connector(aiohttp):
+    """A TCP connector carrying certifi's CA bundle.
+
+    macOS framework Pythons ship no system trust store, so a bare
+    `aiohttp.ClientSession()` raises CERTIFICATE_VERIFY_FAILED against every
+    HTTPS host. This lived inline in one of the two fetchers below, and the
+    other one went without · which is why team stats failed while player stats
+    worked, and the app quietly fell back to flat per-club fixture difficulty.
+    """
+    import ssl
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+    return aiohttp.TCPConnector(ssl=ctx)
+
+
 async def _fetch_understat_async(season: Optional[str] = None) -> List[dict]:
     """Async fetch from Understat for all EPL players in a season."""
     if season is None:
@@ -62,16 +80,7 @@ async def _fetch_understat_async(season: Optional[str] = None) -> List[dict]:
         logger.error("understat or aiohttp package not installed. Run: pip install understat aiohttp")
         return []
 
-    # macOS framework Pythons often lack root certs · use certifi's bundle
-    import ssl
-    try:
-        import certifi
-        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        ssl_ctx = ssl.create_default_context()
-    connector = aiohttp.TCPConnector(ssl=ssl_ctx)
-
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with aiohttp.ClientSession(connector=_ca_connector(aiohttp)) as session:
         understat = Understat(session)
         players = await understat.get_league_players("epl", season)
         return players
@@ -154,7 +163,7 @@ async def _fetch_league_results_async(season: Optional[str] = None) -> list:
         import aiohttp
     except ImportError:
         return []
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(connector=_ca_connector(aiohttp)) as session:
         understat = Understat(session)
         return await understat.get_league_results("epl", season)
 
