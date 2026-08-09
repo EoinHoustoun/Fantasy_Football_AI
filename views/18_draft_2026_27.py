@@ -1443,7 +1443,11 @@ def _solve_opening_cached(key: str, stamp: str, _spec: Dict) -> Optional[Dict]:
     hashed argument.
     """
     del key, stamp
-    return _solve_opening_uncached(_spec)
+    # Foreground · the ceiling warm steps aside for this. Without the gate, the
+    # eight background MILPs turned this solve from 4 seconds into 41.
+    from analytics import solver_gate
+    with solver_gate.foreground():
+        return _solve_opening_uncached(_spec)
 
 
 def _solve_opening_uncached(spec: Dict) -> Optional[Dict]:
@@ -2097,8 +2101,10 @@ def _ceiling_now(gw: int, budget: float, stamp: str):
         _CEILING_RUNNING.add(key)
 
         def _run():
+            from analytics import solver_gate
             try:
-                _CEILING[key] = _perfect_week_uncached(int(gw), float(budget))
+                with solver_gate.background():
+                    _CEILING[key] = _perfect_week_uncached(int(gw), float(budget))
             except Exception:  # noqa: BLE001 · a benchmark must never break a page
                 logger.warning("ceiling solve failed for GW%d", gw)
                 _CEILING[key] = 0.0
@@ -2133,12 +2139,17 @@ def _warm_ceilings_async(budget: float, stamp: str) -> None:
     _CEILING_STORE["warmed"] = True
 
     def _run():
+        from analytics import solver_gate
         for g in range(1, min(int(MAX_GW), WARM_GWS) + 1):
             key = (int(g), round(float(budget), 1), str(stamp))
             if key in _CEILING:
                 continue
             try:
-                _CEILING[key] = _perfect_week_uncached(g, budget)
+                # Gated per week, not once for the whole loop · a solve that
+                # starts while the page is idle must still yield before the
+                # next one if a human has begun waiting in the meantime.
+                with solver_gate.background():
+                    _CEILING[key] = _perfect_week_uncached(g, budget)
             except Exception:  # noqa: BLE001 · a warm-up must never break a page
                 logger.warning("ceiling warm failed for GW%d", g)
                 return
