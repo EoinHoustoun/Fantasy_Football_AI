@@ -60,6 +60,10 @@ NO_ARGS_OK = {
     "16_perfect_season::_load_all", "16_perfect_season::_replay_lookup",
     "17_value_lab::_summary", "home::_pl_logo_data_url",
     "18_draft_2026_27::_club_fixtures", "18_draft_2026_27::_defcon_per90",
+    # The Dixon-Coles fit is itself cached on disk behind its own freshness
+    # check, and club short names do not change inside a season. Neither can
+    # go stale in a way a stamp would catch.
+    "18_draft_2026_27::_dc_ratings", "18_draft_2026_27::_short_to_name",
     "18_draft_2026_27::_last_season_stats",
     # A constant key is the POINT here · this returns the process-wide store the
     # weekly-ceiling solver writes into from a background thread. A page script

@@ -625,9 +625,13 @@ def _last_season_stats() -> pd.DataFrame:
     from data.processors.archive import load_season_summary
     s = load_season_summary()
     s = s[s["season"] == LAST_COMPLETE_SEASON]
+    # Whitelisting output columns is how this repo has silently lost data
+    # before · `pts_per_million` and `position` were absent, so the card showed
+    # a dash for value and could not rank anything by position.
     keep = ["goals", "assists", "xg", "xa", "xgi", "defcon_points", "minutes",
             "total_points", "ppg", "clean_sheets", "bonus", "starts_total",
-            "games_played"]
+            "games_played", "pts_per_million", "pp90", "position",
+            "goals_per90", "assists_per90"]
     return s.set_index("code")[[c for c in keep if c in s.columns]]
 
 
@@ -2721,6 +2725,163 @@ def _band_chart(code: int, row: pd.Series, p: Dict, key: str) -> None:
         f'is where he wins.</div>'), unsafe_allow_html=True)
 
 
+
+def _last_season_badges(code: int, r) -> str:
+    """What he actually DID last season, each number next to how good it is.
+
+    Percentiles are against his own position and against players with real
+    minutes · a per-90 rate off two substitute appearances is noise, and leaving
+    it in flatters everyone above it.
+    """
+    from analytics import player_card as PC
+    from components.stat_badge import badges_row
+
+    ls = _last_season_stats()
+    if code not in ls.index:
+        return ""
+    row = ls.loc[code]
+    pos = str(r.get("position", ""))
+    full = _last_season_stats()
+
+    def _num(v):
+        try:
+            f = float(v)
+            return f if math.isfinite(f) else None
+        except (TypeError, ValueError):
+            return None
+
+    mins = _num(row.get("minutes")) or 0.0
+    starts = _num(row.get("starts_total")) or 0.0
+    pts = _num(row.get("total_points"))
+    xgi = _num(row.get("xgi"))
+    xgi90 = (xgi / mins * 90.0) if (xgi is not None and mins >= 90) else None
+    ppstart = (pts / starts) if (pts is not None and starts >= 1) else None
+    ppm = _num(row.get("pts_per_million"))
+
+    dc = DEFCON.loc[code] if code in DEFCON.index else None
+    dc90 = _num(dc.get("dc_per90")) if dc is not None else None
+    dchit = _num(dc.get("dc_hit_rate")) if dc is not None else None
+
+    def _rank(col, val, frame=None):
+        pop = PC.rank_population(frame if frame is not None else full, col, pos)
+        return PC.percentile(pop, val)
+
+    # Derived columns the archive does not carry, computed across the same
+    # population so the rank means what it says.
+    _f = full.copy()
+    _f["_xgi90"] = pd.to_numeric(_f.get("xgi"), errors="coerce") / \
+        pd.to_numeric(_f.get("minutes"), errors="coerce").replace(0, float("nan")) * 90.0
+    _f["_ppstart"] = pd.to_numeric(_f.get("total_points"), errors="coerce") / \
+        pd.to_numeric(_f.get("starts_total"), errors="coerce").replace(0, float("nan"))
+
+    items = [
+        dict(label="Points", value=("%.0f" % pts) if pts is not None else None,
+             sub="2025/26", percentile=_rank("total_points", pts)),
+        dict(label="Points / start",
+             value=("%.1f" % ppstart) if ppstart is not None else None,
+             sub="per start", percentile=_rank("_ppstart", ppstart, _f)),
+        dict(label="Points / £m", value=("%.1f" % ppm) if ppm is not None else None,
+             sub="value last year", percentile=_rank("pts_per_million", ppm)),
+        dict(label="xGI / 90", value=("%.2f" % xgi90) if xgi90 is not None else None,
+             sub="goal involvement", percentile=_rank("_xgi90", xgi90, _f)),
+    ]
+    if dc90 is not None:
+        thr = 10 if pos == "DEF" else 12
+        items.append(dict(
+            label="DEFCON / 90", value="%.1f" % dc90,
+            sub="bar is %d" % thr,
+            note=("hit it %.0f%% of starts" % (100 * dchit)) if dchit is not None else "",
+            percentile=PC.percentile(
+                PC.rank_population(_defcon_frame(full), "dc_per90", pos), dc90)))
+    return badges_row(items)
+
+
+def _defcon_frame(season: pd.DataFrame) -> pd.DataFrame:
+    """DEFCON rates joined onto the season frame, so a rank can be positional."""
+    d = DEFCON.copy()
+    if d.empty:
+        return d
+    return d.join(season[[c for c in ("position", "minutes") if c in season.columns]],
+                  how="left")
+
+
+def _this_week_panel(code: int, r, team_id: int) -> None:
+    """What the models expect from this player, and from his team, in GW1.
+
+    Clean-sheet and goal chances come from our own Dixon-Coles fit rather than a
+    paid ticker · see `analytics/player_card.match_shape`.
+    """
+    from analytics import player_card as PC
+    from components.stat_badge import badges_row
+
+    gw = int(st.session_state.get(_sk("draft_gw"), 1) or 1)
+    fx = _FIX.get((int(team_id), gw), [])
+    pts = PROJ.points(int(code), gw)
+    mins = PROJ.expected_minutes(int(code), gw)
+    src = PROJ.source(int(code), gw)
+
+    items = [
+        dict(label="Projected GW%d" % gw, value="%.1f" % pts, sub="expected points",
+             tone="cyan",
+             note="match forecast" if src == "match" else "fixture shape"),
+        dict(label="Expected minutes",
+             value=("%.0f" % mins) if mins is not None else None,
+             sub="this gameweek", tone="mint" if (mins or 0) >= 60 else "orange",
+             note="" if mins is not None else "no stated view"),
+    ]
+
+    shape = None
+    if fx:
+        opp_short, is_home, _fdr = fx[0]
+        ratings = _dc_ratings()
+        keys = list((ratings or {}).get("attacks") or {})
+        me = PC.resolve_team(str(r.get("team_name", "")), keys)
+        # The fixture list gives the opponent's SHORT code, so it has to go back
+        # through the bootstrap to get a name the fit will recognise.
+        opp_name = _team_name_for_short(opp_short)
+        them = PC.resolve_team(opp_name, keys)
+        if me and them:
+            shape = PC.match_shape(ratings, me, them, is_home)
+    if shape:
+        cs = 100 * shape["p_clean_sheet"]
+        # `bar`, not `percentile` · this is the chance of the thing happening,
+        # not a position in a distribution. Captioning 39% as "Top 61%" was
+        # nonsense and is exactly what the two arguments now keep apart.
+        items.append(dict(label="Clean sheet", value="%.0f%%" % cs,
+                          sub="his team, this fixture", bar=int(round(cs)),
+                          tone="mint" if cs >= 40 else "gold" if cs >= 25 else "red",
+                          note="%.2f goals against" % shape["exp_goals_against"]))
+        items.append(dict(label="Team goals",
+                          value="%.2f" % shape["exp_goals_for"],
+                          sub="expected, this fixture", tone="gold",
+                          note="%.0f%% chance of 2+" % (100 * shape["p_score_2_plus"])))
+    st.markdown(badges_row(items), unsafe_allow_html=True)
+    if not shape:
+        st.caption("Clean-sheet and team-goal odds need a Dixon-Coles fit for both "
+                   "clubs. A promoted side has no Premier League history to fit, so "
+                   "they are left blank rather than guessed.")
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _dc_ratings():
+    from data.fetchers.dixon_coles import fetch_dixon_coles_ratings
+    try:
+        return fetch_dixon_coles_ratings()
+    except Exception:            # noqa: BLE001 · a missing fit must not break the card
+        logger.warning("Dixon-Coles ratings unavailable")
+        return None
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _short_to_name() -> Dict:
+    from data.fetchers.fpl_api import fetch_bootstrap
+    return {t["short_name"]: t["name"] for t in fetch_bootstrap()["teams"]}
+
+
+def _team_name_for_short(short: str) -> str:
+    return _short_to_name().get(str(short), str(short))
+
+
 @st.dialog("Player", width="large")
 def _player_dialog(code: int) -> None:
     m = board[board["code"] == code]
@@ -2792,15 +2953,22 @@ def _player_dialog(code: int) -> None:
     # the dialog fragment only, and the chart mounts while it is VISIBLE and
     # sizes itself correctly. One iframe instead of three, drawn at the width it
     # actually has.
-    PANELS = ["Opening run", "Model agreement", "Value for money", "Last season"]
+    # Ordered the way the question is actually asked: what do we expect from him
+    # now, what has he actually done, then the two "is the number trustworthy"
+    # views. Projections first because that is what a draft decision turns on.
+    PANELS = ["This week", "Fixtures", "Last season", "Model agreement",
+              "Value for money"]
     _pk = f"dlg_panel_{code}"
     panel = st.segmented_control(
         "View", PANELS, key=_pk,
         default=st.session_state.get(_pk) or PANELS[0],
         label_visibility="collapsed") or PANELS[0]
 
-    if panel == "Opening run":
+    if panel == "This week":
+        _this_week_panel(code, r, team_id)
         _run_chart(code, r, team_id, f"dlg_run_{code}")
+    elif panel == "Fixtures":
+        _run_chart(code, r, team_id, f"dlg_runfx_{code}")
         from components.fixture_ticker import player_fixture_strip, run_summary
         st.markdown(player_fixture_strip(_FIX, team_id, 1, 12), unsafe_allow_html=True)
         s6 = run_summary(_FIX, team_id, 1, 6)
@@ -2822,8 +2990,16 @@ def _player_dialog(code: int) -> None:
                 ("Goals", f"{float(lsr.get('goals') or 0):.0f}", "2025/26", "orange"),
                 ("Assists", f"{float(lsr.get('assists') or 0):.0f}", "2025/26", "mag"),
                 ("Minutes", f"{float(lsr.get('minutes') or 0):,.0f}", "2025/26", "cyan"),
-                ("Points", f"{float(lsr.get('total_points') or 0):.0f}", "2025/26", "mint"),
+                ("Clean sheets", f"{float(lsr.get('clean_sheets') or 0):.0f}",
+                 "2025/26", "mint"),
             ])
+            # The rate stats, each against the players he is competing with for a
+            # slot. A bare 6.7 DEFCON per 90 says nothing; "top 16% of defenders"
+            # is the number a human can act on.
+            st.markdown(_last_season_badges(code, r), unsafe_allow_html=True)
+            st.caption("Ranks are against others in his position who played at "
+                       "least 450 minutes · a per-90 rate off a couple of "
+                       "substitute appearances is noise.")
         else:
             st.info("No 2025/26 Premier League record · this projection comes from "
                     "an external model or a manual override.")
