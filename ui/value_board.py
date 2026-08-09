@@ -411,7 +411,7 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 opening_map: tuple = (), bench_budget=None,
                 force_names: tuple = (), bench_pts_col: Optional[str] = None,
                 gw_pts_cols: tuple = (), boost_col: Optional[str] = None,
-                min_club_cover: tuple = ()):
+                min_club_cover: tuple = (), max_from_club: tuple = ()):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
@@ -431,6 +431,11 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     `force_names` are players locked into the fifteen · the optimiser builds the
     best squad it can AROUND them. They win over `exclude_names` if a player
     somehow appears in both, because an explicit lock is the stronger intent.
+    `max_from_club` is a tuple of (team_id, n) capping how many players may come
+    from one club, tighter than FPL's own limit of three. A tuple, not a list, so
+    the Streamlit cache key stays stable. Enforced inside the MILP rather than by
+    re-solving with a player banned · banning explores one branch and can miss
+    the optimum, while a constraint is exact and still proves optimality.
     `min_club_cover` is a tuple of (team_id, "def"|"att", n) demanding at least
     n players of that side of the pitch from that club · "I want Arsenal
     defensive cover" without naming which Arsenal defender. A tuple, not a list,
@@ -529,6 +534,7 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 max_attackers_per_club=max_attackers_per_club,
                 defcon_codes=_defcon_codes(), max_defenders_per_club=1,
                 min_club_cover=[tuple(c) for c in min_club_cover],
+                max_from_club=[tuple(c) for c in max_from_club],
                 bench_budget=bench_budget)
 
     return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
@@ -537,5 +543,6 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                           defcon_codes=_defcon_codes(),
                           max_defenders_per_club=1,
                           min_club_cover=[tuple(c) for c in min_club_cover],
+                          max_from_club=[tuple(c) for c in max_from_club],
                           bench_budget=bench_budget,
                           bench_pts_col=_bcol)

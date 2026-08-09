@@ -46,6 +46,7 @@ def optimize_squad(
     gw_pts_cols: Optional[List[str]] = None,
     boost_col: Optional[str] = None,
     min_club_cover: Optional[List] = None,
+    max_from_club: Optional[List] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -88,7 +89,7 @@ def optimize_squad(
         return _optimize_multi_week(
             players, budget=budget, gw_pts_cols=gw_pts_cols, boost_col=boost_col,
             captain=captain, time_limit=time_limit, bench_budget=bench_budget,
-            min_club_cover=min_club_cover,
+            min_club_cover=min_club_cover, max_from_club=max_from_club,
             force_codes=force_codes, exclude_codes=exclude_codes,
             max_attackers_per_club=max_attackers_per_club, defcon_codes=defcon_codes,
             max_defenders_per_club=max_defenders_per_club)
@@ -202,6 +203,16 @@ def optimize_squad(
             if c_idx:
                 prob += pulp.lpSum(squad[i] for i in c_idx) >= int(n)
 
+    # "No more than N from this club" · tighter than FPL's own limit of three.
+    # In the model rather than enforced by re-solving with a player banned:
+    # banning explores ONE branch and can miss the optimum, while this is exact
+    # and still returns a proven optimum.
+    if max_from_club and "team_id" in df.columns:
+        for team_id, n in max_from_club:
+            t_idx = [i for i in idx if int(df.loc[i, "team_id"] or 0) == int(team_id)]
+            if t_idx:
+                prob += pulp.lpSum(squad[i] for i in t_idx) <= int(n)
+
     if force_codes and "code" in df.columns:
         for c in force_codes:
             f_idx = [i for i in idx if df.loc[i, "code"] == c]
@@ -248,7 +259,8 @@ def optimize_squad(
 
 def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
                  force_codes, max_attackers_per_club, defcon_codes,
-                 max_defenders_per_club, min_club_cover=None):
+                 max_defenders_per_club, min_club_cover=None,
+                 max_from_club=None):
     """The constraints on the FIFTEEN · identical whichever objective is used.
 
     Pulled out so the single-week and per-gameweek models cannot drift apart.
@@ -304,6 +316,14 @@ def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
             if f_idx:
                 prob += pulp.lpSum(squad[i] for i in f_idx) == 1
 
+    # Same cap the single-week path applies · kept here so the two models cannot
+    # disagree about a squad, which is the class of bug this shared function
+    # exists to prevent.
+    if max_from_club and "team_id" in df.columns:
+        for team_id, n in max_from_club:
+            t_idx = [k for k in idx if int(df.loc[k, "team_id"] or 0) == int(team_id)]
+            if t_idx:
+                prob += pulp.lpSum(squad[k] for k in t_idx) <= int(n)
 
 def _optimize_multi_week(
     players: pd.DataFrame,
@@ -319,6 +339,7 @@ def _optimize_multi_week(
     defcon_codes: Optional[List],
     max_defenders_per_club: Optional[int],
     min_club_cover: Optional[List] = None,
+    max_from_club: Optional[List] = None,
 ) -> Optional[Dict]:
     """One fifteen, a fresh eleven every gameweek. See `optimize_squad`."""
     need = list(gw_pts_cols) + ["price", "position"]
@@ -350,7 +371,7 @@ def _optimize_multi_week(
 
     _squad_rules(prob, df, idx, squad, budget, None, force_codes,
                  max_attackers_per_club, defcon_codes, max_defenders_per_club,
-                 min_club_cover=min_club_cover)
+                 min_club_cover=min_club_cover, max_from_club=max_from_club)
 
     for g in weeks:
         prob += pulp.lpSum(start[i][g] for i in idx) == 11
