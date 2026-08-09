@@ -23,6 +23,11 @@ from config import PERFECT_SEASON
 
 logger = logging.getLogger(__name__)
 
+# "Cover from this club" groups the pitch into the two things a club result
+# actually pays out on: a clean sheet (keeper + defenders) and goals
+# (midfielders + forwards).
+COVER_POSITIONS = {"def": ("GKP", "DEF"), "att": ("MID", "FWD")}
+
 
 def optimize_squad(
     players: pd.DataFrame,
@@ -40,6 +45,7 @@ def optimize_squad(
     bench_pts_col: Optional[str] = None,
     gw_pts_cols: Optional[List[str]] = None,
     boost_col: Optional[str] = None,
+    min_club_cover: Optional[List] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -82,6 +88,7 @@ def optimize_squad(
         return _optimize_multi_week(
             players, budget=budget, gw_pts_cols=gw_pts_cols, boost_col=boost_col,
             captain=captain, time_limit=time_limit, bench_budget=bench_budget,
+            min_club_cover=min_club_cover,
             force_codes=force_codes, exclude_codes=exclude_codes,
             max_attackers_per_club=max_attackers_per_club, defcon_codes=defcon_codes,
             max_defenders_per_club=max_defenders_per_club)
@@ -176,6 +183,25 @@ def optimize_squad(
         prob += lineup[i] <= squad[i]
         prob += cap[i] <= lineup[i]
 
+    # "I want cover from this club" · at least N of a side of the pitch from one
+    # team. Locking a NAMED player says who; this says only that you want the
+    # exposure and lets the optimiser pick the cheapest way to get it, which is
+    # usually a better trade than guessing the right name yourself.
+    #
+    # Defensive cover is GKP+DEF because a keeper and a centre-back both pay out
+    # on the same clean sheet · they are one bet, not two. Attacking cover is
+    # MID+FWD for the same reason on goals.
+    if min_club_cover and "team_id" in df.columns:
+        for team_id, kind, n in min_club_cover:
+            wanted = COVER_POSITIONS.get(str(kind))
+            if not wanted or int(n) <= 0:
+                continue
+            c_idx = [i for i in idx
+                     if int(df.loc[i, "team_id"] or 0) == int(team_id)
+                     and df.loc[i, "position"] in wanted]
+            if c_idx:
+                prob += pulp.lpSum(squad[i] for i in c_idx) >= int(n)
+
     if force_codes and "code" in df.columns:
         for c in force_codes:
             f_idx = [i for i in idx if df.loc[i, "code"] == c]
@@ -222,7 +248,7 @@ def optimize_squad(
 
 def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
                  force_codes, max_attackers_per_club, defcon_codes,
-                 max_defenders_per_club):
+                 max_defenders_per_club, min_club_cover=None):
     """The constraints on the FIFTEEN · identical whichever objective is used.
 
     Pulled out so the single-week and per-gameweek models cannot drift apart.
@@ -261,6 +287,17 @@ def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
             if d_idx:
                 prob += pulp.lpSum(squad[i] for i in d_idx) <= max_defenders_per_club
 
+    if min_club_cover and "team_id" in df.columns:
+        for team_id, kind, n in min_club_cover:
+            wanted = COVER_POSITIONS.get(str(kind))
+            if not wanted or int(n) <= 0:
+                continue
+            c_idx = [i for i in idx
+                     if int(df.loc[i, "team_id"] or 0) == int(team_id)
+                     and df.loc[i, "position"] in wanted]
+            if c_idx:
+                prob += pulp.lpSum(squad[i] for i in c_idx) >= int(n)
+
     if force_codes and "code" in df.columns:
         for c in force_codes:
             f_idx = [i for i in idx if df.loc[i, "code"] == c]
@@ -281,6 +318,7 @@ def _optimize_multi_week(
     max_attackers_per_club: Optional[int],
     defcon_codes: Optional[List],
     max_defenders_per_club: Optional[int],
+    min_club_cover: Optional[List] = None,
 ) -> Optional[Dict]:
     """One fifteen, a fresh eleven every gameweek. See `optimize_squad`."""
     need = list(gw_pts_cols) + ["price", "position"]
@@ -311,7 +349,8 @@ def _optimize_multi_week(
         for i in idx for g in weeks)
 
     _squad_rules(prob, df, idx, squad, budget, None, force_codes,
-                 max_attackers_per_club, defcon_codes, max_defenders_per_club)
+                 max_attackers_per_club, defcon_codes, max_defenders_per_club,
+                 min_club_cover=min_club_cover)
 
     for g in weeks:
         prob += pulp.lpSum(start[i][g] for i in idx) == 11

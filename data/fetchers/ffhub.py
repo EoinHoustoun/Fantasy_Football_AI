@@ -223,3 +223,120 @@ def match_to_board(snap: pd.DataFrame, board: pd.DataFrame) -> Dict:
                 rate * 100, int(hit.sum()), len(merged))
     return {"matched": matched, "unmatched": unmatched, "rate": rate,
             "all": merged.drop(columns=["_key", "_club"])}
+
+
+# The Hub's window total, turned into a season, runs high for a player it has no
+# Premier League record for · it is extrapolating an opening month onto 38 weeks
+# for exactly the players whose role is least settled. Measured against Scout on
+# the 2026-08-05 snapshot: 0.970x on players with a record, 1.109x on those
+# without, so the no-record figure needs about a 0.875 haircut to sit on the same
+# scale as everything else. Recomputed from the live board when it can be, since
+# the gap moves with each refresh · this is the fallback when the sample is thin.
+NO_RECORD_DEFLATOR = 0.875
+MIN_DEFLATOR_SAMPLE = 8
+
+
+def no_record_deflator(board) -> float:
+    """How much hotter the Hub runs on players it has no PL record for.
+
+    Derived from the board rather than pinned to a literal, because the bias
+    moves every time the snapshot is refreshed · it was ~0.70 in early August
+    and ~0.875 a snapshot later. A stale constant here silently mis-prices every
+    new signing on the board.
+    """
+    try:
+        need = {"src_scout", "src_ffh", "consensus_echoed_scout"}
+        if not need.issubset(board.columns):
+            return NO_RECORD_DEFLATOR
+        d = board.dropna(subset=["src_scout", "src_ffh"]).copy()
+        d = d[(d["src_scout"] > 20) & (d["src_ffh"] > 20)]
+        ratio = d["src_ffh"] / d["src_scout"]
+        norec = d["consensus_echoed_scout"].fillna(False).astype(bool)
+        if int(norec.sum()) < MIN_DEFLATOR_SAMPLE or int((~norec).sum()) < MIN_DEFLATOR_SAMPLE:
+            return NO_RECORD_DEFLATOR
+        with_r, no_r = ratio[~norec].median(), ratio[norec].median()
+        if not (with_r > 0 and no_r > 0):
+            return NO_RECORD_DEFLATOR
+        return float(min(1.0, max(0.5, with_r / no_r)))
+    except Exception:
+        return NO_RECORD_DEFLATOR
+
+
+def backfill_from_hub(no_history: pd.DataFrame, snapshot: pd.DataFrame,
+                      scale: float = 1.0, deflator: float = NO_RECORD_DEFLATOR):
+    """Put a no-history player on the board when only the Hub has heard of him.
+
+    `scout_projections.backfill_projections` already rescues no-history players
+    from the SCOUT snapshot, which covers promoted clubs well. It does not cover
+    a mid-window signing from another league: Scout's table simply has no row, so
+    the player was dropped from the board, the optimiser and every table on the
+    page. He did not read as a bad pick · he did not exist.
+
+    That is not a fringe case. On the 2026-08-05 snapshots 35 live FPL players
+    were missing from the board and the Hub had a forecast for 32 of them,
+    including a £5.5m Brentford midfielder the Hub expects to play 80 minutes a
+    week. Cheap, nailed and invisible is the worst combination there is for a
+    squad being built around enablers.
+
+    The season number is deliberately the least trusted figure we publish: a
+    window extrapolation, rescaled onto our scale, then deflated for the Hub's
+    no-record bias. The number that actually matters for these players is the
+    PER-GAMEWEEK one, which `gw_projection` reads straight from this same
+    snapshot as a real per-fixture forecast the moment the player is on the
+    board at all.
+    """
+    if no_history is None or getattr(no_history, "empty", True):
+        return pd.DataFrame()
+    if snapshot is None or snapshot.empty:
+        return pd.DataFrame()
+
+    from analytics.scout_projections import normalise_name
+
+    s = snapshot.copy()
+    s["_key"] = s["name"].map(normalise_name)
+    s["_club"] = s["team"].astype(str).str.strip()
+
+    b = no_history.copy()
+    b["_key"] = b["web_name"].map(normalise_name)
+    b["_club"] = b["team_name"].astype(str).str.strip()
+
+    gws = window_gws(s)
+    take = ["_key", "_club", "pred", "pps", "exp_mins_mean", "nailedness"]
+    take += ["gw%d_pts" % g for g in gws]
+    m = b.merge(s[[c for c in take if c in s.columns]], on=["_key", "_club"], how="inner")
+    if m.empty:
+        return pd.DataFrame()
+
+    # Join on name AND club, never name alone · there are two Sangarés in this
+    # very dataset, one at Brentford and one at Nott'm Forest, and name-only
+    # would hand one of them the other's forecast.
+    k = float(scale) if scale and scale > 0 else 1.0
+    d = float(deflator) if deflator and deflator > 0 else 1.0
+    per_gw = pd.to_numeric(m.get("pps"), errors="coerce")
+    if per_gw is None or per_gw.isna().all():
+        n = max(len(gws), 1)
+        per_gw = pd.to_numeric(m["pred"], errors="coerce") / n
+
+    m["projected_points"] = (per_gw * 38.0 * k * d).round(1)
+    mins = pd.to_numeric(m.get("exp_mins_mean"), errors="coerce").fillna(0.0)
+    m["projected_minutes"] = (mins * 38.0).round(0)
+    # Wider than the Scout backfill's band on purpose. This is one model, on a
+    # player it is extrapolating, with no second opinion anywhere to check it.
+    m["proj_lo"] = (m["projected_points"] * 0.55).round(1)
+    m["proj_hi"] = (m["projected_points"] * 1.45).round(1)
+    m["confidence"] = "Low"
+    m["confidence_note"] = ("Match model only · no Premier League record and no "
+                            "Scout projection to cross-check")
+    m["projection_source"] = "ffh"
+    m["value_score"] = (m["projected_points"]
+                        / m["actual_price"].clip(lower=0.1)).round(2)
+    m["mins_share"] = (m["projected_minutes"] / 3420.0).clip(0, 1).round(2)
+    m["last_season_points"] = 0.0
+    m["last_season_minutes"] = 0.0
+    m["pricing_surprise"] = 0.0
+    m["override_note"] = ""
+    m["starts_ratio"] = float("nan")
+    drop = [c for c in ("_key", "_club", "pred", "pps") if c in m.columns]
+    logger.info("Hub backfill added %d players Scout could not see: %s", len(m),
+                ", ".join(sorted(m["web_name"].astype(str))[:8]))
+    return m.drop(columns=drop)

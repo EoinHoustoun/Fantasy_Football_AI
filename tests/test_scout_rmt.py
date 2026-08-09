@@ -36,6 +36,26 @@ def test_positions_map_to_fpl_names():
     assert RMT.POS_TO_FPL["G"] == "GKP" and RMT.POS_TO_FPL["F"] == "FWD"
 
 
+def test_keepers_written_as_gk_still_join():
+    """Rate My Team writes "GK", not "G".
+
+    The board join keys on position, so an unmapped keeper position is NaN and
+    drops EVERY goalkeeper silently · the rate stays high because outfield
+    carries it. Both spellings must map.
+    """
+    assert RMT.POS_TO_FPL["GK"] == "GKP"
+    board = pd.DataFrame({
+        "code": [7], "web_name": ["Keeper"],
+        "team_short": ["ARS"], "position": ["GKP"]})
+    snap = pd.DataFrame({
+        "name": ["Keeper"], "team": ["Arsenal"], "pos": ["GK"],
+        "gw1": [4.0], "gw2": [3.0]})
+    snap["team_short"] = snap["team"].map(RMT.CLUB_TO_SHORT)
+    snap["pos"] = snap["pos"].map(RMT.POS_TO_FPL)
+    long = RMT.per_gw_by_code(snap, board)
+    assert set(long["code"]) == {7} and len(long) == 2
+
+
 def test_a_surname_only_row_still_joins():
     """FPL writes a clash as "M.Beta"; Scout drops the initial."""
     s = _snap()

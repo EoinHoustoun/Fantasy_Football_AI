@@ -290,3 +290,30 @@ BENCH_BOOST = {
     "strong": 18.0,        # a good week to play the chip
     "weak": 11.0,          # below this the chip is close to wasted
 }
+
+
+# ── What a NEW draft starts as ────────────────────────────────────────────────
+# The New draft button used to clone whatever draft you were on, which meant a
+# fresh start inherited whatever you had been fiddling with. These are Eoin's
+# standing opening assumptions for 2026-27, so a new draft begins from the plan
+# he is actually working to rather than from the last experiment.
+#
+# `cover` is by team SHORT code, resolved to a live team_id at build time · club
+# ids are reassigned between seasons and a hardcoded integer would silently
+# point at a different club.
+NEW_DRAFT_DEFAULTS = {
+    "bench_boost_gw": 1,
+    # A Wildcard at GW4 is what makes the objective GW1-3 · the draft page
+    # derives the optimisation window from this, so it is the only thing that
+    # needs setting for "optimise for the first three gameweeks".
+    "wildcard_gw": 4,
+    "locks": ["Haaland"],
+    "cover": (("MUN", "att", 1), ("ARS", "def", 1)),
+    "vetoes": [
+        "Dewsbury-Hall", "Bruno G.", "Thiaw", "Watkins", "Bassette", "Kudus",
+        "Semenyo", "Doku", "Thiago", "Richarlison", "Collins", "Osula",
+        "Woltemade", "Angulo", "Zambrano", "Muniz", "Iwobi", "Hirst", "Beto",
+        "Sarr", "Saka", "F.Kadıoğlu (F.Kadioglu)", "Gomez (BHA)", "Slater",
+        "Crooks",
+    ],
+}

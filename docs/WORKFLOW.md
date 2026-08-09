@@ -1135,3 +1135,232 @@ identical, 8 hours old.
 There is NO median of the models · the blend is a weighted mean. Median is used
 only for scale calibration (one odd ratio must not move everyone) and for the
 radar's price-band peer baseline.
+
+---
+
+## 2026-08-05 · Snapshot refresh, and the two bugs it uncovered
+
+All three hand-refreshed inputs re-pulled from Eoin's own logged-in sessions.
+Previous versions kept in `data/cache/_snapshot_backups/` (gitignored · they
+must NOT go under `data/cache/archive/`, which is deliberately un-ignored and
+tracked, so a backup dropped there would publish paid Scout data).
+
+| File | Was | Now |
+|---|---|---|
+| `ffh_predictions_2026_27.csv` | 409 players, 1 Aug | 520 players |
+| `scout_rmt_gw1_6_2026_27.csv` | 564 players, 2 Aug | 564, plus `gw*_adjp` / `gw*_xmin` |
+| `scout_rmt_season_2026_27.csv` | 507 players, 2 Aug | 564 players |
+
+The Hub moved on real minutes calls, not noise: 40 of 387 shared players changed
+materially. Scout moved 415 of 563 GW totals and 210 season totals.
+
+**New: Scout's expected minutes are now captured.** The per-gameweek table
+carries `adjP` and `xMin` in a rollover tooltip. Both are now extra columns on
+the snapshot. Nothing consumes them yet · until now the Hub was the ONLY stated
+minutes forecast, so a second one is worth wiring into `consensus`.
+
+### Bug · every goalkeeper was silently missing from Scout's per-GW opinion
+`scout_rmt.POS_TO_FPL` mapped `"G"`, but Rate My Team writes `"GK"`. The
+position therefore came back NaN, and since `match_to_board` joins ON position,
+all 55 board keepers missed. **Nothing looked wrong**: outfield matched 477 of
+480, so the overall rate read 89.2% and passed for normal. Now 99.3%.
+
+The lesson generalises: a join rate averaged over a whole board hides a category
+that misses *entirely*. Report match rate BY POSITION, not just overall.
+
+### Bug · `replace(0, pd.NA)` is a time bomb, latent until the data changes
+`_window_board` in the Draft page died with `float() argument must be a string
+or a number, not 'NAType'`. Replacing a NUMERIC value with `pd.NA` promotes the
+Series to `object`, and the `astype(float)` two lines later refuses NAType. It
+had been fine for weeks because the replace only fires when a 0 is actually
+present · widening Scout's season coverage to players projected for zero points
+is what first supplied one.
+
+Same mistake, same fix as `value_board.solve_draft`, which had already been
+caught once. `tests/test_na_sentinel.py` is now a STATIC scan for
+`replace(<number>, pd.NA)` across `analytics/ ui/ views/ data/ components/`,
+plus two tests pinning the pandas behaviour. `replace("", pd.NA)` is not flagged
+· that column is object dtype already.
+
+### Not taken · fpl.team predicted points
+`fpl.team/plan/45595/` and `/predictions/` carry per-gameweek xPts from **FPL
+Copilot**, a genuinely independent fourth model with GW range filters. On the
+free tier **only the top 3 players are readable**; the remaining 246 render as
+"Become a seasoned veteran to see all players". The values ARE in the DOM behind
+`data-player-name` attributes. Reading them would be a paywall bypass, so it was
+not done · see the browser-automation rules in CLAUDE.md.
+
+### Worth a human look · overrides the Hub has now overtaken
+Three hand overrides were written against Hub minutes that have since moved:
+
+(Figures deliberately not reproduced · this repo is public and the Hub export is
+paid third-party data. Compare the snapshot against
+`data/cache/_snapshot_backups/` locally to see them.)
+
+- **Foden** · his hand-set `gw_points` for GW2-3 was written when the match model
+  expected him to play only a fraction of those games. The refreshed snapshot now
+  has him near a full starter's minutes in all three opening weeks, so the
+  override is suppressing a model that has already changed its mind. It shows on
+  the pitch as source `manual` for those weeks.
+- **Bruno G.** · carries an `availability_mult` haircut while the match model has
+  independently cut his opening minutes. The two may now be double-counting.
+- **Maddison** · the model moved toward the override rather than away, so this
+  one matters less.
+
+---
+
+## 2026-08-05 (later) · The popup, the optimiser, and a player who did not exist
+
+### Bug · 32 live players were missing from the board entirely
+Eoin asked how the models rated a £5.5m Brentford midfielder. They did not: he
+was **not on the board at all**. No-history players reach the board only through
+`scout_projections.backfill_projections`, which reads the SCOUT snapshot, and
+Scout has no row for a signing from another league. 35 live FPL players were
+absent; the Hub had a forecast for 32 of them, including several cheap nailed
+enablers (an £4.5m midfielder the Hub expects to play 80 minutes a week).
+
+`ffhub.backfill_from_hub` is the second rescue, wired after the consensus so the
+Hub's no-record inflation can be measured off a finished board rather than
+assumed. That bias is NOT a constant · it was ~0.70 in early August and 0.875 a
+snapshot later, so `no_record_deflator` recomputes it and the literal is only a
+fallback. Board 535 → 567 rows. One of the added players then made the proven
+optimal GW1-3 squad, so this was worth real points.
+
+**The lesson generalises: a player missing from the pool does not look like a bad
+pick, he looks like nothing at all.** There is no visible symptom.
+
+### The optimiser IS exact · the doubt was justified but misplaced
+Eoin suspected the solver settled for "something decent". It does not: 35 solves
+of the real GW1-3 Bench-Boost problem all returned `proven_optimal=True` in
+1-12 seconds against a 90s limit. What was true is that **nothing ever read
+`proven_optimal`** · `optimize_squad` has always returned it and no caller
+looked, so a timed-out solve would have been presented exactly like a proven
+one. The Draft page now warns when a solve is not proven.
+
+The real reasons an answer can look wrong are upstream of the solver: players
+missing from the board (above), the minutes gate, the risk dial blending in
+`proj_lo`, and the opening-fixtures weight. For a pure points answer those dials
+belong at zero.
+
+### Popup latency was `st.tabs`, and it was also breaking the charts
+Opening a player took 2.5s. The dialog's own Python was ~5ms · the cost was
+`st.tabs` rendering EVERY tab body, mounting three ECharts iframes at once.
+Worse, a chart that mounts inside a hidden tab measures its container at ~90px,
+draws at that width and never re-measures, which is why the model chart arrived
+with "ScoutOursHub" printed on top of itself. A `st.segmented_control` with one
+panel rendered lazily fixed both: **2486ms → 1301ms** and the chart now mounts
+at its real 704px.
+
+### Two more perf finds
+- **`{@[0]}` is dataset syntax.** It resolves in a `label` formatter but NOT in a
+  `tooltip` one on inline series data, so hovering printed a literal "@".
+  Tooltips are now pre-formatted in Python.
+- **The gameweek stepper paid a MILP.** `_perfect_week` is ~650ms per gameweek
+  and was solved the first time you stepped to that week. It now lives in a
+  process-level memo filled by a daemon thread at import (`_warm_ceilings_async`,
+  same shape as `model_store.prewarm_async`), so the weeks you are about to step
+  through are solved before you ask. A miss still computes synchronously.
+
+### Model chart honesty
+A model can have a NUMBER and no VOTE · `consensus` drops a source for a player
+whose "ours" figure is really the Scout backfill, and for one the Hub expects
+almost no early minutes from. The chart plotted all three anyway and then
+measured a spread across models that had abstained, so a headline "73 points
+between the models" sat under a Low badge computed from one opinion. Abstaining
+dots are now greyed, labelled "(no vote)", and excluded from the gap.
+
+---
+
+## 2026-08-05 (third pass) · A number that was never real
+
+### Bug · "Insisting on Haaland costs about 116 points"
+It costs **0.00**. He is in the unlocked optimum anyway.
+
+The conviction panel compared `res["xi_points"] - free["xi_points"]`, and those
+two keys do not mean the same thing depending on which solver produced them.
+The weekly-lineup path (`solve_window`, which now produces most squads) reports
+`xi_points` as **GW1's eleven alone**; a fixed-lineup solve on a windowed board
+reports the eleven's total over the **whole window**. Subtracting a one-week
+number from a three-week one gave ~-116, which is most of the window's entire
+score of ~186. The fallback fired because `solve_window` never sets
+`plan_total`, unlike `solve_plan`.
+
+Two fixes. The unlocked squad is now solved through the SAME entry point
+(`solve_opening` with the locks removed), so it gets the same weekly treatment
+rather than being handicapped by the method. And both squads are re-scored with
+`OPLAN.plan_total`, which takes a finished fifteen and plays it over the plan ·
+it does not care how either was solved, which is exactly the property this
+comparison needs. The message now names the window and quotes the cost against
+the total it is a share of, because "116 points" with no horizon attached reads
+like a season number.
+
+**Rule: never compare two solver outputs by a key whose meaning depends on which
+solver produced it.** Re-score both with one function.
+
+### New · "Cover from a club" (`min_club_cover`)
+Locking a NAMED player answers a question you often cannot answer, like which
+Arsenal defender starts GW1. `min_club_cover` is a tuple of
+`(team_id, "def"|"att", n)` demanding at least n players of that side of the
+pitch from that club, and lets the optimiser buy the exposure the cheapest legal
+way. Defensive is GKP+DEF (one bet on a clean sheet), attacking is MID+FWD (one
+bet on goals). Enforced in BOTH the single-week and per-gameweek models · the
+two objectives must never drift.
+
+### Cards widened for (H)/(A)
+Three chips of "COV(H)" at 9px come to ~126px, so the 120px card clipped the
+third · and the away marker was the first thing to go, which is the information
+the brackets were added to carry. Cards are 148px (124 compact), chips 9px/7.5px.
+
+### Kadıoğlu · a join key that deletes a letter
+`normalise_name` runs NFKD then `encode("ascii", "ignore")`. A letter with NO
+decomposition is therefore **dropped rather than folded**: the Turkish dotless ı
+survives NFKD untouched and then vanishes at the ascii step. The Hub writes
+"F.Kadıoğlu" and Scout writes plain "F.Kadioglu", so the two keyed as "fkadoglu"
+and "fkadioglu" · one player, two keys, no join. The surname fallback folds the
+same way, so it missed too. Nothing errored; he just had one fewer model than his
+badge claimed. `CHAR_ALIASES` now covers ı İ ð þ œ ħ ŧ ŋ alongside the existing
+ø đ ł ß æ. Only one player is affected on today's data, but the class is closed.
+
+(`squad_rules.fold_accents`, the search-box folder, already handled ı and even
+named Kadıoğlu in its comment · the two folders had drifted.)
+
+### A veto now re-solves the whole squad
+A saved fifteen is frozen against the dials on purpose. But a veto is not a dial:
+it names a player and says never pick him, and leaving him in the squad made the
+control look broken. First attempt evicted him and forced the other fourteen
+back in; Eoin's correction, and he is right: **banning a £15.5m striker frees
+£15.5m and the answer is almost never "the same fourteen plus a like-for-like
+replacement".** It re-solves from scratch. "We don't cut corners when it comes to
+optimisation."
+
+### New · "Cover from a club"
+`min_club_cover`, a tuple of `(team_id, "def"|"att", n)`, demands exposure to a
+club without naming the player · GKP+DEF cash the same clean sheet, MID+FWD the
+same goals. Better than locking a name whenever the conviction is about a CLUB
+and you cannot know who starts. Enforced in both the single-week and per-gameweek
+models so the two objectives cannot drift.
+
+### The gameweek stepper · the team no longer waits for the percentage
+Measured on a real GW1→GW2 step: **5037 of 5430 ms was `_perfect_week`**, the
+per-gameweek ceiling MILP, with the pitch not yet drawn. Nobody is waiting to
+read a percentage · they are waiting to see the team.
+
+`_ceiling_now` returns the ceiling if known and otherwise starts it in a
+background thread and returns None. The pitch draws immediately with a pulsing
+`···` in the score slot (same slot, so nothing reflows when the number lands),
+and `_ceiling_watcher` swaps in the real figure. **Pitch on screen: 5430 → 334 ms.**
+
+Two bugs found while building it, both worth remembering:
+
+**A page script re-executes top to bottom on every rerun.** `_CEILING = {}` at
+module level was therefore recreated on each rerun, so the background solver kept
+writing into a dict that had already been discarded and the ceiling never
+appeared · the chip sat on `···` forever. Cross-rerun memos have to live in
+`@st.cache_resource`. This had also been quietly defeating the earlier warm
+thread, which is why the first load still blocked for 3.5 s.
+
+**`st.fragment(run_every=...)` keeps executing with the arguments it was created
+with.** Stepping through gameweeks left a trail of live watchers still asking
+about weeks already left, each firing its own `st.rerun()`: five extra app reruns
+of 1-2.5 s after a single step. The watcher now stands down when it is no longer
+about the week on screen, and fires at most one rerun per (week, budget, board).

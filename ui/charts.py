@@ -656,12 +656,22 @@ def fixture_run_option(gws: List[int], points: List[float], opponents: List[str]
 
 
 def model_spread_option(labels: List[str], values: List[float],
-                        blend: float, colors: List[str]) -> Dict[str, Any]:
+                        blend: float, colors: List[str],
+                        notes: Optional[List[str]] = None) -> Dict[str, Any]:
     """Where each model lands, on one line, with the blend marked.
 
     Three separate bars make you compare heights; one axis with three points
     makes the SPREAD the thing you see, which is the question being asked.
+
+    **Tooltips are pre-formatted in Python, not templated.** `{@[0]}` is
+    dataset syntax: it resolves for a `label` formatter but NOT for a `tooltip`
+    one on a series with inline `data`, so hovering a point printed a literal
+    "@" at the reader. Per-item `tooltip.formatter` strings need no templating
+    at all and cannot drift out of sync with the value on the axis.
+
+    `notes` optionally annotates a model that is shown but does not vote.
     """
+    notes = list(notes or []) + [""] * len(labels)
     lo, hi = min(values + [blend]), max(values + [blend])
     pad = max((hi - lo) * 0.18, 4)
     ax_x = {**_axis("value"), "min": round(lo - pad), "max": round(hi + pad)}
@@ -682,18 +692,18 @@ def model_spread_option(labels: List[str], values: List[float],
             {"type": "scatter", "symbolSize": 17, "z": 3,
              "data": [{"value": [round(v, 1), 0], "name": n,
                        "itemStyle": {"color": c, "borderColor": "rgba(0,0,0,0.35)",
-                                     "borderWidth": 1}}
-                      for n, v, c in zip(labels, values, colors)],
+                                     "borderWidth": 1},
+                       "tooltip": {"formatter": "%s: %.0f pts%s" % (n, v, note)}}
+                      for n, v, c, note in zip(labels, values, colors, notes)],
              "label": {"show": True, "position": "top", "fontSize": 10,
                        "fontWeight": "bold", "color": _MUT,
-                       "formatter": "{b}"},
-             "tooltip": {"formatter": "{b}: {@[0]} pts"}},
+                       "formatter": "{b}"}},
             {"type": "scatter", "symbol": "diamond", "symbolSize": 15, "z": 4,
              "data": [{"value": [round(blend, 1), 0], "name": "Blend",
-                       "itemStyle": {"color": "#FFFFFF"}}],
+                       "itemStyle": {"color": "#FFFFFF"},
+                       "tooltip": {"formatter": "Blend: %.0f pts" % blend}}],
              "label": {"show": True, "position": "bottom", "fontSize": 10,
-                       "color": _MUT, "formatter": "blend {@[0]}"},
-             "tooltip": {"formatter": "Blend: {@[0]} pts"}},
+                       "color": _MUT, "formatter": "blend %.0f" % blend}},
         ],
     }
 

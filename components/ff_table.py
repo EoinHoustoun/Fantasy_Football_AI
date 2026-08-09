@@ -182,7 +182,7 @@ def _cell(spec: Dict, row: Dict) -> str:
                            'color:#fff;">BLK</span>')
                 continue
             c = FDR_COLORS.get(int(round(float(fx.get("fdr", 3) or 3))), "#FFD60A")
-            side = "" if fx.get("home") else "·a"
+            side = "(H)" if fx.get("home") else "(A)"
             out.append(f'<span class="chip" style="background:{c};">'
                        f'{_esc(str(fx.get("opp", "?"))[:3])}{side}</span>')
         return '<span style="display:inline-flex;gap:3px;">' + "".join(out) + "</span>"

@@ -268,3 +268,68 @@ def test_the_turkish_dotless_i_folds():
     """It is its own letter, not an accented one, so NFD leaves it alone."""
     from analytics.squad_rules import fold_accents as f
     assert f("Kadıoğlu") == "kadioglu"
+
+
+# ── "Cover from this club" · min_club_cover ──────────────────────────────────
+
+def _cover_pool():
+    """Six clubs of identical cheap players, plus one club nobody would pick.
+
+    All figures invented. Club 6 is priced the same and scores a fifth as much,
+    so an unconstrained optimiser has no reason to touch it · which is what
+    makes it a clean test of a rule that forces exposure.
+    """
+    import pandas as pd
+    rows, cid = [], 1
+    for club in range(1, 8):
+        weak = club == 7
+        for pos, n in (("GKP", 2), ("DEF", 5), ("MID", 5), ("FWD", 3)):
+            for _ in range(n):
+                rows.append({"code": cid, "position": pos, "price": 4.5,
+                             "team_id": club, "pts": 1.0 if weak else 6.0})
+                cid += 1
+    return pd.DataFrame(rows)
+
+
+def test_min_club_cover_is_not_picked_without_the_rule():
+    from analytics.squad_milp import optimize_squad
+    res = optimize_squad(_cover_pool(), budget=100.0, pts_col="pts", time_limit=30)
+    assert res is not None
+    assert int((res["squad"]["team_id"] == 7).sum()) == 0
+
+
+def test_min_club_cover_forces_defensive_and_attacking_exposure():
+    from analytics.squad_milp import optimize_squad
+    res = optimize_squad(_cover_pool(), budget=100.0, pts_col="pts", time_limit=30,
+                         min_club_cover=[(7, "def", 1), (7, "att", 1)])
+    assert res is not None
+    sq = res["squad"]
+    got_def = sq[(sq.team_id == 7) & (sq.position.isin(["GKP", "DEF"]))]
+    got_att = sq[(sq.team_id == 7) & (sq.position.isin(["MID", "FWD"]))]
+    assert len(got_def) >= 1, "defensive cover not enforced"
+    assert len(got_att) >= 1, "attacking cover not enforced"
+
+
+def test_min_club_cover_counts_a_keeper_as_defensive_cover():
+    """GKP and DEF are one bet on the same clean sheet, so a keeper satisfies it."""
+    from analytics.squad_milp import optimize_squad
+    pool = _cover_pool()
+    # Leave club 7 only a keeper worth owning; the rule must still be satisfiable.
+    res = optimize_squad(pool, budget=100.0, pts_col="pts", time_limit=30,
+                         min_club_cover=[(7, "def", 2)])
+    assert res is not None
+    sq = res["squad"]
+    assert len(sq[(sq.team_id == 7) & (sq.position.isin(["GKP", "DEF"]))]) >= 2
+
+
+def test_min_club_cover_applies_to_the_weekly_lineup_model_too():
+    """The two objectives must not drift · same rule, per-gameweek path."""
+    from analytics.squad_milp import optimize_squad
+    pool = _cover_pool()
+    for g in (1, 2):
+        pool["gw%d" % g] = pool["pts"]
+    res = optimize_squad(pool, budget=100.0, gw_pts_cols=["gw1", "gw2"],
+                         time_limit=30, min_club_cover=[(7, "att", 1)])
+    assert res is not None
+    sq = res["squad"]
+    assert len(sq[(sq.team_id == 7) & (sq.position.isin(["MID", "FWD"]))]) >= 1

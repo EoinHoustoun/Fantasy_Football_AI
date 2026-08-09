@@ -119,3 +119,64 @@ def test_per_gw_frame_survives_a_snapshot_with_no_gameweek_columns():
                    "pred": 90.0, "pps": 3.0}])
     out = per_gw_frame(snap)
     assert out.empty or "gw" in out.columns
+
+
+# ── Hub backfill · players Scout has never heard of ──────────────────────────
+
+def test_hub_backfill_rescues_a_player_scout_cannot_see():
+    """A signing from another league is in FPL and in the Hub, but not in Scout.
+
+    Before this, `backfill_projections` was the ONLY route onto the board for a
+    no-history player, and it reads the Scout snapshot. A player with no Scout
+    row was therefore absent from the board, the optimiser and every table · he
+    did not read as a bad pick, he did not exist. All figures invented.
+    """
+    import pandas as pd
+    from data.fetchers import ffhub
+
+    no_history = pd.DataFrame({
+        "code": [999001], "web_name": ["Newman"], "team_name": ["Brentford"],
+        "team_id": [4], "team_short": ["BRE"], "position": ["MID"],
+        "actual_price": [5.5], "ownership": [0.7],
+    })
+    snap = pd.DataFrame({
+        "name": ["Newman"], "team": ["Brentford"], "pos": ["MID"],
+        "pps": [3.0], "pred": [12.0], "exp_mins_mean": [80.0],
+        "nailedness": [0.889], "gw1_pts": [3.0], "gw2_pts": [3.0],
+    })
+    out = ffhub.backfill_from_hub(no_history, snap, scale=1.0, deflator=1.0)
+    assert len(out) == 1
+    assert int(out.iloc[0]["code"]) == 999001
+    # 3.0 a gameweek over 38, no rescale and no deflator applied.
+    assert abs(float(out.iloc[0]["projected_points"]) - 114.0) < 0.05
+    assert out.iloc[0]["projection_source"] == "ffh"
+    assert out.iloc[0]["confidence"] == "Low"
+
+
+def test_hub_backfill_joins_on_name_AND_club():
+    """Two Sangarés exist, at different clubs. Name alone hands one the other's
+    forecast, which is worse than no forecast at all."""
+    import pandas as pd
+    from data.fetchers import ffhub
+
+    no_history = pd.DataFrame({
+        "code": [999002], "web_name": ["Twin"], "team_name": ["Brentford"],
+        "team_id": [4], "team_short": ["BRE"], "position": ["MID"],
+        "actual_price": [5.5], "ownership": [0.7],
+    })
+    snap = pd.DataFrame({
+        "name": ["Twin", "Twin"], "team": ["Nott'm Forest", "Brentford"],
+        "pos": ["MID", "MID"], "pps": [1.0, 4.0], "pred": [4.0, 16.0],
+        "exp_mins_mean": [20.0, 85.0], "nailedness": [0.22, 0.94],
+        "gw1_pts": [1.0, 4.0],
+    })
+    out = ffhub.backfill_from_hub(no_history, snap, scale=1.0, deflator=1.0)
+    assert len(out) == 1
+    # The Brentford row (4.0 a week), never the Forest one.
+    assert abs(float(out.iloc[0]["projected_points"]) - 152.0) < 0.05
+
+
+def test_hub_backfill_is_empty_when_nobody_is_missing():
+    import pandas as pd
+    from data.fetchers import ffhub
+    assert ffhub.backfill_from_hub(pd.DataFrame(), pd.DataFrame()).empty

@@ -165,6 +165,54 @@ def build_board(stamp: str = "") -> Tuple[Optional[pd.DataFrame], Optional[pd.Da
     # board · the only stated "will he start" signal in the stack.
     verdicts = _add_consensus(verdicts, live_bs)
 
+    # ── Second rescue · players only the Hub has heard of ────────────────────
+    # The Scout backfill above covers promoted clubs, because Scout's table
+    # covers them. It does NOT cover a signing from another league, whose Scout
+    # row simply does not exist · and a player missing from the board is missing
+    # from the optimiser, every table, and the pitch. He does not look like a bad
+    # pick, he looks like nothing at all.
+    #
+    # Runs AFTER the consensus so the Hub's no-record bias can be measured off a
+    # finished board rather than assumed. These rows carry no consensus columns
+    # of their own (one model cannot be a consensus) and are marked Low.
+    if snap is not None and scout is not None and not scout.empty:
+        try:
+            from data.fetchers.ffhub import (backfill_from_hub,
+                                             load_snapshot as _ffh_snap,
+                                             no_record_deflator)
+            hub_snap = _ffh_snap()
+            left = scout[~scout["code"].isin(set(verdicts["code"]))]
+            if hub_snap is not None and not left.empty:
+                kf = float(verdicts.get("points_scale_to_match",
+                                        pd.Series([1.0])).iloc[0] or 1.0)
+                extra = backfill_from_hub(
+                    left, hub_snap,
+                    scale=(1.0 / kf) if kf else 1.0,
+                    deflator=no_record_deflator(verdicts))
+                if not extra.empty:
+                    of = verdicts.set_index("team_id")["opening_factor"].to_dict() \
+                        if "opening_factor" in verdicts.columns else {}
+                    extra["opening_factor"] = extra["team_id"].map(of).fillna(1.0)
+                    # One model is not a consensus · give them the same number
+                    # under the name the rest of the page ranks on, so they sort
+                    # and solve alongside everyone else without pretending to a
+                    # confidence they have not got.
+                    extra["consensus_points"] = extra["projected_points"]
+                    extra["consensus_lo"] = extra["proj_lo"]
+                    extra["consensus_hi"] = extra["proj_hi"]
+                    extra["consensus_confidence"] = "Low"
+                    extra["n_models"] = 1
+                    extra["src_ffh"] = extra["projected_points"]
+                    extra["ffh_nailedness"] = extra.get("nailedness")
+                    extra["ffh_exp_mins_mean"] = extra.get("exp_mins_mean")
+                    verdicts = pd.concat([verdicts, extra], ignore_index=True,
+                                         sort=False)
+                    scout = scout[~scout["code"].isin(set(extra["code"]))]
+        except Exception as exc:
+            logger.warning("Hub backfill failed: %s", exc)
+            load_warnings.append("Players only the Hub covers (new signings from "
+                                 "abroad) are missing from the pool.")
+
     # Some facts no model prices. A player expected to leave the league scores
     # nothing at all, and that is not a form haircut on OUR projection · it is a
     # statement about the blended number, because Scout and the Hub have not
@@ -342,7 +390,8 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 max_attackers_per_club: int = 1,
                 opening_map: tuple = (), bench_budget=None,
                 force_names: tuple = (), bench_pts_col: Optional[str] = None,
-                gw_pts_cols: tuple = (), boost_col: Optional[str] = None):
+                gw_pts_cols: tuple = (), boost_col: Optional[str] = None,
+                min_club_cover: tuple = ()):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
@@ -362,6 +411,10 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     `force_names` are players locked into the fifteen · the optimiser builds the
     best squad it can AROUND them. They win over `exclude_names` if a player
     somehow appears in both, because an explicit lock is the stronger intent.
+    `min_club_cover` is a tuple of (team_id, "def"|"att", n) demanding at least
+    n players of that side of the pitch from that club · "I want Arsenal
+    defensive cover" without naming which Arsenal defender. A tuple, not a list,
+    so the Streamlit cache key stays stable.
     `bench_pts_col` names a column holding what each player scores in a Bench
     Boost week. Given one, a benched player is worth exactly that and the
     `bench_weight` fudge is dropped · which is the difference between "buy four
@@ -455,6 +508,7 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 force_codes=list(force), exclude_codes=list(exclude),
                 max_attackers_per_club=max_attackers_per_club,
                 defcon_codes=_defcon_codes(), max_defenders_per_club=1,
+                min_club_cover=[tuple(c) for c in min_club_cover],
                 bench_budget=bench_budget)
 
     return optimize_squad(d, budget=budget, pts_col="obj", bench_weight=bench, time_limit=90,
@@ -462,5 +516,6 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                           max_attackers_per_club=max_attackers_per_club,
                           defcon_codes=_defcon_codes(),
                           max_defenders_per_club=1,
+                          min_club_cover=[tuple(c) for c in min_club_cover],
                           bench_budget=bench_budget,
                           bench_pts_col=_bcol)

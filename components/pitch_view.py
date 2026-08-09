@@ -243,7 +243,8 @@ def _formation_bar(formation: str, title_right: str = "",
                    total: Optional[float] = None, total_label: str = "XI",
                    bench_total: Optional[float] = None,
                    score_pct: Optional[float] = None,
-                   score_colour: Optional[str] = None) -> str:
+                   score_colour: Optional[str] = None,
+                   score_pending: bool = False) -> str:
     """Squad header · label, projected total, squad score, formation.
 
     The total lives here rather than in a tile below the pitch, because it is
@@ -264,7 +265,20 @@ def _formation_bar(formation: str, title_right: str = "",
                  f'bench {bench_total:.1f}</span>' if bench_total is not None else "")
         # The score sits right beside the total on purpose · the total alone
         # cannot tell you whether 79.7 is a good week or a wasted one.
+        # The squad score needs a MILP per gameweek, so it is deliberately
+        # allowed to arrive late · the team must never wait for it. Until it
+        # lands the same slot holds a pulsing placeholder, so the header does
+        # not reflow when the number appears.
         pct = ""
+        if score_pct is None and score_pending:
+            pct = ('<span title="Working out the best any legal squad could '
+                   'score on these fixtures" style="margin-left:10px;padding:2px 9px;'
+                   'border-radius:6px;background:var(--ff-chip-bg,'
+                   'rgba(255,255,255,0.07));font-size:13px;font-weight:900;'
+                   'color:var(--ff-muted);line-height:1.3;white-space:nowrap;'
+                   'animation:ff-score-wait 1.1s ease-in-out infinite;">···</span>'
+                   '<style>@keyframes ff-score-wait{0%,100%{opacity:0.35}'
+                   '50%{opacity:0.85}}</style>')
         if score_pct is not None:
             pct = (f'<span title="Share of the best any legal squad could score '
                    f'on these fixtures" style="margin-left:10px;padding:2px 7px;'
@@ -378,7 +392,8 @@ def render_pitch_view(squad_df: pd.DataFrame, interactive: bool = False,
 
 
 # ── Generic pitch for Season Lab squads (perfect season, drafts) ───────────────
-def _run_strip(fixtures: Optional[List[Dict]], big: bool = False) -> str:
+def _run_strip(fixtures: Optional[List[Dict]], big: bool = False,
+               scale: float = 1.0) -> str:
     """The next few fixtures as FDR-coloured chips · the run at a glance.
 
     Three chips is the sweet spot: enough to read a run, few enough to stay
@@ -386,8 +401,10 @@ def _run_strip(fixtures: Optional[List[Dict]], big: bool = False) -> str:
     """
     if not fixtures:
         return ""
-    _fs = 9.5 if big else 8
-    _pad = "2px 5px" if big else "1px 3px"
+    _k = max(0.6, min(1.0, float(scale)))
+    _fs = (9 if big else 7.5) * _k
+    _pad = ("2px 4px" if big else "1px 2px") if _k > 0.92 else (
+        "1px 3px" if big else "1px 2px")
     chips = []
     for f in fixtures[:3]:
         opp = str(f.get("opp") or "?")[:3].upper()
@@ -397,7 +414,10 @@ def _run_strip(fixtures: Optional[List[Dict]], big: bool = False) -> str:
                          'font-size:8px;font-weight:900;">BLK</span>')
             continue
         col = _fdr_color(float(f.get("fdr", 3) or 3))
-        side = "" if f.get("home") else "·a"
+        # (H)/(A) spelled out. "·a" for away and nothing at all for home made
+        # you infer home from the ABSENCE of a mark, which is the hardest
+        # thing to read at a glance on a pitch full of chips.
+        side = "(H)" if f.get("home") else "(A)"
         chips.append(f'<span style="background:{col};color:#04140C;border-radius:4px;'
                      f'padding:{_pad};font-size:{_fs}px;font-weight:900;'
                      f'letter-spacing:-0.2px;">{opp}{side}</span>')
@@ -442,7 +462,8 @@ def _corner_button(action: str, fpl_id: int, glyph: str, bg: str,
 
 
 def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
-                 interactive: bool = False, compact: bool = False) -> str:
+                 interactive: bool = False, compact: bool = False,
+                 scale: float = 1.0) -> str:
     """One player as a card on the pitch.
 
     The card is the object, not the kit. It carries its own dark ground so it
@@ -451,10 +472,20 @@ def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
     projection · get the space they deserve. Wide enough to fit all that, tight
     enough that a whole row still sits together.
     """
-    W, SHIRT = (100, 36) if compact else (120, 52)
+    # Widened for the (H)/(A) fixture chips. Three chips of "COV(H)" at 9px with
+    # 4px side padding come to about 126px, so a 120px card clipped the third
+    # one · the away marker was the first thing to disappear, which is exactly
+    # the information the brackets were added to carry.
+    # `scale` shrinks the whole card together · two pitches side by side in the
+    # comparison need less room than one on its own, and scaling the width alone
+    # would clip the fixture chips the widening was for.
+    _k = max(0.6, min(1.0, float(scale)))
+    W, SHIRT = (124, 36) if compact else (148, 52)
     FS_NAME = 11 if compact else 12.5
     FS_STAT = 17 if compact else 20
     FS_PRICE = 10 if compact else 11
+    W, SHIRT = int(round(W * _k)), int(round(SHIRT * _k))
+    FS_NAME, FS_STAT, FS_PRICE = FS_NAME * _k, FS_STAT * _k, FS_PRICE * _k
 
     code = int(row.get("team_code", 1) or 1)
     is_gkp = str(row.get("position", "")) == "GKP"
@@ -526,7 +557,7 @@ def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
 
     # The run gets real estate · it is half the reason you are looking.
     fixtures = row.get("fixtures")
-    fixture_html = _run_strip(fixtures, big=True) if fixtures else ""
+    fixture_html = _run_strip(fixtures, big=True, scale=_k) if fixtures else ""
     if not fixture_html and row.get("fixture_label"):
         fixture_html = (f'<div style="color:#fff;font-size:10px;font-weight:800;'
                         f'margin-top:5px;background:rgba(0,0,0,0.4);'
@@ -574,7 +605,9 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
                        xi_total_override: Optional[float] = None,
                        total_label: str = "XI",
                        score_pct: Optional[float] = None,
+                       score_pending: bool = False,
                        score_colour: Optional[str] = None,
+                       scale: float = 1.0,
                        key: str = "ff_pitch_replay"):
     """Generic pitch for Season Lab squads (GK→DEF→MID→FWD, top to bottom).
 
@@ -584,7 +617,8 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
     allow_bench, is_axed.
 
     `compact` shrinks every dimension so the fifteen plus the bench fit a laptop
-    screen without scrolling.
+    screen without scrolling. `scale` shrinks it further and proportionally, for
+    the comparison view where two pitches share the width one usually gets.
     """
     xi = [p for p in players if not p.get("on_bench")]
     bench = [p for p in players if p.get("on_bench")]
@@ -618,21 +652,24 @@ def render_squad_pitch(players: List[Dict], stat_label: str = "pts",
     def _row(ps):
         return (f'<div style="{row_style}">'
                 + "".join(_simple_card(p, stat_label, interactive=interactive,
-                                       compact=compact)
+                                       compact=compact, scale=scale)
                           for p in ps) + '</div>')
 
     bench_cards = "".join(_simple_card(p, stat_label, is_bench=True,
-                                       interactive=interactive, compact=compact)
+                                       interactive=interactive, compact=compact,
+                                       scale=scale)
                           for p in bench)
 
     pitch_bg = _PITCH_BG.replace("padding:14px 10px 10px;", "padding:8px 6px 6px;") \
         if compact else _PITCH_BG
     html = (
-        f'<div style="font-family:sans-serif;max-width:{900 if compact else 1040}px;'
+        f'<div style="font-family:sans-serif;'
+        f'max-width:{int(round((900 if compact else 1040) * max(0.6, min(1.0, scale))))}px;'
         f'margin:0 auto;">'
         + _formation_bar(formation, title_right, xi_total,
                          f"{total_label} {stat_label}", bench_total,
-                         score_pct=score_pct, score_colour=score_colour)
+                         score_pct=score_pct, score_colour=score_colour,
+                         score_pending=score_pending)
         + f'<div style="{pitch_bg}">' + _PITCH_LINES
         + '<div style="position:relative;z-index:2;">'
         + _row(by_pos["GKP"]) + _row(by_pos["DEF"])

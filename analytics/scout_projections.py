@@ -32,12 +32,32 @@ TEAM_ALIASES = {"BRI": "BHA"}
 # Characters NFKD will not decompose (they are distinct letters, not accents).
 # Odegaard is the live example: NFKD leaves 'O with stroke' intact, so the join
 # silently missed him until this map existed.
+# Letters that are NOT an accented Latin letter but a letter in their own right.
+# NFKD leaves them alone, so `encode("ascii", "ignore")` DELETES them rather than
+# folding them · the character silently disappears from the join key.
+#
+# That is how Kadıoğlu lost his match model. The Hub writes "F.Kadıoğlu" with a
+# Turkish dotless i; NFKD folds the ğ (g + combining breve) but not the ı, so the
+# key came out "fkadoglu" while Scout's plain "F.Kadioglu" gave "fkadioglu". Two
+# keys, one player, no join · and because the surname fallback folds the same way
+# it missed too. Nothing errored: he just quietly had one fewer model than his
+# badge claimed.
+#
+# Anything added here must be a letter with NO decomposition. An accented letter
+# (é, š, ø is handled below) does not belong · NFKD already covers those.
 CHAR_ALIASES = {
     "ø": "o", "Ø": "o",     # o-slash
     "đ": "d", "Đ": "d",     # d-stroke
     "ł": "l", "Ł": "l",     # l-stroke
     "ß": "ss",                    # sharp s
     "æ": "ae", "Æ": "ae",
+    "œ": "oe", "Œ": "oe",   # o-e ligature
+    "ð": "d", "Ð": "d",     # eth · Icelandic
+    "þ": "th", "Þ": "th",   # thorn · Icelandic
+    "ı": "i", "İ": "i",     # Turkish dotless i / dotted capital I · Kadıoğlu
+    "ħ": "h", "Ħ": "h",     # h-stroke
+    "ŧ": "t", "Ŧ": "t",     # t-stroke
+    "ŋ": "n", "Ŋ": "n",     # eng
 }
 
 POS_FROM_ELEMENT_TYPE = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}

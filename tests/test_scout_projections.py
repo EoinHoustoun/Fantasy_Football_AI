@@ -192,3 +192,38 @@ def test_surname_key_handles_both_spellings():
     assert surname_key("M.Fernandes") == surname_key("Fernandes") == "fernandes"
     assert surname_key("B.Fernandes") == "fernandes"
     assert surname_key("Haaland") == "haaland"
+
+
+# ── Letters that are not accents ─────────────────────────────────────────────
+
+def test_non_decomposable_letters_fold_rather_than_vanish():
+    """A letter with no NFKD decomposition is DELETED by ascii-ignore, not folded.
+
+    Kadıoğlu is the case that bit: the Hub writes "F.Kadıoğlu" with a Turkish
+    dotless i, Scout writes plain "F.Kadioglu". NFKD folds the ğ but leaves the
+    ı alone, and `encode("ascii", "ignore")` then drops it, so one source keyed
+    on "fkadoglu" and the other on "fkadioglu". Two keys, one player, no join ·
+    and nothing errored. He simply had one fewer model than his badge claimed.
+    """
+    from analytics.scout_projections import normalise_name
+    for turkish, plain in (("F.Kadıoğlu", "F.Kadioglu"),
+                           ("Kadıoğlu", "Kadioglu"),
+                           ("Şahin", "Sahin"),
+                           ("İlkay", "Ilkay")):
+        assert normalise_name(turkish) == normalise_name(plain), turkish
+    # The letter must be PRESENT, not merely consistent · "kadoglu" on both
+    # sides would also be equal and would still be the wrong key.
+    assert normalise_name("F.Kadıoğlu") == "fkadioglu"
+
+
+def test_other_undecomposable_letters_are_covered():
+    from analytics.scout_projections import normalise_name
+    for odd, plain in (("Ødegaard", "Odegaard"), ("Łukasz", "Lukasz"),
+                       ("Þór", "Thor"), ("Đorđe", "Dorde")):
+        assert normalise_name(odd) == normalise_name(plain), odd
+
+
+def test_surname_fallback_folds_the_same_way():
+    """The surname rescue must not reintroduce the bug it exists to fix."""
+    from analytics.scout_projections import surname_key
+    assert surname_key("F.Kadıoğlu") == surname_key("F.Kadioglu") == "kadioglu"

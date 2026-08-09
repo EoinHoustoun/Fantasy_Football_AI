@@ -55,6 +55,14 @@ NO_ARGS_OK = {
     "17_value_lab::_summary", "home::_pl_logo_data_url",
     "18_draft_2026_27::_club_fixtures", "18_draft_2026_27::_defcon_per90",
     "18_draft_2026_27::_last_season_stats",
+    # A constant key is the POINT here · this returns the process-wide store the
+    # weekly-ceiling solver writes into from a background thread. A page script
+    # re-executes top to bottom on every rerun, so a plain module-level dict was
+    # recreated each time and the thread wrote into an object nobody would read
+    # again. It holds no derived data, only solver results already keyed by
+    # (gameweek, budget, board stamp), so it cannot go stale the way a cached
+    # projection can.
+    "18_draft_2026_27::_ceiling_store",
 }
 
 

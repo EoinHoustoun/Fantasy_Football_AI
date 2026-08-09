@@ -43,7 +43,11 @@ CLUB_TO_SHORT = {
     "West Ham": "WHU", "Wolves": "WOL",
 }
 
-POS_TO_FPL = {"G": "GKP", "D": "DEF", "M": "MID", "F": "FWD"}
+# Rate My Team writes keepers as "GK". "G" is kept so an older snapshot still
+# loads · without "GK" the position is NaN, and since the board join keys on
+# position that silently dropped EVERY goalkeeper from the per-gameweek second
+# opinion (0 of 55 matched) while outfield sat at 477 of 480.
+POS_TO_FPL = {"G": "GKP", "GK": "GKP", "D": "DEF", "M": "MID", "F": "FWD"}
 
 
 def load_snapshot(path=None) -> Optional[pd.DataFrame]:
