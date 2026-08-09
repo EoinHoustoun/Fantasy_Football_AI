@@ -18,9 +18,9 @@ BOARD = pd.DataFrame([
 ])
 FIX = {(10, 1): [("OPP", True, 3.0)], (10, 2): [("OPP", False, 3.0)]}
 LONG = pd.DataFrame([
-    {"code": 1, "gw": 1, "points": 6.0, "minutes": 90},
-    {"code": 1, "gw": 2, "points": 4.0, "minutes": 90},
-    {"code": 2, "gw": 1, "points": 6.0, "minutes": 90},
+    {"code": 1, "gw": 1, "pts": 6.0, "exp_mins": 90},
+    {"code": 1, "gw": 2, "pts": 4.0, "exp_mins": 90},
+    {"code": 2, "gw": 1, "pts": 6.0, "exp_mins": 90},
 ])
 
 

@@ -113,6 +113,17 @@ class GwProjection(object):
         hand = self._set.get(int(code), {}).get(int(gw))
         if hand is not None:
             return hand
+        # A player who is not playing scores nothing, whatever the points model
+        # says. Points and minutes come from different sources in the blend, and
+        # nothing reconciled them: 25 cells projected real points on a STATED
+        # zero minutes, and the optimiser drafted them. Minutes are the master
+        # variable, so they win.
+        #
+        # Only a stated zero. `expected_minutes` returns None when no source has
+        # an opinion, and silence is not a statement that he is out.
+        mins = self._mins.get((int(code), int(gw)))
+        if mins is not None and float(mins) == 0.0:
+            return 0.0
         v = self._match.get((int(code), int(gw)))
         if v is None:
             v = self._shape(code, gw)
