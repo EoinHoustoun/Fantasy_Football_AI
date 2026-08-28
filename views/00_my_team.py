@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, Optional
 
 import pandas as pd
 import streamlit as st
@@ -401,6 +401,7 @@ from config import POSITIONS as _POSITIONS
 from ui import live_projection as LP
 from ui import player_card as PC
 from ui import team_pitch_rows as ROWS
+from ui.team_gap import gap_verdict
 
 try:
     _LIVE = LP.projection(_freshness.inputs_stamp())
@@ -1269,12 +1270,17 @@ def _open_card(code: int, gw: int, codes_now) -> None:
         TP.save_draft(int(team_id), int(gw), e)
         st.rerun()
 
+    def _compare(c):
+        axed = [int(x) for x in st.session_state[_sk("axe")]]
+        if not axed:
+            st.toast("Mark a player with ✕ first")
+            return
+        st.session_state[_sk("compare_pair")] = (axed[0], int(c))
+        st.rerun()
+
     ctx = PC.CardCtx(board=BOARD, proj=PROJ, pts_col=PTS_COL, fix=FIX, defcon=DEFCON,
                      scout=_LIVE["scout"], board_stamp=_LIVE["board_stamp"],
-                     # on_compare stays off until the head-to-head dialog lands ·
-                     # the card HIDES the button when the callback is None, and a
-                     # visible control that does nothing is worse than no control.
-                     on_replace=_replace, on_compare=None, on_captain=_captain,
+                     on_replace=_replace, on_compare=_compare, on_captain=_captain,
                      captain_gw=int(gw), in_squad=lambda c: int(c) in owned,
                      current_gw=int(gw))
     PC.open_player_card(ctx, int(code))
@@ -1458,12 +1464,80 @@ def _transfer_desk(axed, sq, gw, entry, bank_m_after, codes_now) -> None:
             st.rerun(scope="fragment")
 
 
+@st.cache_data(show_spinner=False, ttl=1800)
+def _gap_sim(gw: int, now: tuple, after: tuple, board_stamp: str) -> Dict:
+    """Is the gap real? · current squad vs the squad after this week's moves.
+
+    `board_stamp` is what actually keys the cache against `BOARD`/`PROJ`, which
+    this closes over as module globals rather than taking them as arguments ·
+    both are already fully described by that stamp.
+    """
+    from analytics.head_to_head import simulate_drafts
+    from ui.team_gap import gap_entries
+
+    ents = gap_entries(BOARD, list(now), list(after), gw)
+    return simulate_drafts(ents, PROJ, BOARD, gw, min(38, gw + 4), n_sims=1500)
+
+
+@st.dialog("Head to head", width="large")
+def _compare_dialog(a_code: int, b_code: int, gw: int) -> None:
+    """Player vs player, on the same engine every other comparison in the app uses."""
+    from analytics.head_to_head import compare_players, player_profile, verdict
+
+    rows = {c: BOARD[BOARD["code"] == c] for c in (a_code, b_code)}
+    if any(r.empty for r in rows.values()):
+        st.info("Player data unavailable.")
+        return
+    profs = [player_profile(rows[c].iloc[0], pts_col=PTS_COL, defcon=DEFCON, proj=PROJ,
+                            from_gw=gw, horizon=6) for c in (a_code, b_code)]
+    cmp = compare_players(profs)
+    v = verdict(cmp, profs)
+    st.markdown(_flat(
+        f"<div style='border-left:3px solid var(--ff-{v['tone']});padding:10px 14px;"
+        f"margin-bottom:14px;'><b style='color:var(--ff-text);'>{v['headline']}</b>"
+        + (f"<div style='color:var(--ff-muted2);margin-top:4px;'>{v['detail']}</div>"
+           if v["detail"] else "") + "</div>"), unsafe_allow_html=True)
+
+    cols = st.columns(2)
+    for col, p in zip(cols, profs):
+        with col:
+            st.markdown(_flat(
+                f"<div style='text-align:center;'>"
+                f"<div class='ff-display' style='font-size:16px;font-weight:900;"
+                f"color:var(--ff-text);'>{p['name']}</div>"
+                f"<div style='font-size:11px;color:var(--ff-muted2);'>"
+                f"{p['team']} · {p['position']} · £{p['price']:.1f}m</div></div>"),
+                unsafe_allow_html=True)
+
+    axes = cmp["axes"]
+    if axes:
+        inds = [{"name": a["label"], "max": 1.0} for a in axes]
+        series = []
+        for i, p in enumerate(profs):
+            vals = [(a["scaled"][i] if a["scaled"][i] is not None else 0) for a in axes]
+            col = theme.fill(["mint", "gold"][i % 2])
+            series.append((p["name"], [round(v, 3) for v in vals], col, 0.16))
+        charts.render(charts.radar_compare_option(inds, series), height="320px",
+                      key=f"gap_cmp_radar_{a_code}_{b_code}")
+
+
 def _save_row(gw, entry, plans, drafts, start_codes, codes_now) -> None:
     """Chip, save, reset, clear.
 
     `plans`, `drafts`, `start_codes` and `codes_now` are carried for the
     "is the gap real?" Monte Carlo that lands beside these buttons next.
     """
+    if entry.get("swaps"):
+        codes_before = TP.effective_codes(start_codes, plans, {}, gw - 1)
+        sim = _gap_sim(gw, tuple(sorted(codes_before)), tuple(sorted(codes_now)),
+                       _LIVE["board_stamp"])
+        v = gap_verdict(sim)
+        st.markdown(_flat(
+            f"<div style='border-left:3px solid var(--ff-{v['tone']});padding:8px 12px;'>"
+            f"{v['text']} <span style='color:var(--ff-muted2);'>(GW{gw}-"
+            f"{min(38, gw + 4)}, 1,500 sims, shared noise)</span></div>"),
+            unsafe_allow_html=True)
+
     chips = ["None", "BB", "TC", "WC", "FH"]
     c1, c2, c3, c4 = st.columns([1.2, 1, 1, 1.6])
     chip = c4.selectbox("Chip", chips, key=_sk("chip%d" % gw),
@@ -1518,6 +1592,10 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     if PROJ is None:
         st.error("Archive not built · run `python scripts/build_archive.py` first.")
         return
+    pair = st.session_state[_sk("compare_pair")]
+    if pair:
+        st.session_state[_sk("compare_pair")] = None
+        _compare_dialog(int(pair[0]), int(pair[1]), int(view_gw))
     plans, drafts = TP.load(int(team_id), _CODE_BY_ID)
     entry = dict(drafts.get(view_gw) or plans.get(view_gw) or TP.empty_entry())
     start_codes = [int(c) for c in squad_df["code"]]
