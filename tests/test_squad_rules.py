@@ -348,3 +348,39 @@ def test_a_price_band_ban_can_exempt_a_named_player():
     assert SR.banned_price_names(board, (("DEF", 4.5),)) == ["Cheap", "Kadioglu"]
     assert SR.banned_price_names(board, (("DEF", 4.5),),
                                  exempt=("Kadioglu",)) == ["Cheap"]
+
+
+def test_no_accrual_gws_defaults_to_the_old_ledger():
+    """Tightening only · None must leave the Draft's ledger exactly as it was."""
+    swaps = {2: {1: 21}, 3: {2: 22, 3: 23}, 4: {}}
+    base = transfer_ledger(swaps, 4, first_paid_gw=2, start_codes=SQUAD)
+    assert transfer_ledger(swaps, 4, first_paid_gw=2, start_codes=SQUAD,
+                           no_accrual_gws=None) == base
+    assert transfer_ledger(swaps, 4, first_paid_gw=2, start_codes=SQUAD,
+                           no_accrual_gws=()) == base
+
+
+def test_a_no_accrual_week_neither_banks_nor_charges():
+    """A frozen week banks nothing, so the whole run is one FT poorer after it,
+    and it behaves exactly like the Wildcard week already does."""
+    led = transfer_ledger({}, 4, first_paid_gw=2, start_codes=SQUAD,
+                          no_accrual_gws={3})
+    w = {x["gw"]: x for x in led["weeks"]}
+    assert w[2]["available_before"] == 1
+    assert w[3]["available_before"] == 1          # no free transfer accrued
+    assert w[4]["available_before"] == 2          # the bank rolls on unchanged
+    assert led["hits"] == 0
+    plain = {x["gw"]: x for x in
+             transfer_ledger({}, 4, first_paid_gw=2, start_codes=SQUAD)["weeks"]}
+    assert plain[4]["available_before"] == 3      # without it, one more
+    wild = {x["gw"]: x for x in
+            transfer_ledger({}, 4, first_paid_gw=2, start_codes=SQUAD,
+                            wildcard_gw=3)["weeks"]}
+    assert wild[4]["available_before"] == w[4]["available_before"]
+
+
+def test_buying_a_player_back_in_the_same_week_costs_nothing():
+    """Out for B and back in again inside one week is a net move of zero."""
+    led = transfer_ledger({2: {1: 21, 21: 1}}, 2, first_paid_gw=2, start_codes=SQUAD)
+    w = led["weeks"][0]
+    assert w["used"] == 0 and w["hits"] == 0 and led["points_cost"] == 0

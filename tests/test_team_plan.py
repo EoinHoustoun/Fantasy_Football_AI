@@ -158,3 +158,17 @@ def test_first_gw_ignores_weeks_already_played():
     assert tp.bank_after(2.0, prices, START, plans, {}, 4, first_gw=3) == pytest.approx(2.0)
     # Without the bound, the old behaviour still replays it.
     assert tp.effective_codes(START, plans, {}, 4)[0] == 21
+
+
+def test_free_hit_week_accrues_no_free_transfer():
+    """You played a chip, not a transfer · the bank rolls through unchanged."""
+    plans = {3: {"swaps": {}, "captain": None, "chip": "FH"}}
+    led = tp.ledger(plans, {}, 4, START, first_gw=2, banked_now=1)
+    w = {x["gw"]: x for x in led["weeks"]}
+    assert w[3]["available_before"] == 1           # the Free Hit week banks nothing
+    assert w[4]["available_before"] == 2
+    assert led["hits"] == 0
+    # Without the chip the same three weeks bank one more.
+    none = tp.ledger({3: {"swaps": {}, "captain": None, "chip": None}}, {}, 4,
+                     START, first_gw=2, banked_now=1)
+    assert {x["gw"]: x for x in none["weeks"]}[4]["available_before"] == 3

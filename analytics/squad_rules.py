@@ -174,7 +174,8 @@ def fold_accents(s: str) -> str:
 def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
                     first_paid_gw: int = 2,
                     start_codes: Optional[Iterable[int]] = None,
-                    wildcard_gw: Optional[int] = None) -> Dict:
+                    wildcard_gw: Optional[int] = None,
+                    no_accrual_gws: Optional[Iterable[int]] = None) -> Dict:
     """Free transfers, hits and what each week's moves cost.
 
     One free transfer a gameweek from GW2, banked up to `ft_cap`, spent oldest
@@ -199,16 +200,25 @@ def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
     there was never transferred, whatever route he took. That is also how a user
     undoes a change of mind, so charging for it would be charging for nothing.
     Pass `start_codes` (the drafted fifteen) to enable it.
+
+    `no_accrual_gws` names further weeks that behave the same way as the
+    Wildcard week: no free transfer accrues, nothing is spent and nothing is
+    charged. A Free Hit week is exactly that, and My Team passes its Free Hit
+    weeks here. Left as None the ledger is unchanged, which is what the Draft
+    relies on.
     """
     weeks, avail, total_hits = [], 0, 0
     squad = [int(c) for c in (start_codes or [])]
     wc = int(wildcard_gw) if wildcard_gw else None
+    frozen = {int(g) for g in (no_accrual_gws or ())}
 
     for g in range(int(first_paid_gw), int(upto_gw) + 1):
         wild = wc is not None and g == wc
         # No accrual in the Wildcard week · the chip is what you played that
-        # week. The bank itself is untouched and rolls on unchanged.
-        if not wild:
+        # week. The bank itself is untouched and rolls on unchanged. A Free Hit
+        # week is the same deal, and arrives through `no_accrual_gws`.
+        chip_week = wild or g in frozen
+        if not chip_week:
             avail = min(ft_cap, avail + 1)
         moves = (swaps or {}).get(g, {}) or {}
 
@@ -224,15 +234,15 @@ def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
         else:
             used = len(moves)
 
-        free_used = used if wild else min(used, avail)
-        hits = 0 if wild else used - free_used
+        free_used = used if chip_week else min(used, avail)
+        hits = 0 if chip_week else used - free_used
         total_hits += hits
         weeks.append({
             "gw": g, "moves": moves, "used": used,
             "free_used": free_used, "hits": hits, "cost": hits * HIT_COST,
             "available_before": avail, "wildcard": wild,
         })
-        if not wild:
+        if not chip_week:
             avail = max(0, avail - used)
     return {"weeks": weeks, "available_now": avail, "hits": total_hits,
             "points_cost": total_hits * HIT_COST, "cap": ft_cap,

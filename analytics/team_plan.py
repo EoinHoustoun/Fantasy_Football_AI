@@ -172,11 +172,17 @@ def ledger(plans, drafts, up_to_gw: int, start_codes: List[int],
     `first_gw` is the same as a manager who has been accruing since
     `first_gw - (banked_now - 1)` without spending, so we start it there and
     pass no moves before `first_gw`.
+
+    A Free Hit week accrues nothing either · you played a chip instead of a
+    transfer, so the bank rolls through unchanged rather than growing by one.
     """
     swaps = {g: s for g, s in swaps_upto(plans, drafts, up_to_gw).items() if g >= int(first_gw)}
     start_paid = int(first_gw) - max(0, int(banked_now) - 1)
+    fh = {gw for gw in (set(plans) | set(drafts))
+          if int(first_gw) <= gw <= int(up_to_gw) and chip_at(plans, drafts, gw) == "FH"}
     return _ledger(swaps, int(up_to_gw), ft_cap=_sp.FT_CAP, first_paid_gw=start_paid,
-                   start_codes=start_codes, wildcard_gw=wildcard_gw(plans, drafts, up_to_gw))
+                   start_codes=start_codes, wildcard_gw=wildcard_gw(plans, drafts, up_to_gw),
+                   no_accrual_gws=fh)
 
 
 def bank_after(bank_now_m: float, price_by_code: Dict[int, float], start_codes: List[int],
