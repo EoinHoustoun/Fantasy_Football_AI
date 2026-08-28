@@ -14,6 +14,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from analytics import squad_planner as _sp
+from analytics.squad_rules import transfer_ledger as _ledger
 
 logger = logging.getLogger(__name__)
 
@@ -151,3 +152,37 @@ def effective_codes(start_codes: List[int], plans: Dict[int, Entry],
             if int(out) in squad:
                 squad[squad.index(int(out))] = int(inn)
     return squad
+
+
+def ledger(plans, drafts, up_to_gw: int, start_codes: List[int],
+           first_gw: int, banked_now: int = 1) -> Dict:
+    """The Draft's ledger applied to a season already under way.
+
+    `squad_rules.transfer_ledger` accrues one free transfer per week from
+    `first_paid_gw`. A manager holding `banked_now` free transfers going into
+    `first_gw` is the same as a manager who has been accruing since
+    `first_gw - (banked_now - 1)` without spending, so we start it there and
+    pass no moves before `first_gw`.
+    """
+    swaps = {g: s for g, s in swaps_upto(plans, drafts, up_to_gw).items() if g >= int(first_gw)}
+    start_paid = int(first_gw) - max(0, int(banked_now) - 1)
+    return _ledger(swaps, int(up_to_gw), ft_cap=_sp.FT_CAP, first_paid_gw=start_paid,
+                   start_codes=start_codes, wildcard_gw=wildcard_gw(plans, drafts, up_to_gw))
+
+
+def bank_after(bank_now_m: float, price_by_code: Dict[int, float], start_codes: List[int],
+               plans, drafts, up_to_gw: int) -> float:
+    """Bank after every move up to up_to_gw at CURRENT prices (sell price nuances are out of scope)."""
+    squad = [int(c) for c in start_codes]
+    bank = float(bank_now_m)
+    for gw in sorted(set(plans) | set(drafts)):
+        if gw > int(up_to_gw):
+            break
+        e = _entry_for(plans, drafts, gw)
+        if not e or e.get("chip") == "FH":
+            continue
+        for out, inn in (e.get("swaps") or {}).items():
+            if int(out) in squad:
+                bank += float(price_by_code.get(int(out), 0.0)) - float(price_by_code.get(int(inn), 0.0))
+                squad[squad.index(int(out))] = int(inn)
+    return round(bank, 2)

@@ -113,3 +113,37 @@ def test_empty_schema_less_file_stays_unwritten():
     # File on disk: still has no schema (no write happened)
     raw = json.loads(sp.PLANS_PATH.read_text())
     assert "schema" not in raw
+
+
+def test_ledger_banks_and_charges_like_the_draft():
+    plans = {3: {"swaps": {1: 21, 2: 22, 3: 23}, "captain": None, "chip": None}}
+    led = tp.ledger(plans, {}, 3, START, first_gw=2, banked_now=1)
+    w = {x["gw"]: x for x in led["weeks"]}
+    assert w[2]["used"] == 0 and w[2]["available_before"] == 1
+    assert w[3]["available_before"] == 2 and w[3]["used"] == 3
+    assert w[3]["hits"] == 1 and led["points_cost"] == 4
+
+
+def test_ledger_respects_transfers_already_banked():
+    plans = {2: {"swaps": {1: 21, 2: 22}, "captain": None, "chip": None}}
+    led = tp.ledger(plans, {}, 2, START, first_gw=2, banked_now=2)
+    assert led["hits"] == 0
+
+
+def test_ledger_buy_back_is_free():
+    plans = {2: {"swaps": {1: 21}, "captain": None, "chip": None},
+             3: {"swaps": {21: 1}, "captain": None, "chip": None}}
+    led = tp.ledger(plans, {}, 3, START, first_gw=2)
+    assert led["hits"] == 0
+
+
+def test_ledger_wildcard_week_is_unlimited():
+    plans = {2: {"swaps": {1: 21, 2: 22, 3: 23, 4: 24}, "captain": None, "chip": "WC"}}
+    led = tp.ledger(plans, {}, 2, START, first_gw=2)
+    assert led["hits"] == 0 and led["wildcard_gw"] == 2
+
+
+def test_bank_after_prices_moves():
+    plans = {2: {"swaps": {1: 21}, "captain": None, "chip": None}}
+    prices = {1: 5.0, 21: 6.5}
+    assert tp.bank_after(2.0, prices, START, plans, {}, 2) == pytest.approx(0.5)
