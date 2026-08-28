@@ -75,7 +75,7 @@ class CardCtx:
     pts_col: str
     fix: Dict                      # club_fixtures map
     defcon: pd.DataFrame           # per-90 DEFCON table (was the Draft's DEFCON global)
-    scout: Optional[pd.DataFrame]  # Scout snapshot frame the Draft passes to _profile
+    scout: Optional[pd.DataFrame]  # reserved for a future panel · not read yet
     board_stamp: str
     on_replace: Optional[Callable[[int], None]] = None   # footer button · None hides it
     on_compare: Optional[Callable[[int], None]] = None
@@ -120,6 +120,10 @@ def _one_line(html: str) -> str:
         seg = seg.strip()
         if not seg:
             continue
+        # A space is owed whenever the PREVIOUS line ended mid-prose. What comes
+        # next may be another word or an inline tag ("is <b>3.4</b>"); either
+        # way the sentence needs the gap. When the previous line ended on a tag
+        # ("</span>") no space is owed, which is what keeps chips flush.
         if out and (out[-1].isalnum() or out[-1] in ",.;:!?") \
                 and (seg[0].isalnum() or seg[0] == "<"):
             out += " "
@@ -1003,6 +1007,6 @@ def open_player_card(ctx: CardCtx, code: int) -> None:
             _i += 1
         if ctx.on_captain is not None:
             with btn_cols[_i]:
-                if st.button(f"⭐ Captain for GW{ctx.captain_gw}", key=f"dlg_cap_{code}",
+                if st.button(f"⭐ Captain for GW{ctx.captain_gw or ctx.current_gw}", key=f"dlg_cap_{code}",
                              use_container_width=True):
                     ctx.on_captain(code)

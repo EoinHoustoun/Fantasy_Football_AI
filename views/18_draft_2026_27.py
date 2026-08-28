@@ -2089,7 +2089,8 @@ def _transfer_ledger(upto_gw: int) -> Dict:
 
 # ── Player evidence ───────────────────────────────────────────────────────────
 # `_profile` is defined further down as a one-line wrapper around
-# `ui.player_card.profile`, once `CARD` exists · other tabs call it by name.
+# `ui.player_card.profile`, once `CARD_CTX` exists · kept as the page's public
+# alias by controller ruling (Task 5, ruling 2).
 def _profile_window(code: int, from_gw: int, horizon: int) -> Dict:
     """A profile scored over the window being planned, not over a season."""
     from analytics.head_to_head import player_profile
@@ -2194,7 +2195,7 @@ def _push_compare(code: int) -> None:
     st.rerun()
 
 
-CARD = PC.CardCtx(
+CARD_CTX = PC.CardCtx(
     board=board, proj=PROJ, pts_col=PTS_COL, fix=_FIX, defcon=DEFCON,
     scout=scout, board_stamp=BOARD_STAMP,
     on_replace=_push_axe, on_compare=_push_compare,
@@ -2202,20 +2203,20 @@ CARD = PC.CardCtx(
 
 
 def _profile(code: int) -> Dict:
-    return PC.profile(CARD, code)
+    return PC.profile(CARD_CTX, code)
 
 
 def _player_dialog(code: int) -> None:
-    # Refreshed live, immediately before each open · `CARD` itself is built once
-    # at module scope, but the viewed gameweek is fragment-scoped session state,
-    # so baking it into CARD at construction time would go stale on a
-    # fragment-only rerun (CLAUDE.md rule 5). Assigning it here reads the
-    # current value at call time regardless of when CARD was built.
-    CARD.current_gw = int(st.session_state.get(_sk("draft_gw"), 1))
-    PC.open_player_card(CARD, code)
+    # Refreshed live, immediately before each open · `CARD_CTX` itself is built
+    # once at module scope, but the viewed gameweek is fragment-scoped session
+    # state, so baking it into CARD_CTX at construction time would go stale on
+    # a fragment-only rerun (CLAUDE.md rule 5). Assigning it here reads the
+    # current value at call time regardless of when CARD_CTX was built.
+    CARD_CTX.current_gw = int(st.session_state.get(_sk("draft_gw"), 1))
+    PC.open_player_card(CARD_CTX, code)
 
 
-_dc_hit = lambda code, pos: PC.dc_hit(CARD, code, pos)
+_dc_hit = lambda code, pos: PC.dc_hit(CARD_CTX, code, pos)
 _setpiece_glyphs, _conf_color, _set_piece_line = (
     PC.setpiece_glyphs, PC.conf_color, PC.set_piece_line)
 
