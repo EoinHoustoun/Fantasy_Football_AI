@@ -48,6 +48,10 @@ UNHASHED_OK = {
     "00_my_team::_xp_horizon_cached::_players",
     "00_my_team::_xp_horizon_cached::_bootstrap",
     "00_my_team::_scored_universe::_players",
+    # The player card's per-position rank lists, keyed by the board's own
+    # freshness stamp beside it · the card moved out of the Draft page and can
+    # no longer close over a page-level `board` global, so it takes one.
+    "player_card::_position_ranks::_board",
 }
 
 # Functions that read only sources which cannot change within a session · a
@@ -62,12 +66,15 @@ NO_ARGS_OK = {
     "11_gw_history::load_bootstrap", "15_mini_league::fetch_global_avg",
     "16_perfect_season::_load_all", "16_perfect_season::_replay_lookup",
     "17_value_lab::_summary", "home::_pl_logo_data_url",
-    "live_projection::club_fixtures", "18_draft_2026_27::_defcon_per90",
+    "live_projection::club_fixtures",
+    # `_defcon_per90` moved to `ui/player_card.py` as `defcon_per90(stamp)` ·
+    # it now takes the board's freshness stamp, so it no longer needs this
+    # exception (rule 2 only fires on zero arguments).
     # The Dixon-Coles fit is itself cached on disk behind its own freshness
     # check, and club short names do not change inside a season. Neither can
     # go stale in a way a stamp would catch.
-    "18_draft_2026_27::_dc_ratings", "18_draft_2026_27::_short_to_name",
-    "18_draft_2026_27::_last_season_stats",
+    "player_card::_dc_ratings", "player_card::_short_to_name",
+    "player_card::_last_season_stats",
     # A constant key is the POINT here · this returns the process-wide store the
     # weekly-ceiling solver writes into from a background thread. A page script
     # re-executes top to bottom on every rerun, so a plain module-level dict was
