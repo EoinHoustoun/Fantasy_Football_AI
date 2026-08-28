@@ -147,3 +147,14 @@ def test_bank_after_prices_moves():
     plans = {2: {"swaps": {1: 21}, "captain": None, "chip": None}}
     prices = {1: 5.0, 21: 6.5}
     assert tp.bank_after(2.0, prices, START, plans, {}, 2) == pytest.approx(0.5)
+
+
+def test_first_gw_ignores_weeks_already_played():
+    """A plan saved for a week that has since been played must not move the
+    future squad again · the current squad already contains that move."""
+    plans = {2: {"swaps": {1: 21}, "captain": None, "chip": None}}
+    prices = {1: 5.0, 21: 6.5}
+    assert tp.effective_codes(START, plans, {}, 4, first_gw=3)[:2] == [1, 2]
+    assert tp.bank_after(2.0, prices, START, plans, {}, 4, first_gw=3) == pytest.approx(2.0)
+    # Without the bound, the old behaviour still replays it.
+    assert tp.effective_codes(START, plans, {}, 4)[0] == 21

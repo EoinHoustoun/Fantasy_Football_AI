@@ -133,16 +133,25 @@ def wildcard_gw(plans, drafts, up_to_gw: int) -> Optional[int]:
 
 
 def effective_codes(start_codes: List[int], plans: Dict[int, Entry],
-                    drafts: Dict[int, Entry], up_to_gw: int) -> List[int]:
+                    drafts: Dict[int, Entry], up_to_gw: int,
+                    first_gw: Optional[int] = None) -> List[int]:
     """The fifteen after every week up to and including `up_to_gw`.
 
     Draft beats plan for the same week. A Free Hit week applies only when it
     IS the viewed week; afterwards the squad reverts, which is the rule.
+
+    `start_codes` is the squad as it stands at `first_gw`, so any plan saved
+    for an EARLIER week is already baked into it. Passing `first_gw` skips
+    those weeks · without it a plan left over from a gameweek that has since
+    been played moves the future squad a second time.
     """
     squad = [int(c) for c in start_codes]
+    lo = None if first_gw is None else int(first_gw)
     for gw in sorted(set(plans) | set(drafts)):
         if gw > int(up_to_gw):
             break
+        if lo is not None and gw < lo:
+            continue
         e = _entry_for(plans, drafts, gw)
         if not e:
             continue
@@ -171,13 +180,20 @@ def ledger(plans, drafts, up_to_gw: int, start_codes: List[int],
 
 
 def bank_after(bank_now_m: float, price_by_code: Dict[int, float], start_codes: List[int],
-               plans, drafts, up_to_gw: int) -> float:
-    """Bank after every move up to up_to_gw at CURRENT prices (sell price nuances are out of scope)."""
+               plans, drafts, up_to_gw: int, first_gw: Optional[int] = None) -> float:
+    """Bank after every move up to up_to_gw at CURRENT prices (sell price nuances are out of scope).
+
+    `first_gw` skips weeks already reflected in `bank_now_m`, the same lower
+    bound `effective_codes` and `ledger` apply.
+    """
     squad = [int(c) for c in start_codes]
     bank = float(bank_now_m)
+    lo = None if first_gw is None else int(first_gw)
     for gw in sorted(set(plans) | set(drafts)):
         if gw > int(up_to_gw):
             break
+        if lo is not None and gw < lo:
+            continue
         e = _entry_for(plans, drafts, gw)
         if not e or e.get("chip") == "FH":
             continue

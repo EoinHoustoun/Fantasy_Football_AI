@@ -1043,14 +1043,15 @@ def _compare_dialog(a_code: int, b_code: int, gw: int) -> None:
                       key=f"gap_cmp_radar_{a_code}_{b_code}")
 
 
-def _save_row(gw, entry, plans, drafts, start_codes, codes_now) -> None:
+def _save_row(gw, entry, plans, drafts, start_codes, codes_now, plan_first) -> None:
     """Chip, save, reset, clear.
 
     `plans`, `drafts`, `start_codes` and `codes_now` are carried for the
     "is the gap real?" Monte Carlo that lands beside these buttons next.
     """
     if entry.get("swaps"):
-        codes_before = TP.effective_codes(start_codes, plans, {}, gw - 1)
+        codes_before = TP.effective_codes(start_codes, plans, {}, gw - 1,
+                                          first_gw=int(plan_first))
         sim = _gap_sim(gw, tuple(sorted(codes_before)), tuple(sorted(codes_now)),
                        _LIVE["board_stamp"])
         v = gap_verdict(sim)
@@ -1121,7 +1122,8 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     plans, drafts = TP.load(int(team_id), _CODE_BY_ID)
     entry = dict(drafts.get(view_gw) or plans.get(view_gw) or TP.empty_entry())
     start_codes = [int(c) for c in squad_df["code"]]
-    codes_now = TP.effective_codes(start_codes, plans, drafts, view_gw)
+    codes_now = TP.effective_codes(start_codes, plans, drafts, view_gw,
+                                   first_gw=int(plan_first))
     sq, missing = _planner_squad(codes_now)
     if missing:
         st.warning("%d player(s) have no projection on the board · shown at 0."
@@ -1175,7 +1177,7 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     wk = next((w for w in led["weeks"]
                if w["gw"] == view_gw and w["gw"] >= int(plan_first)), None)
     bank_m_after = TP.bank_after(bank_m_now, _PRICE_BY_CODE, start_codes, plans,
-                                 drafts, view_gw)
+                                 drafts, view_gw, first_gw=int(plan_first))
     _money_strip(wk, led, bank_m_after, xi_pts, band, bench_pts, chip, n_match, n_asked)
 
     # ── Pitch ────────────────────────────────────────────────────────────────
@@ -1217,7 +1219,7 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     if axed:
         _transfer_desk(axed, sq, view_gw, entry, bank_m_after, codes_now)
 
-    _save_row(view_gw, entry, plans, drafts, start_codes, codes_now)
+    _save_row(view_gw, entry, plans, drafts, start_codes, codes_now, plan_first)
 
 
 # ── SQUAD ─────────────────────────────────────────────────────────────────────
