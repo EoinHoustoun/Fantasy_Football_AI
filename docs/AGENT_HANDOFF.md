@@ -96,10 +96,12 @@ planner, chip routes).
 
 **Next, in order:**
 1. **Planner handoff.** The draft should hand its squad to the EXISTING My Team
-   planner (`analytics/squad_planner.py` has FT banking, hit costs, named draft
-   persistence, `effective_squad`). Do NOT build a second planner · two that can
-   disagree about the squad is the failure mode. This unlocks ✕-swap on the pitch,
-   named saved drafts, and the per-week in/out summary Eoin asked for.
+   planner (`analytics/team_plan.py` owns plan state keyed by player `code`, FT
+   banking and hit costs via `squad_rules.transfer_ledger`, and the working
+   drafts on disk; `analytics/squad_planner.py` is now only the file path and
+   the raw JSON read/write it sits on). Do NOT build a second planner · two that
+   can disagree about the squad is the failure mode. This unlocks ✕-swap on the
+   pitch, named saved drafts, and the per-week in/out summary Eoin asked for.
 2. **Real per-gameweek projections.** Current per-GW figure is season ÷ 38 scaled
    by fixture ease · a fixture SHAPE, not a match forecast. Opponent-adjusted
    rates and rotation risk would make it real.

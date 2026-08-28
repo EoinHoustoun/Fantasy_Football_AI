@@ -247,20 +247,25 @@ Page files: `home` · `00_my_team` · `02_transfer_suggestions` ·
 `15_mini_league` · `16_perfect_season` · `17_value_lab` · `18_draft_2026_27` ·
 `19_playbook`. (Deleted: `01_dashboard`, `03_transfer_planner`.)
 
-## My Team pitch planner (2026-07)
+## My Team pitch planner (2026-07, re-platformed 2026-08-28)
 The Pitch View timeline scrubs history (GW1..now) AND future planning weeks.
 Off-season, `SIM_HORIZON` (config) future GWs are simulated: GW1..5 fixtures
-replay as GW39..43. In a future week every kit gets a permanent ✕ (transfer
-out) and the kit opens a Player Intel dialog. Clicks are FLUID: the pitch
-renders through `components/pitch_click/` (a minimal bidirectional Streamlit
-component · data-ffaction/data-ffid elements report {action, id, nonce} over
-the websocket; dedupe on nonce). Never regress to `<a href="?...">` links ·
-they full-reload the app and wipe session state. `?gw=41` deep links still
-jump the scrubber. Working moves persist as DRAFTS on disk via
-`analytics/squad_planner.py` (`data/cache/squad_plans.json`, schema
-{plans, drafts}); Save promotes draft→plan. FT banking: 1/week, +1 per week
-with no saved transfers, cap 5; extras cost −4 (red badge). `effective_squad()`
-applies saved plans cumulatively when scrubbing forward.
+replay as GW39..43. In a future week every kit gets a permanent ✕ (mark for
+transfer) and the kit opens the shared player card (`ui/player_card.py`).
+Clicks are FLUID: the pitch renders through `components/pitch_click/` (a
+minimal bidirectional Streamlit component · data-ffaction/data-ffid elements
+report {action, id, nonce} over the websocket; dedupe on nonce). Never regress
+to `<a href="?...">` links · they full-reload the app and wipe session state.
+`?gw=41` deep links still jump the scrubber. Working moves persist as DRAFTS on
+disk via `analytics/team_plan.py` (`data/cache/squad_plans.json`, schema 2:
+{schema, plans, drafts}, every entry keyed by player `code`); Save promotes
+draft→plan, and a save patches ONLY its own week so a v1 file is never
+flattened. `analytics/squad_planner.py` is down to the path, `FT_CAP`/`HIT_COST`
+and the raw JSON read/write `team_plan` builds on. FT banking: 1/week banked to
+a cap of 5, oldest spent first, the rest at −4; a WC or FH week is free and
+accrues nothing. `team_plan.effective_codes()` replays saved weeks cumulatively
+when scrubbing forward, bounded BELOW by the first planning week so a plan left
+over from a gameweek since played cannot move the squad a second time.
 
 **My Team runs on the Draft's engine (2026-08-28).** Forward weeks use
 `ui/live_projection.projection()` (one projector, one cache key), plan state in
@@ -273,17 +278,21 @@ from `analytics/head_to_head.py`, and a shared-noise Monte Carlo (`ui/team_gap.p
 next to Save. `xp_engine` and `plan_optimizer` are gone; the multi-week optimiser
 returns on the new projector (separate spec).
 
-More planner rules (2026-07-13): the whole planner runs inside `@st.fragment`
-(in-fragment actions use `st.rerun(scope="fragment")` · dialogs keep app
-scope). Multi-axe: ✕ queues any number of players (`plan_axes` session list,
-pooled budget, radio slot picker); ✕ again un-queues. Plan entries are dicts
-{transfers, captain, chip} (legacy bare lists normalise on read) · captain set
-from the Player Intel dialog, chip via the per-week selectbox; WC/FH are
-hit-free and don't consume FTs, FH squads revert next week, BB/TC feed the
-Squad xP chip. Player photos: resources.premierleague.com/premierleague25/
+More planner rules (2026-07-13, re-platformed 2026-08-28): the whole planner
+runs inside `@st.fragment` (in-fragment actions use
+`st.rerun(scope="fragment")` · dialogs keep app scope). Multi-axe: ✕ queues
+any number of players (session key `axe::team{id}`, pooled budget); ✕ again
+un-queues. There is NO radio slot picker · the queue is filled one player at a
+time from the `components/ff_table` transfer desk under the pitch, whose
+"Swap in" action writes the move into that week's draft. Plan entries are dicts
+{swaps, captain, chip} keyed by player `code` (`swaps` is {out_code: in_code};
+v1 {transfers:[{out_id, in_id}]} entries migrate on load when the fpl_id → code
+map is passed to `team_plan.load`) · captain set from the player card, chip via
+the per-week selectbox; WC/FH are hit-free and don't consume FTs, FH squads
+revert next week, BB adds the bench and TC doubles the armband in the week's
+projected points. Player photos: resources.premierleague.com/premierleague25/
 photos/players/110x140/{code}.png (plain code, no 'p' prefix) with kit
-fallback. `ui/player_detail.intel_lookup(universe)` is the app-wide intel
-expander. Off-season the squad fetch's form is 0.0 for everyone · My Team
+fallback. Off-season the squad fetch's form is 0.0 for everyone · My Team
 overrides it from the universe (self-healed) or captain scores break.
 
 ## Data gotcha · player xG
