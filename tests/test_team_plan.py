@@ -67,3 +67,49 @@ def test_swaps_upto_and_wildcard_gw():
     assert tp.swaps_upto(plans, {}, 3) == {2: {1: 21}}
     assert tp.wildcard_gw(plans, {}, 5) == 2
     assert tp.chip_at(plans, {}, 4) is None
+
+
+def test_migration_v1_to_v2_with_mapping():
+    """Migration write-back when code_by_fpl_id is supplied: v1 transfers convert to swaps, schema is updated."""
+    # Seed schema-less v1 file
+    sp._write({"plans": {"45595": {"2": {"transfers": [{"out_id": 501, "in_id": 502}], "captain": 501, "chip": "BB"}}},
+               "drafts": {}})
+    # Load WITH mapping
+    plans, drafts = tp.load(45595, code_by_fpl_id={501: 9001, 502: 9002})
+    # Verify in-memory result is migrated v2
+    assert plans == {2: {"swaps": {9001: 9002}, "captain": 9001, "chip": "BB"}}
+    # Verify file on disk now has schema == 2 with migrated swaps (JSON keys are strings)
+    raw = json.loads(sp.PLANS_PATH.read_text())
+    assert raw["schema"] == 2
+    assert raw["plans"]["45595"]["2"]["swaps"]["9001"] == 9002
+    assert raw["plans"]["45595"]["2"]["captain"] == 9001
+    assert raw["plans"]["45595"]["2"]["chip"] == "BB"
+
+
+def test_migration_v1_without_mapping_leaves_file_untouched():
+    """Loading schema-less v1 WITHOUT code_by_fpl_id returns empty swaps but does NOT write to disk."""
+    # Seed schema-less v1 file
+    original = {"plans": {"45595": {"2": {"transfers": [{"out_id": 501, "in_id": 502}], "captain": 501, "chip": "BB"}}},
+                "drafts": {}}
+    sp._write(original)
+    # Load WITHOUT mapping
+    plans, drafts = tp.load(45595)
+    # In-memory: transfers drop because no mapping, so swaps are empty
+    assert plans == {2: {"swaps": {}, "captain": None, "chip": "BB"}}
+    # File on disk: unchanged (no schema key added, v1 transfers still there)
+    raw = json.loads(sp.PLANS_PATH.read_text())
+    assert "schema" not in raw
+    assert raw == original
+
+
+def test_empty_schema_less_file_stays_unwritten():
+    """Loading an empty schema-less file does not write to disk."""
+    # Seed empty schema-less file
+    sp._write({"plans": {}, "drafts": {}})
+    # Load
+    plans, drafts = tp.load(45595)
+    # In-memory: empty
+    assert plans == {} and drafts == {}
+    # File on disk: still has no schema (no write happened)
+    raw = json.loads(sp.PLANS_PATH.read_text())
+    assert "schema" not in raw

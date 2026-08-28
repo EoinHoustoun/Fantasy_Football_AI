@@ -65,8 +65,8 @@ def load(team_id: int,
     raw = _sp._read()
     plans = _bucket(raw, "plans", team_id, code_by_fpl_id)
     drafts = _bucket(raw, "drafts", team_id, code_by_fpl_id)
-    if raw.get("schema") != SCHEMA and (plans or drafts):
-        _store(team_id, plans, drafts)                     # write back as v2 once
+    if raw.get("schema") != SCHEMA and (plans or drafts) and code_by_fpl_id is not None:
+        _store(team_id, plans, drafts)                     # write back as v2 once (only if mapping supplied)
     return plans, drafts
 
 
