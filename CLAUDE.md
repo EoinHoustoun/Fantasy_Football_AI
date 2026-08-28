@@ -212,7 +212,7 @@ Call `inject_global_animations()` at the top of every page. Provides:
 | `analytics/scout_projections.py` | Second-opinion projections from a **manual, gitignored** Fantasy Football Scout snapshot (`data/cache/scout_projections_2026_27.csv`). `model_scale` + scale-adjusted `disagreements`. Never scraped on a schedule |
 | `data/fetchers/ffhub.py` | Third opinion · **manual, gitignored** Fantasy Football Hub snapshot (`data/cache/ffh_predictions_2026_27.csv`): per-fixture predicted points AND **expected minutes** for GW1-4. Join is name + club, never name alone |
 | `analytics/consensus.py` | Blends the three models onto one scale · `consensus_points`, `consensus_lo/hi`, `model_spread` → `consensus_confidence`, `ffh_nailedness`. `biggest_disagreements()` |
-| `analytics/gw_projection.py` | **Per-gameweek expected points, one implementation.** Match forecasts inside the snapshot window, fixture shape beyond it. Also `best_xi()` and `bench_boost_value()` |
+| `analytics/gw_projection.py` | **Per-gameweek expected points, one implementation.** Match forecasts inside the snapshot window, fixture shape beyond it. Also `best_xi()`; bench-boost value comes from `analytics/grading.bench_boost_grade()` |
 | `analytics/head_to_head.py` | Player vs player (per season / per £m / per 90, scaled across the compared players) and draft vs draft (`score_draft` prices each squad WITH its own chip plan, `compare_drafts` says which wins and why) |
 | `components/ff_table.py` | **All tables go through here, not `st.dataframe`.** Declarative column specs (face, player, num, bar, chip, fixture run, action), theme-aware, clickable. `build_html` is pure and unit-testable |
 | `analytics/drafts.py` | Named drafts, saved to `data/cache/saved_drafts.json`. A draft is the RECIPE (strategy, locks, dials, chip plan), never the fifteen · so it stays correct when prices move. Nine presets seeded once |
@@ -262,19 +262,16 @@ jump the scrubber. Working moves persist as DRAFTS on disk via
 with no saved transfers, cap 5; extras cost −4 (red badge). `effective_squad()`
 applies saved plans cumulatively when scrubbing forward.
 
-**xP comes from `analytics/xp_engine.py`** (per-player, per-GW horizon:
-form/ppg blend × minutes factor × per-fixture ease, DGW/BGW aware, calibrated
-to ep_next's scale) · the planner pitch, Net xP chip and replacement panel all
-show the VIEWED week's projection, and head-to-heads add an "xP next N GWs"
-row. **"✨ Optimise my next 5 weeks"** (`analytics/plan_optimizer.py`) greedily
-plans like-for-like swaps over the horizon (budget, ≤3/club, FT banking,
-hits only past a margin, bench-discounted, minutes-gated) and writes the
-result as timeline drafts with a summary dialog + save-all. The replacement panel
-ranks by player-level signals (form 0.45 + xP 0.30 + fixtures 0.25 · club-level
-FDR alone clumps the list by team); each candidate has ⚖ head-to-head vs the
-axed player (fixtures, winner-highlighted stats, xP/price verdict, radar
-overlay). Player radars always compare vs the ±£1m positional price band
-(`ui/player_detail.price_band_baseline`).
+**My Team runs on the Draft's engine (2026-08-28).** Forward weeks use
+`ui/live_projection.projection()` (one projector, one cache key), plan state in
+`analytics/team_plan.py` keyed by player `code` (schema 2 in
+`data/cache/squad_plans.json`; v1 migrates on load), the FT ledger from
+`squad_rules.transfer_ledger` via `team_plan.ledger`, the pitch through
+`render_squad_pitch` with rows from `ui/team_pitch_rows.py`, candidates through
+`components/ff_table`, the shared player card `ui/player_card.py`, head-to-head
+from `analytics/head_to_head.py`, and a shared-noise Monte Carlo (`ui/team_gap.py`)
+next to Save. `xp_engine` and `plan_optimizer` are gone; the multi-week optimiser
+returns on the new projector (separate spec).
 
 More planner rules (2026-07-13): the whole planner runs inside `@st.fragment`
 (in-fragment actions use `st.rerun(scope="fragment")` · dialogs keep app
@@ -304,6 +301,28 @@ Understat matches by name and silently misses most players. `build_player_univer
 - `FPL_TEAM_ID=38148`
 - `FFH_EMAIL=` / `FFH_PASSWORD=` · **awaiting user fill**. Once provided, build `data/fetchers/ffhub.py` and wire into `build_player_universe()`.
 - `FPL_EMAIL=` / `FPL_PASSWORD=` · optional, unlocks private-league endpoints.
+
+## Season rollover · what actually broke when 2026-27 kicked off (2026-08-27)
+- **`vaastav.CURRENT_SEASON` is now "2026-27" and the running season is NOT
+  served by vaastav.** Their `merged_gw.csv` appears weeks late (404 today) and
+  stalled at GW29 last year. `fetch_gw_history()` for the current season builds
+  the same schema from the FPL API (`fpl_history.build_live_gw_history`: one
+  row per player per finished + data_checked GW from `event/{gw}/live`, joined
+  to the bootstrap and fixtures). Past seasons still come from vaastav.
+- **Picks 404 between a finished GW and the next deadline.** Every squad page
+  asks for the PLANNING gameweek; `fetch_team_picks` now walks back to the
+  latest GW with picks and layers on transfers already confirmed for later GWs
+  (`/transfers/` is public). The result carries `picks_gw` / `requested_gw`;
+  My Team labels its points tile with `entry_history["event"]`.
+- **The points model has nothing to train on until `MIN_TRAIN_GWS` (4) GWs are
+  final.** Predictions and Free Hit gate on `ui.preseason.stop_if_too_few_gameweeks`,
+  the pre-warm skips, and `train_and_evaluate` reports NaN metrics instead of
+  crashing when the holdout is empty. DEFCON stats return None until anyone
+  has 3 games; Ownership hides season movement until 2 GWs.
+- **One gameweek of ppg was extrapolated over 37.** `transfer_engine._shrunk_ppg`
+  shrinks each player's rate toward the positional mean with a 6-game prior.
+- **Chart ramps accept `var(--ff-*)` tokens** via `charts._rgb_triplet`; pages
+  had been passing tokens into hex parsers and crashing.
 
 ## Known data gotchas (verify against current code)
 - **Season is dynamic.** `understat.py` and `fbref.py` both derive the active season from today's date. If caches look stale after season rollover, delete `data/cache/` contents.
@@ -418,8 +437,7 @@ underscored, so one projector was built per process and reused forever · the
 pitch showed the Spurs Fernandes at 4.8 in GW1 against a correct 2.99. Keep the
 underscore ONLY on a large frame that an adjacent hashed `stamp` fully
 describes (`_board`, `_fix`, `_base`, `_df`), never on the stamp itself, and
-never on a scalar the result actually depends on. `views/00_my_team.py`
-`_scored_universe(_players)` still has this shape and is unfixed.
+never on a scalar the result actually depends on.
 
 **Gotcha: a cached function taking NO arguments has a constant key.** Same
 outcome, different cause. `build_board()` cached for six hours regardless of
@@ -523,3 +541,41 @@ Rules, in order of importance:
 - Invent new design tokens.
 - Re-render dashboards that already live on a dedicated page · link instead.
 - Call `st.rerun()` inside a button handler.
+
+## Two points models · the incumbent and the sandboxed one (2026-08-09)
+
+`analytics/points_model.py` (XGBoost + Optuna, regresses the points TOTAL) is
+still what the Predictions and Free Hit pages run. `analytics/component_model.py`
+is a second model that predicts the countable events (P(60+), expected minutes,
+goals, assists, clean sheet, bonus, defensive contribution) and adds them up with
+the scoring table, with opponent strength as a real feature rather than a
+post-hoc FDR multiplier.
+
+**It is OFF by default and must stay that way until Eoin approves the swap.**
+Turn it on for a session with `FF_COMPONENT_MODEL=1`, never by editing the
+default in `config.COMPONENT_MODEL`. `model_store.train_and_store` dispatches on
+the flag and falls back to the incumbent if it raises.
+
+Walk-forward over the full archive (`scripts/benchmark_points_models.py`, 36
+folds, 178k rows, 9 test seasons): among likely starters it beats the incumbent
+in every season, mean Spearman **0.291 vs 0.173**, worst season 0.250 vs 0.125.
+That comparison runs the incumbent untuned · Optuna is worth about +0.06 to it
+(`scripts/benchmark_tuning_check.py`), so the real edge is nearer **+0.05** than
+the +0.12 the table shows. Roughly 57% of the gain is having ten seasons to
+train on rather than one.
+
+**It is an IN-SEASON model only.** The cold-start fold
+(`scripts/benchmark_gw1_fold.py`, 8 seasons, no in-season data, scoring GW1-6)
+says it is **worse than last season's points** at ranking an opening window:
+mean Spearman 0.199 against 0.274, worst season 0.025. Its features are a
+three-match form window, which in August describes last May. So the Value Board,
+Draft and Chip Planner keep the consensus blend, and this model belongs only on
+Predictions and Free Hit. Details in `docs/WORKFLOW.md` 2026-08-09.
+
+Two traps the model handles that any rebuild must keep:
+- **`team_id` is reassigned alphabetically each summer** (id 3: Bournemouth →
+  Burnley), so team ratings are keyed by club NAME. Keyed by id, every promoted
+  side inherits the previous holder's form.
+- **Defensive contribution points only exist from 2025-26.** The actions model
+  trains on every season that records them; the points are added only where the
+  rule was in force.

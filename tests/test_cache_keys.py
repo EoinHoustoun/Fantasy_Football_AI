@@ -45,8 +45,6 @@ UNHASHED_OK = {
     # SR.spec_key. Hashing the dict itself would miss the cache on widget
     # insertion order, which is the whole reason spec_key exists.
     "18_draft_2026_27::_solve_opening_cached::_spec",
-    "00_my_team::_xp_horizon_cached::_players",
-    "00_my_team::_xp_horizon_cached::_bootstrap",
     "00_my_team::_scored_universe::_players",
     # The player card's per-position rank lists, keyed by the board's own
     # freshness stamp beside it · the card moved out of the Draft page and can

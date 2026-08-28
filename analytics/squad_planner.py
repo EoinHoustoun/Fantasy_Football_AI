@@ -1,24 +1,21 @@
-"""Future-gameweek squad planner · the engine behind the My Team pitch planner.
+"""Plan persistence for the My Team forward-week planner.
 
-Owns three things:
+FT banking, the effective squad and hit pricing now live in
+`analytics/team_plan.py` (keyed by player `code`, the Draft's engine). This
+module keeps the disk format the plan/draft JSON was built on:
   1. Plan persistence · saved transfers per future GW live in
      data/cache/squad_plans.json (survives restarts; volatile cache, not git).
-  2. FPL free-transfer banking · 1 FT per week, +1 banked per week you save no
-     transfer, capped at 5. Extra transfers beyond your FTs cost -4 points each.
-  3. Effective squad · applies every saved transfer from the first planning GW
-     up to the viewed GW, so scrubbing forward shows the squad as it will be.
+  2. `FT_CAP` / `HIT_COST` · the constants `team_plan.py` builds its ledger on.
 
 Pure logic + JSON I/O · no Streamlit imports, fully unit-testable.
-Python 3.8: typing.List/Dict/Optional only.
+Python 3.8: typing.Dict/Optional only.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-import pandas as pd
+from typing import Any, Dict, Optional
 
 from config import CACHE_DIR
 
@@ -126,124 +123,3 @@ def clear_all_plans(team_id: int) -> None:
     _write(raw)
 
 
-# ── Free-transfer banking ──────────────────────────────────────────────────────
-
-def _entry(plans: Dict[int, Any], gw: int) -> Dict[str, Any]:
-    return normalize_entry(plans.get(int(gw), []))
-
-
-def free_transfers_for(plans: Dict[int, Any],
-                       gw: int, first_gw: int, base_fts: int = 1) -> int:
-    """Free transfers available AT `gw`, given saved plans for earlier weeks.
-
-    Start the first planning week with `base_fts`. Each following week:
-    carry over what you didn't use (never below 0), gain 1, cap at FT_CAP.
-    Skip a week without saving a transfer → the FT banks. Skip six → still 5.
-    Wildcard / Free Hit weeks don't consume free transfers.
-    """
-    fts = base_fts
-    for g in range(int(first_gw), int(gw)):
-        e = _entry(plans, g)
-        used = 0 if e.get("chip") in ("WC", "FH") else len(e["transfers"])
-        fts = min(FT_CAP, max(0, fts - used) + 1)
-    return fts
-
-
-def hit_cost(n_transfers: int, fts: int, chip: Optional[str] = None) -> int:
-    """Points cost of making `n_transfers` with `fts` free ones available.
-    Free on a Wildcard / Free Hit week."""
-    if chip in ("WC", "FH"):
-        return 0
-    return max(0, int(n_transfers) - int(fts)) * HIT_COST
-
-
-# ── Effective squad ────────────────────────────────────────────────────────────
-
-def effective_squad(base_squad: pd.DataFrame,
-                    players_df: pd.DataFrame,
-                    plans: Dict[int, List[Dict[str, Any]]],
-                    up_to_gw: int,
-                    first_gw: int,
-                    extra_pending: Optional[List[Dict[str, Any]]] = None,
-                    ) -> pd.DataFrame:
-    """The squad as it stands at `up_to_gw` after every saved transfer from
-    `first_gw`..`up_to_gw` (inclusive), plus any unsaved `extra_pending` swaps.
-
-    Incoming players are looked up in `players_df` and inherit the outgoing
-    player's bench slot / squad_position so the formation stays intact.
-    """
-    squad = base_squad.copy()
-    all_transfers: List[Dict[str, Any]] = []
-    captain_id: Optional[int] = None
-    for g in range(int(first_gw), int(up_to_gw) + 1):
-        e = _entry(plans, g)
-        # Free Hit squads revert · that week's moves only count ON that week.
-        if e.get("chip") == "FH" and g < int(up_to_gw):
-            continue
-        all_transfers.extend(e["transfers"])
-        if g == int(up_to_gw) and e.get("captain"):
-            captain_id = int(e["captain"])
-    all_transfers.extend(extra_pending or [])
-
-    if not all_transfers and captain_id is None:
-        return squad
-
-    lookup = players_df.set_index("fpl_id")
-    for t in all_transfers:
-        out_id, in_id = int(t["out_id"]), int(t["in_id"])
-        mask = squad["fpl_id"].astype(int) == out_id
-        if not mask.any() or in_id not in lookup.index:
-            continue
-        old = squad[mask].iloc[0]
-        new = lookup.loc[in_id]
-        row = {c: old.get(c) for c in squad.columns}
-        for c in squad.columns:
-            if c in new.index:
-                row[c] = new[c]
-        # Slot/identity fields keep the outgoing player's place in the XI.
-        row["fpl_id"] = in_id
-        row["on_bench"] = bool(old.get("on_bench", False))
-        row["squad_position"] = old.get("squad_position")
-        row["is_captain"] = bool(old.get("is_captain", False))
-        row["is_vice_captain"] = bool(old.get("is_vice_captain", False))
-        squad = squad[~mask]
-        squad = pd.concat([squad, pd.DataFrame([row])], ignore_index=True)
-
-    if captain_id is not None and (squad["fpl_id"].astype(int) == captain_id).any():
-        squad["is_captain"] = squad["fpl_id"].astype(int) == captain_id
-        squad.loc[squad["is_captain"], "is_vice_captain"] = False
-
-    if "squad_position" in squad.columns:
-        squad = squad.sort_values("squad_position").reset_index(drop=True)
-    return squad
-
-
-def bank_after(base_bank: float,
-               plans: Dict[int, Any],
-               up_to_gw: int, first_gw: int,
-               extra_pending: Optional[List[Dict[str, Any]]] = None) -> float:
-    """Bank balance after every saved (+ pending) transfer up to `up_to_gw`.
-    Free Hit weeks revert, so their price deltas only count on the week."""
-    bank = float(base_bank)
-    for g in range(int(first_gw), int(up_to_gw) + 1):
-        e = _entry(plans, g)
-        if e.get("chip") == "FH" and g < int(up_to_gw):
-            continue
-        for t in e["transfers"]:
-            bank += float(t.get("price_out", 0)) - float(t.get("price_in", 0))
-    for t in (extra_pending or []):
-        bank += float(t.get("price_out", 0)) - float(t.get("price_in", 0))
-    return round(bank, 2)
-
-
-def total_hits(plans: Dict[int, Any],
-               first_gw: int, last_gw: int, base_fts: int = 1) -> int:
-    """Total points spent on hits across the whole saved plan."""
-    cost = 0
-    for g in range(int(first_gw), int(last_gw) + 1):
-        e = _entry(plans, g)
-        used = len(e["transfers"])
-        if used:
-            cost += hit_cost(used, free_transfers_for(plans, g, first_gw, base_fts),
-                             chip=e.get("chip"))
-    return cost
