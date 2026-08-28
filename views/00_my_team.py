@@ -1280,7 +1280,7 @@ def _open_card(code: int, gw: int, codes_now) -> None:
     PC.open_player_card(ctx, int(code))
 
 
-def _captain_and_xi(entry, xi, pos_by, gw, playing):
+def _captain_and_xi(entry, xi, pos_by, gw, playing, manual_xi):
     """Honour a saved armband, promoting him into the XI when that is legal.
 
     Returns `(xi, captain, stuck)`. A saved captain sitting on the bench used to
@@ -1289,21 +1289,32 @@ def _captain_and_xi(entry, xi, pos_by, gw, playing):
     own position is what the user meant by pressing it; when even that would
     break the formation we hand back `stuck` so the caller can say why rather
     than leaving the armband somewhere the user did not put it.
+
+    `manual_xi` says the eleven on screen was chosen by hand for this week, and
+    it VETOES the promotion. The two-tap swap on the pitch writes only
+    `xi_override` and never touches `entry["captain"]`, so benching your own
+    captain used to be undone on the next rerun by the promotion above: the
+    kit went back into the eleven and the bench tap looked broken. The most
+    recent explicit instruction wins, and a tap on the pitch is more recent and
+    more specific than an armband saved earlier.
     """
+    def _auto():
+        return max(playing or list(xi), key=lambda c: PROJ.points(c, gw), default=None)
+
     saved = entry.get("captain")
     saved = int(saved) if saved is not None else None
-    auto = max(playing or list(xi), key=lambda c: PROJ.points(c, gw), default=None)
     if saved is None or saved not in pos_by:
-        return xi, auto, None
+        return xi, _auto(), None
     if saved in xi:
         return xi, saved, None
-    same_pos = [c for c in xi if pos_by.get(c) == pos_by.get(saved)]
-    if same_pos:
-        drop = min(same_pos, key=lambda c: PROJ.points(c, gw))
-        promoted = (set(xi) - {drop}) | {saved}
-        if SR.is_legal_xi(promoted, pos_by):
-            return promoted, saved, None
-    return xi, auto, saved
+    if not manual_xi:
+        same_pos = [c for c in xi if pos_by.get(c) == pos_by.get(saved)]
+        if same_pos:
+            drop = min(same_pos, key=lambda c: PROJ.points(c, gw))
+            promoted = (set(xi) - {drop}) | {saved}
+            if SR.is_legal_xi(promoted, pos_by):
+                return promoted, saved, None
+    return xi, _auto(), saved
 
 
 def _money_strip(wk, led, bank_m_after, xi_pts, band, bench_pts, chip,
@@ -1526,12 +1537,14 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     pos_by = {int(r["code"]): str(r["position"]) for _, r in sq.iterrows()}
     xi = set(best_xi(sq, PROJ, view_gw))
     manual = st.session_state[_sk("xi_override")].get(view_gw)
+    manual_xi = False
     if manual:
         # A saved override can name a player who has since been transferred out,
         # so it is filtered and re-checked rather than trusted.
         manual = {int(c) for c in manual if int(c) in pos_by}
         if SR.is_legal_xi(manual, pos_by):
             xi = manual
+            manual_xi = True
     chip = entry.get("chip")
     # A captain who does not start scores you nothing twice, so the armband is
     # gated on expected minutes. Silence (None) is not a statement that he is
@@ -1539,7 +1552,8 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     playing = [c for c in xi
                if PROJ.expected_minutes(c, view_gw) is None
                or (PROJ.expected_minutes(c, view_gw) or 0) >= 45]
-    xi, captain, _stuck = _captain_and_xi(entry, xi, pos_by, view_gw, playing)
+    xi, captain, _stuck = _captain_and_xi(entry, xi, pos_by, view_gw, playing,
+                                          manual_xi)
     if _stuck is not None:
         st.caption("Saved captain %s is benched this week · the armband goes to %s."
                    % (names.get(_stuck, str(_stuck)),
