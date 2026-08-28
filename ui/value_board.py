@@ -411,7 +411,10 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 opening_map: tuple = (), bench_budget=None,
                 force_names: tuple = (), bench_pts_col: Optional[str] = None,
                 gw_pts_cols: tuple = (), boost_col: Optional[str] = None,
-                min_club_cover: tuple = (), max_from_club: tuple = ()):
+                min_club_cover: tuple = (), max_from_club: tuple = (),
+                attack_cap_exempt: tuple = (), max_price_band: tuple = (),
+                max_defenders_per_club: Optional[int] = 1,
+                captain_must_take_pens: bool = False):
     """Solve one named draft strategy on ACTUAL prices.
 
     `risk` (0-1) sets the objective: 0 maximises the MEAN projection (upside),
@@ -436,6 +439,22 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
     the Streamlit cache key stays stable. Enforced inside the MILP rather than by
     re-solving with a player banned · banning explores one branch and can miss
     the optimum, while a constraint is exact and still proves optimality.
+    `attack_cap_exempt` is a tuple of team_ids released from the one-attacker
+    -per-club rule. The rule exists because two attackers at one club is a
+    doubled bet on the same attack, but that is a judgement about a typical
+    club, and it should be overridable for one where the attack is worth
+    doubling down on. A tuple, not a list, so the Streamlit cache key stays
+    stable.
+    `captain_must_take_pens` restricts the armband to first-choice penalty
+    takers (`pens_order == 1` on the board). Eoin's rule, and it belongs in the
+    objective rather than in a re-score afterwards: a squad built for a captain
+    it is not allowed to use is optimising the wrong thing.
+    `max_defenders_per_club` caps how many defenders may come from one club.
+    It was hardcoded to 1 here, so a caller could not turn it off even when the
+    config said to · Eoin dropped the rule on 2026-08-11 ("we can have multiple
+    Arsenal defenders if that is optimal"). None means no cap beyond FPL's
+    three-per-club. Note this is a CAP while `min_club_cover` is a FLOOR · they
+    constrain opposite ends and both can apply to the same club.
     `min_club_cover` is a tuple of (team_id, "def"|"att", n) demanding at least
     n players of that side of the pitch from that club · "I want Arsenal
     defensive cover" without naming which Arsenal defender. A tuple, not a list,
@@ -466,10 +485,26 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
 
     # Explicit locks are added on top of whatever the strategy already forces, and
     # they beat a veto · picking a player and vetoing him is a mistake, not a rule.
+    # A lock that matches NO player used to vanish here, and a vanished lock
+    # looks exactly like a lock that was not worth taking · the solver returns
+    # the unforced squad and nothing says why. Locking "M.Fernandes" when the
+    # board calls him "Fernandes" cost a wrong answer on 2026-08-11.
+    _missing = [n for n in force_names if _code(n) is None]
+    if _missing:
+        logger.warning("lock matched no player and was DROPPED: %s",
+                       ", ".join(str(n) for n in _missing))
     locks = tuple(c for c in (_code(n) for n in force_names) if c)
     if locks:
         force = tuple(dict.fromkeys(force + locks))
         exclude = tuple(c for c in exclude if c not in set(locks))
+
+    cap_codes = None
+    if captain_must_take_pens and "pens_order" in board.columns:
+        _p = pd.to_numeric(board["pens_order"], errors="coerce")
+        cap_codes = [int(c) for c in board.loc[_p == 1, "code"]]
+        if not cap_codes:
+            logger.warning("captain_must_take_pens is on but the board has no "
+                           "pens_order == 1 · the rule was NOT applied")
 
     d = board.rename(columns={"actual_price": "price", "projected_points": "pts"})
     r = max(0.0, min(1.0, float(risk)))
@@ -532,7 +567,11 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                 gw_pts_cols=_cols, boost_col=_boost,
                 force_codes=list(force), exclude_codes=list(exclude),
                 max_attackers_per_club=max_attackers_per_club,
-                defcon_codes=_defcon_codes(), max_defenders_per_club=1,
+                defcon_codes=_defcon_codes(),
+                attack_cap_exempt=[int(t) for t in attack_cap_exempt],
+                max_price_band=[tuple(b) for b in max_price_band],
+                max_defenders_per_club=max_defenders_per_club,
+                captain_codes=cap_codes,
                 min_club_cover=[tuple(c) for c in min_club_cover],
                 max_from_club=[tuple(c) for c in max_from_club],
                 bench_budget=bench_budget)
@@ -541,7 +580,10 @@ def solve_draft(board: pd.DataFrame, strategy: str, budget: float = 100.0,
                           force_codes=list(force), exclude_codes=list(exclude),
                           max_attackers_per_club=max_attackers_per_club,
                           defcon_codes=_defcon_codes(),
-                          max_defenders_per_club=1,
+                          attack_cap_exempt=[int(t) for t in attack_cap_exempt],
+                          max_price_band=[tuple(b) for b in max_price_band],
+                          max_defenders_per_club=max_defenders_per_club,
+                          captain_codes=cap_codes,
                           min_club_cover=[tuple(c) for c in min_club_cover],
                           max_from_club=[tuple(c) for c in max_from_club],
                           bench_budget=bench_budget,

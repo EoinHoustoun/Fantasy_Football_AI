@@ -41,12 +41,15 @@ def optimize_squad(
     exclude_codes: Optional[List] = None,
     max_attackers_per_club: Optional[int] = None,
     defcon_codes: Optional[List] = None,
+    attack_cap_exempt: Optional[List] = None,
     max_defenders_per_club: Optional[int] = None,
     bench_pts_col: Optional[str] = None,
     gw_pts_cols: Optional[List[str]] = None,
     boost_col: Optional[str] = None,
     min_club_cover: Optional[List] = None,
     max_from_club: Optional[List] = None,
+    max_price_band: Optional[List] = None,
+    captain_codes: Optional[List] = None,
 ) -> Optional[Dict]:
     """
     Pick the optimal 15 (2-5-5-3, ≤3 per club, budget), best legal XI and
@@ -54,6 +57,12 @@ def optimize_squad(
     points. Returns dict with squad/lineup/captain DataFrames + totals,
     or None if infeasible.
 
+    `captain_codes` · the only player `code`s allowed to wear the armband. Eoin
+    only ever captains a penalty taker, and that rule used to live OUTSIDE the
+    solver: squads were optimised for free captaincy and re-scored under the
+    rule afterwards, which quietly overstated every total. It is a constraint on
+    the captain variable now, so the optimiser builds for the armband it is
+    actually going to use. None means anyone in the eleven may captain.
     `force_codes` · player `code`s that MUST be in the 15 (e.g. Haaland).
     `exclude_codes` · player `code`s that must NOT be picked. Both no-op if the
     frame has no `code` column.
@@ -90,9 +99,12 @@ def optimize_squad(
             players, budget=budget, gw_pts_cols=gw_pts_cols, boost_col=boost_col,
             captain=captain, time_limit=time_limit, bench_budget=bench_budget,
             min_club_cover=min_club_cover, max_from_club=max_from_club,
+            max_price_band=max_price_band,
             force_codes=force_codes, exclude_codes=exclude_codes,
             max_attackers_per_club=max_attackers_per_club, defcon_codes=defcon_codes,
-            max_defenders_per_club=max_defenders_per_club)
+            attack_cap_exempt=attack_cap_exempt,
+            max_defenders_per_club=max_defenders_per_club,
+            captain_codes=captain_codes)
     df = players.dropna(subset=[pts_col, "price", "position"]).reset_index(drop=True)
     if exclude_codes and "code" in df.columns:
         df = df[~df["code"].isin(exclude_codes)].reset_index(drop=True)
@@ -162,14 +174,30 @@ def optimize_squad(
     # attack, so a same-club defcon+attacker pair stays legal.
     if max_attackers_per_club is not None and "team_id" in df.columns:
         defcon = set(defcon_codes or [])
+        exempt_teams = set(int(t) for t in (attack_cap_exempt or []))
         has_code = "code" in df.columns
         for team in df["team_id"].dropna().unique():
+            if int(team) in exempt_teams:
+                continue
             a_idx = [i for i in idx
                      if df.loc[i, "team_id"] == team
                      and df.loc[i, "position"] in ("MID", "FWD")
                      and not (has_code and df.loc[i, "code"] in defcon)]
             if a_idx:
                 prob += pulp.lpSum(squad[i] for i in a_idx) <= max_attackers_per_club
+
+    # Price-band headcount · at most N players at one (position, price) point.
+    # "Only ever one £4.0m defender" is a squad-shape rule, not a taste in
+    # players: the floor price buys a body who plays, and a second one turns the
+    # bench into two of them. Enforced in the MILP rather than by banning names,
+    # so the solver picks WHICH one rather than being told.
+    if max_price_band and "position" in df.columns and "price" in df.columns:
+        for pos, price, cap_n in max_price_band:
+            band = [i for i in idx
+                    if str(df.loc[i, "position"]) == str(pos)
+                    and round(float(df.loc[i, "price"]), 1) == round(float(price), 1)]
+            if band:
+                prob += pulp.lpSum(squad[i] for i in band) <= int(cap_n)
 
     # Defender diversification · at most N defenders per club (clean sheets are a
     # team event, so two DEF from one club is a doubled bet on the same outcome).
@@ -180,9 +208,12 @@ def optimize_squad(
             if d_idx:
                 prob += pulp.lpSum(squad[i] for i in d_idx) <= max_defenders_per_club
 
+    _cap_ok = _captain_eligible(df, captain_codes)
     for i in idx:
         prob += lineup[i] <= squad[i]
         prob += cap[i] <= lineup[i]
+        if _cap_ok is not None and i not in _cap_ok:
+            prob += cap[i] == 0
 
     # "I want cover from this club" · at least N of a side of the pitch from one
     # team. Locking a NAMED player says who; this says only that you want the
@@ -260,7 +291,8 @@ def optimize_squad(
 def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
                  force_codes, max_attackers_per_club, defcon_codes,
                  max_defenders_per_club, min_club_cover=None,
-                 max_from_club=None):
+                 max_from_club=None, attack_cap_exempt=None,
+                 max_price_band=None):
     """The constraints on the FIFTEEN · identical whichever objective is used.
 
     Pulled out so the single-week and per-gameweek models cannot drift apart.
@@ -283,14 +315,30 @@ def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
 
     if max_attackers_per_club is not None and "team_id" in df.columns:
         defcon = set(defcon_codes or [])
+        exempt_teams = set(int(t) for t in (attack_cap_exempt or []))
         has_code = "code" in df.columns
         for team in df["team_id"].dropna().unique():
+            if int(team) in exempt_teams:
+                continue
             a_idx = [i for i in idx
                      if df.loc[i, "team_id"] == team
                      and df.loc[i, "position"] in ("MID", "FWD")
                      and not (has_code and df.loc[i, "code"] in defcon)]
             if a_idx:
                 prob += pulp.lpSum(squad[i] for i in a_idx) <= max_attackers_per_club
+
+    # Price-band headcount · at most N players at one (position, price) point.
+    # "Only ever one £4.0m defender" is a squad-shape rule, not a taste in
+    # players: the floor price buys a body who plays, and a second one turns the
+    # bench into two of them. Enforced in the MILP rather than by banning names,
+    # so the solver picks WHICH one rather than being told.
+    if max_price_band and "position" in df.columns and "price" in df.columns:
+        for pos, price, cap_n in max_price_band:
+            band = [i for i in idx
+                    if str(df.loc[i, "position"]) == str(pos)
+                    and round(float(df.loc[i, "price"]), 1) == round(float(price), 1)]
+            if band:
+                prob += pulp.lpSum(squad[i] for i in band) <= int(cap_n)
 
     if max_defenders_per_club is not None and "team_id" in df.columns:
         for team in df["team_id"].dropna().unique():
@@ -325,6 +373,20 @@ def _squad_rules(prob, df, idx, squad, budget, bench_budget_vars,
             if t_idx:
                 prob += pulp.lpSum(squad[k] for k in t_idx) <= int(n)
 
+def _captain_eligible(df: pd.DataFrame, captain_codes: Optional[List]):
+    """Row indices allowed to wear the armband, or None for "anyone".
+
+    An empty `captain_codes` is treated as "no restriction", not "nobody" · a
+    caller that finds no penalty takers on its board has a data problem, and
+    making every squad infeasible is the wrong way to report it.
+    """
+    if not captain_codes or "code" not in df.columns:
+        return None
+    want = {int(c) for c in captain_codes}
+    ok = {i for i in df.index if int(df.loc[i, "code"]) in want}
+    return ok or None
+
+
 def _optimize_multi_week(
     players: pd.DataFrame,
     budget: float,
@@ -340,6 +402,9 @@ def _optimize_multi_week(
     max_defenders_per_club: Optional[int],
     min_club_cover: Optional[List] = None,
     max_from_club: Optional[List] = None,
+    attack_cap_exempt: Optional[List] = None,
+    captain_codes: Optional[List] = None,
+    max_price_band: Optional[List] = None,
 ) -> Optional[Dict]:
     """One fifteen, a fresh eleven every gameweek. See `optimize_squad`."""
     need = list(gw_pts_cols) + ["price", "position"]
@@ -371,8 +436,11 @@ def _optimize_multi_week(
 
     _squad_rules(prob, df, idx, squad, budget, None, force_codes,
                  max_attackers_per_club, defcon_codes, max_defenders_per_club,
-                 min_club_cover=min_club_cover, max_from_club=max_from_club)
+                 min_club_cover=min_club_cover, max_from_club=max_from_club,
+                 attack_cap_exempt=attack_cap_exempt,
+                 max_price_band=max_price_band)
 
+    _cap_ok = _captain_eligible(df, captain_codes)
     for g in weeks:
         prob += pulp.lpSum(start[i][g] for i in idx) == 11
         prob += pulp.lpSum(cap[i][g] for i in idx) == (1 if captain else 0)
@@ -385,6 +453,8 @@ def _optimize_multi_week(
         for i in idx:
             prob += start[i][g] <= squad[i]
             prob += cap[i][g] <= start[i][g]
+            if _cap_ok is not None and i not in _cap_ok:
+                prob += cap[i][g] == 0
 
     if bench_budget is not None:
         # Bench money is dead money, but with a rotating eleven "the bench" is
@@ -410,7 +480,9 @@ def _optimize_multi_week(
     xi_by_week, cap_by_week, total = {}, {}, 0.0
     for g in weeks:
         started = [i for i in picked if start[i][g].value() and start[i][g].value() > 0.5]
-        cap_i = max(started, key=lambda i: P[g][i]) if (started and captain) else None
+        eligible = ([i for i in started if _cap_ok is None or i in _cap_ok]
+                    if captain else [])
+        cap_i = max(eligible, key=lambda i: P[g][i]) if eligible else None
         xi_by_week[g] = started
         cap_by_week[g] = cap_i
         total += float(P[g][started].sum())

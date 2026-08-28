@@ -81,3 +81,98 @@ def test_unknown_lock_name_is_ignored_not_fatal():
     res = solve_draft(b, "⚖️ Optimal value", 100.0, 0.3, (), 0.0,
                       force_names=("NotAPlayer",))
     assert res is not None
+
+
+def _two_good_defenders_at_one_club():
+    """A board where the two best defenders share a club.
+
+    Under the old hardcoded cap the optimiser could never own both, whatever the
+    numbers said. Eoin dropped that rule on 2026-08-11, so the cap has to be a
+    parameter rather than a constant.
+    """
+    b = _board()
+    b.loc[b["web_name"] == "DEF8", "team_id"] = int(
+        b.loc[b["web_name"] == "DEF7", "team_id"].iloc[0])
+    return b
+
+
+def test_defender_cap_of_one_keeps_the_pair_apart():
+    b = _two_good_defenders_at_one_club()
+    res = solve_draft(b, "⚖️ Optimal value", 100.0, 0.0, (), 0.0,
+                      max_defenders_per_club=1)
+    assert res is not None
+    picked = set(res["squad"]["web_name"])
+    assert not {"DEF7", "DEF8"} <= picked
+
+
+def test_defender_cap_of_none_lets_the_optimiser_take_both():
+    b = _two_good_defenders_at_one_club()
+    res = solve_draft(b, "⚖️ Optimal value", 100.0, 0.0, (), 0.0,
+                      max_defenders_per_club=None)
+    assert res is not None
+    assert {"DEF7", "DEF8"} <= set(res["squad"]["web_name"])
+
+
+def test_a_lock_that_matches_nobody_is_reported():
+    """A vanished lock looks like a lock that was not worth taking · say so.
+
+    The handler is attached to the module logger directly rather than using
+    `caplog`, because Streamlit reconfigures logging when its cache warms up
+    and the fixture's root handler stops seeing these records once it has.
+    """
+    import logging
+
+    seen = []
+
+    class _Catch(logging.Handler):
+        def emit(self, record):
+            seen.append(record.getMessage())
+
+    log = logging.getLogger("ui.value_board")
+    h = _Catch(level=logging.WARNING)
+    log.addHandler(h)
+    try:
+        res = solve_draft(_board(), "⚖️ Optimal value", 100.0, 0.3, (), 0.0,
+                          force_names=("NoSuchPlayerAnywhere",))
+    finally:
+        log.removeHandler(h)
+
+    assert res is not None                       # the solve still succeeds
+    assert any("NoSuchPlayerAnywhere" in m for m in seen)
+
+
+# ── the penalty-taker captaincy rule, inside the solver ──────────────────────
+
+def _board_with_pens():
+    """One clear best player who does NOT take penalties, and a taker below him."""
+    b = _board()
+    b["pens_order"] = float("nan")
+    b.loc[b["web_name"] == "MID7", "pens_order"] = 1.0      # a taker, not the best
+    b.loc[b["web_name"] == "FWD5", "pens_order"] = 1.0
+    return b
+
+
+def test_free_captaincy_picks_the_highest_scorer():
+    b = _board_with_pens()
+    res = solve_draft(b, "⚖️ Optimal value", 100.0, 0.0, (), 0.0)
+    cap = res["squad"][res["squad"]["is_captain"]]["web_name"].iloc[0]
+    assert cap not in ("MID7", "FWD5")
+
+
+def test_pens_rule_moves_the_armband_to_a_taker():
+    b = _board_with_pens()
+    res = solve_draft(b, "⚖️ Optimal value", 100.0, 0.0, (), 0.0,
+                      captain_must_take_pens=True)
+    cap = res["squad"][res["squad"]["is_captain"]]["web_name"].iloc[0]
+    assert cap in ("MID7", "FWD5")
+
+
+def test_a_board_with_no_takers_still_solves():
+    """No pens_order anywhere is a DATA problem · it must not make every squad
+    infeasible, so the rule stands down and says so."""
+    b = _board()
+    b["pens_order"] = float("nan")
+    res = solve_draft(b, "⚖️ Optimal value", 100.0, 0.0, (), 0.0,
+                      captain_must_take_pens=True)
+    assert res is not None
+    assert len(res["squad"]) == 15

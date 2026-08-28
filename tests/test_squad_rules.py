@@ -333,3 +333,18 @@ def test_min_club_cover_applies_to_the_weekly_lineup_model_too():
     assert res is not None
     sq = res["squad"]
     assert len(sq[(sq.team_id == 7) & (sq.position.isin(["MID", "FWD"]))]) >= 1
+
+
+def test_a_price_band_ban_can_exempt_a_named_player():
+    """Avoid the band unless you must, and then only him · one rule, not two."""
+    import pandas as pd
+    from analytics import squad_rules as SR
+
+    board = pd.DataFrame({
+        "uniq_name": ["Cheap", "Kadioglu", "Dear"],
+        "position": ["DEF", "DEF", "DEF"],
+        "actual_price": [4.5, 4.5, 5.5],
+    })
+    assert SR.banned_price_names(board, (("DEF", 4.5),)) == ["Cheap", "Kadioglu"]
+    assert SR.banned_price_names(board, (("DEF", 4.5),),
+                                 exempt=("Kadioglu",)) == ["Cheap"]

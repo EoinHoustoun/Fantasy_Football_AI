@@ -95,3 +95,106 @@ def test_the_cap_holds_in_the_per_gameweek_model_too():
                          gw_pts_cols=["gw1", "gw2", "gw3"],
                          max_from_club=[(10, 2)])
     assert int((res["squad"]["team_id"] == 10).sum()) == 2
+
+
+# ── attack-cap exemption ──────────────────────────────────────────────────────
+
+def _two_club_pool():
+    """Nine clubs of cheap fodder plus two strong attackers at club 1.
+
+    Nine, not six: a squad needs eight attackers (5 MID + 3 FWD), so with a
+    one-attacker-per-club cap fewer than eight clubs is infeasible before the
+    rule under test even gets a say.
+    """
+    import pandas as pd
+    rows = []
+    code = 100
+    for club in (1, 2, 3, 4, 5, 6, 7, 8, 9):
+        for pos, n, pts in (("GKP", 2, 3.0), ("DEF", 3, 3.0),
+                            ("MID", 3, 3.0), ("FWD", 2, 3.0)):
+            for k in range(n):
+                code += 1
+                rows.append({"code": code, "web_name": "p%d" % code,
+                             "position": pos, "team_id": club, "price": 4.0,
+                             "pts": pts})
+    # Two standout attackers at club 1 · the cap is the only reason to split them
+    for i, pos in enumerate(("MID", "FWD")):
+        code += 1
+        rows.append({"code": code, "web_name": "star%d" % i, "position": pos,
+                     "team_id": 1, "price": 4.5, "pts": 30.0})
+    return pd.DataFrame(rows)
+
+
+def test_attack_cap_blocks_two_attackers_from_one_club():
+    from analytics.squad_milp import optimize_squad
+    res = optimize_squad(_two_club_pool(), budget=100.0, pts_col="pts",
+                         max_attackers_per_club=1)
+    assert res is not None
+    picked = res["squad"]
+    club1_att = picked[(picked["team_id"] == 1)
+                       & (picked["position"].isin(["MID", "FWD"]))]
+    assert len(club1_att) <= 1
+
+
+def test_exempting_a_club_lets_both_attackers_in():
+    """The point of the exemption · same pool, same cap, one club released."""
+    from analytics.squad_milp import optimize_squad
+    res = optimize_squad(_two_club_pool(), budget=100.0, pts_col="pts",
+                         max_attackers_per_club=1, attack_cap_exempt=[1])
+    assert res is not None
+    picked = res["squad"]
+    club1_att = picked[(picked["team_id"] == 1)
+                       & (picked["position"].isin(["MID", "FWD"]))]
+    assert len(club1_att) >= 2, "both stars should be affordable and legal now"
+
+
+def test_exemption_does_not_leak_to_other_clubs():
+    import pandas as pd
+    from analytics.squad_milp import optimize_squad
+    pool = _two_club_pool()
+    # Give club 2 two standouts as well, but exempt only club 1.
+    extra = pd.DataFrame([
+        {"code": 9001, "web_name": "s2a", "position": "MID", "team_id": 2,
+         "price": 4.5, "pts": 29.0},
+        {"code": 9002, "web_name": "s2b", "position": "FWD", "team_id": 2,
+         "price": 4.5, "pts": 29.0}])
+    res = optimize_squad(pd.concat([pool, extra], ignore_index=True),
+                         budget=100.0, pts_col="pts",
+                         max_attackers_per_club=1, attack_cap_exempt=[1])
+    assert res is not None
+    picked = res["squad"]
+    club2_att = picked[(picked["team_id"] == 2)
+                       & (picked["position"].isin(["MID", "FWD"]))]
+    assert len(club2_att) <= 1
+
+
+def test_max_price_band_caps_the_cheapest_defenders():
+    """Only ever one £4.0m defender · the solver picks which, not which names."""
+    import pandas as pd
+    from analytics.squad_milp import optimize_squad
+
+    rows = []
+    code = 500
+    for club in range(1, 11):
+        for pos, n, price, pts in (("GKP", 2, 4.5, 3.0), ("DEF", 2, 4.0, 6.0),
+                                   ("DEF", 2, 5.5, 5.0), ("MID", 3, 5.0, 5.0),
+                                   ("FWD", 2, 5.0, 5.0)):
+            for _ in range(n):
+                code += 1
+                rows.append({"code": code, "web_name": "p%d" % code,
+                             "position": pos, "team_id": club,
+                             "price": price, "pts": pts})
+    pool = pd.DataFrame(rows)
+
+    free = optimize_squad(pool, budget=100.0, pts_col="pts")
+    cheap_free = free["squad"][(free["squad"]["position"] == "DEF")
+                               & (free["squad"]["price"] == 4.0)]
+    assert len(cheap_free) > 1, "without the rule the cheap band is attractive"
+
+    capped = optimize_squad(pool, budget=100.0, pts_col="pts",
+                            max_price_band=[("DEF", 4.0, 1)])
+    assert capped is not None
+    cheap = capped["squad"][(capped["squad"]["position"] == "DEF")
+                            & (capped["squad"]["price"] == 4.0)]
+    assert len(cheap) <= 1
+    assert len(capped["squad"]) == 15

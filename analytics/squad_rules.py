@@ -237,3 +237,72 @@ def transfer_ledger(swaps: Dict, upto_gw: int, ft_cap: int = 5,
     return {"weeks": weeks, "available_now": avail, "hits": total_hits,
             "points_cost": total_hits * HIT_COST, "cap": ft_cap,
             "wildcard_gw": wc}
+
+
+def banned_price_names(board, bans, name_col: str = "uniq_name",
+                       exempt=()) -> list:
+    """Player names ruled out by a position/price-band ban.
+
+    Eoin's rule for 2026-27: no £4.5m defender. The band is the worst of both
+    worlds · it costs half a million more than the £4.0m floor without buying a
+    materially better chance of a clean sheet, so if the fifteen needs a cheap
+    defender it should take the cheapest one.
+
+    Expressed as a ban on a PRICE BAND rather than on a list of players, because
+    prices move and a name list would silently go stale. Returned as names so it
+    can join the existing veto list, which is what both the solver and the UI
+    already understand.
+
+    `bans` is an iterable of (position, price) pairs.
+
+    `exempt` names survive the ban. Eoin's 2026-08-11 refinement: he does not
+    want a £4.5m defender if it can be avoided, but if the fifteen genuinely
+    needs one it has to be Kad&#305;o&#287;lu. A blanket ban cannot express "avoid
+    unless necessary, and then only him", and the alternative · banning the band
+    and hand-adding one player back · would be a name list going stale, which is
+    the thing this function exists to avoid.
+    """
+    if board is None or not len(board) or not bans:
+        return []
+    col = name_col if name_col in board.columns else "web_name"
+    price_col = "actual_price" if "actual_price" in board.columns else "price"
+    if price_col not in board.columns or "position" not in board.columns:
+        return []
+
+    keep = {str(n) for n in (exempt or ())}
+    out = []
+    for pos, price in bans:
+        hit = board[(board["position"].astype(str) == str(pos))
+                    & (board[price_col].round(1) == round(float(price), 1))]
+        out.extend(str(n) for n in hit[col].tolist() if str(n) not in keep)
+    return sorted(set(out))
+
+
+def below_floor_names(board, floors, name_col: str = "uniq_name") -> list:
+    """Player names under a per-position price floor.
+
+    Eoin's rule for 2026-27: no striker under £6.0m. A sub-£6m forward is a
+    bench body dressed as a pick · it plays in a Bench Boost week and does
+    nothing the rest of the time, and the fifteen is better off spending the
+    money in midfield where the cheap end still starts.
+
+    A floor rather than a name list, for the same reason as
+    `banned_price_names`: prices move.
+
+    `floors` is a mapping of position -> minimum price.
+    """
+    if board is None or not len(board) or not floors:
+        return []
+    col = name_col if name_col in board.columns else "web_name"
+    price_col = "actual_price" if "actual_price" in board.columns else "price"
+    if price_col not in board.columns or "position" not in board.columns:
+        return []
+
+    import pandas as pd
+    out = []
+    for pos, floor in dict(floors).items():
+        price = pd.to_numeric(board[price_col], errors="coerce")
+        hit = board[(board["position"].astype(str) == str(pos))
+                    & (price < float(floor))]
+        out.extend(str(n) for n in hit[col].tolist())
+    return sorted(set(out))

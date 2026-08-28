@@ -194,6 +194,29 @@ PERFECT_SEASON = {
     "solver_gap": 0.01,          # accept within 1% of proven optimum
 }
 
+# ── Experimental points model · SANDBOXED, off by default ────────────────────
+# `analytics/component_model.py` predicts the countable events (minutes, goals,
+# assists, clean sheets, bonus, defensive contribution) and adds them up with the
+# scoring table, instead of regressing the points total directly the way
+# `analytics/points_model.py` does.
+#
+# It stays behind this flag until it beats the incumbent in the walk-forward
+# benchmark AND Eoin has approved the swap. Turn it on for a session with
+# FF_COMPONENT_MODEL=1 in the environment, never by editing the default here.
+#
+#   FF_COMPONENT_MODEL=1 streamlit run app.py --server.port 8510
+#   python3 scripts/benchmark_points_models.py            # the evidence
+COMPONENT_MODEL = {
+    "enabled": os.getenv("FF_COMPONENT_MODEL", "0") == "1",
+    # Seasons the model may train on. More history is the point of it, but a
+    # rule change makes old seasons a different game · the benchmark reports
+    # per-season so the cut can be argued from evidence.
+    "train_seasons": 10,
+    # Minimum career appearances before a player gets a prediction. Below this
+    # the rolling features are mostly empty and the number is a guess.
+    "min_career_games": 3,
+}
+
 # ── Local AI (Ollama) ─────────────────────────────────────────────────────────
 # All AI features run against a local Ollama server · free, offline, private.
 # The app stays fully usable when Ollama is off; AI is an enhancement layer that
@@ -307,13 +330,103 @@ NEW_DRAFT_DEFAULTS = {
     # derives the optimisation window from this, so it is the only thing that
     # needs setting for "optimise for the first three gameweeks".
     "wildcard_gw": 4,
-    "locks": ["Haaland"],
-    "cover": (("MUN", "att", 1), ("ARS", "def", 1)),
+    # RESET 2026-08-16, Eoin's words: "haaland and fernandes and mbeumo in,
+    # thats rules". Everything else is expressed as vetoes below · the old
+    # bench locks (Kinsky, Le Fée, Ballard, O'Shea, Maguire, Calvert-Lewin)
+    # measured 1.4 pts against the free optimum and were dropped. Fernandes
+    # was re-examined the same evening: the spread draft beats him by 0.9 in
+    # the solver but only 51.5/48.5 in the Monte Carlo · a coin flip at ~48%
+    # ownership means own the template.
+    # João Pedro added 2026-08-16 late: 57.9% owned (higher than Fernandes),
+    # tearing up preseason, and Eoin called him "a likely guy we will need" ·
+    # the same own-the-template logic that closed the Fernandes question.
+    "locks": ["Haaland", "B.Fernandes", "Mbeumo", "João Pedro (Joao Pedro)"],
+    # "I should have a minimum of one for Arsenal" (defensive cover · GKP+DEF
+    # count toward it), and only Gabriel, Raya or Mosquera may fill it · the
+    # other Arsenal defensive names are vetoed below. Mosquera's minutes rest
+    # on Saliba's back injury (status 'i', no return date, checked 16 Aug).
+    "cover": (("ARS", "def", 1),),
+    # "I don't want three Sunderland players" · at most two from SUN, on top
+    # of FPL's own three-per-club limit. By club SHORT code, resolved to a
+    # live team id at build time like `cover`.
+    "max_from_club": (("SUN", 2),),
+    # "Max one Brighton midfielder" (2026-08-16, after a Groß+Gomez+Verbruggen
+    # triple appeared). Implemented as the attack-correlation cap scoped to
+    # BHA alone: at most ONE Brighton MID/FWD, every other club exempt. The
+    # keeper and defenders are untouched · their points ride clean sheets,
+    # not the attack.
+    "cap_attackers": True,
+    "max_defenders_per_club": None,
+    "attack_cap_exempt": ("ARS", "AVL", "BOU", "BRE", "CHE", "COV", "CRY",
+                          "EVE", "FUL", "HUL", "IPS", "LEE", "LIV", "MCI",
+                          "MUN", "NEW", "NFO", "SUN", "TOT"),
+    # The price-band rules are OFF · the 2026-08-16 veto list bans the fodder
+    # tiers BY NAME instead (Eoin's list, applied verbatim plus Davis). Two
+    # consequences worth remembering: a new cheap signing next month is NOT
+    # covered the way a band rule would cover him, and Georginio (BHA) is the
+    # only sub-£6.0 forward left in the game, so he is picked by elimination.
+    "ban_price_bands": (),
+    "price_band_exempt": (),
+    "min_price_by_position": {},
+    # Only ever ONE £4.0m defender · reinstated 2026-08-16 after banning Davis
+    # by name simply produced Diop, the next £4.0m Ipswich body. The band rule
+    # ends the whack-a-mole a name list has to play forever.
+    "max_price_band": (("DEF", 4.0, 1),),
+    # Eoin only captains a penalty taker. Enforced inside the MILP.
+    "captain_must_take_pens": True,
+    # 2026-08-16 · Eoin's list, 140 names, cost measured at 0.7 pts against
+    # the unrestricted optimum (only Collins, Simms, Kadıoğlu, N.Williams,
+    # Dewsbury-Hall and Wieffer were ever solver picks; Davis added after
+    # review). Kadıoğlu's old £4.5-band exemption is dead · he is banned.
     "vetoes": [
-        "Dewsbury-Hall", "Bruno G.", "Thiaw", "Watkins", "Bassette", "Kudus",
-        "Semenyo", "Doku", "Thiago", "Richarlison", "Collins", "Osula",
-        "Woltemade", "Angulo", "Zambrano", "Muniz", "Iwobi", "Hirst", "Beto",
-        "Sarr", "Saka", "F.Kadıoğlu (F.Kadioglu)", "Gomez (BHA)", "Slater",
-        "Crooks",
+        "Shaw", "McBurnie", "Evanilson", "Damsgaard", "Kostoulas",
+        "Caicedo", "Brobbey", "Gvardiol", "Xhaka", "Dewsbury-Hall",
+        "Bruno G.", "Thiaw", "Watkins", "Kudus", "Semenyo",
+        "Doku", "Thiago", "Richarlison", "Collins", "Osula",
+        "Woltemade", "Angulo", "Zambrano", "Muniz", "Iwobi",
+        "Hirst", "Beto", "Sarr", "Saka", "Slater",
+        "Alderete", "Maatsen", "Kelleher", "Crooks", "Acheampong",
+        "Aina", "Anselmino", "B.Badiashile", "Bassey", "Bogle",
+        "Bornauw", "Boscagli", "Cardines", "Cash", "Castagne",
+        "Chadi Riad", "Coppola", "Costinha", "De Cuyper", "Digne",
+        "Disasi", "Dunk", "Gudmundsson", "Hato", "Heaven",
+        "Henry", "Hickey", "Igor", "J.Araujo", "J.Cuenca",
+        "Jair Cunha", "Ji-soo", "Justin", "Kayode", "Konsa",
+        "Lewis", "Lindelöf (Lindelof)", "M.Sarr", "Mazraoui", "Meunier",
+        "Mings", "Mingueza", "Mitchell", "Mykolenko", "Netz",
+        "Patterson (EVE)", "Pau", "Phillips (TOT)", "Pinnock", "Reinildo",
+        "Robertson", "Robinson", "Rodon", "Sanchez", "Savona",
+        "Schuster", "Seelt", "Sessegnon", "Smith", "Sosa",
+        "Spence", "Tete", "Tomiyasu", "Tosin", "Udogie",
+        "Vitor Reis", "Abraham", "Akpom", "Al-Hamadi", "Awoniyi",
+        "Barry", "Burstow", "Danns", "Delap", "Destan",
+        "Emegha", "Emersonn", "Enes Ünal (Enes Unal)", "Ferguson", "Furo",
+        "Isidor", "Kalimuendo", "Kusi-Asare", "Madjo", "Marc Guiu",
+        "Markelo", "Mateo Joseph", "Mheuka", "Neave", "Nketiah",
+        "Nmecha", "Obi", "Piroe", "Scarlett", "Simms",
+        "Thomas-Asante", "Tzimas", "Uche", "Walle Egeli", "Wilson (BRE)",
+        "Wright", "Zirkzee", "Wieffer", "Ajer", "F.Kadıoğlu (F.Kadioglu)",
+        "N.Williams", "Bijol", "Röhl (Rohl)", "Dalot", "Davis", "O'Brien",
+        "Arrizabalaga", "Calafiori", "Hincapie", "J.Timber", "White",
+        # Keeper allowlist 2026-08-16: only Kinsky, Raya and Lammens are
+        # allowed in goal · every other keeper on the board is vetoed.
+        # Ibrahim Sangaré (NFO) banned the same evening; the BRE Sangaré
+        # (Mamadou) stays available.
+        "A.Becker", "Austin", "Bayindir", "Benitez",
+        "Bettinelli", "Butland", "Button", "Cartwright",
+        "Darlow", "Davies (LIV)", "Dennis", "Donnarumma",
+        "Dovin", "Dubravka", "Ellborg", "Forster",
+        "Gillespie", "Heaton", "Henderson (CRY)", "Horníček (Hornicek)",
+        "Jaouen", "Jaros", "John", "Jörgensen (Jorgensen)",
+        "King (EVE)", "Lecomte", "Leno", "Lo-Tutala",
+        "M.Bizot", "Mamardashvili", "Martinez (AVL)", "Matthews",
+        "McNally", "Meslier", "Palmer (IPS)", "Patterson (SUN)",
+        "Pecsi", "Penders", "Perri", "Petrović (Petrovic)",
+        "Phillips (HUL)", "Pickford", "Pope", "Roefs",
+        "Rulli", "Rushworth", "Scherpen", "Sels",
+        "Steele", "Sánchez (Sanchez)", "Trafford", "Travers",
+        "Tzolakis", "Valdimarsson", "Van Oevelen", "Verbruggen",
+        "Vicario", "Walton", "Wilson (COV)", "Woodman",
+        "Sangaré (NFO) (Sangare)",
     ],
 }
