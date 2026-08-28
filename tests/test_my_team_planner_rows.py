@@ -60,3 +60,40 @@ def test_pitch_rows_survive_a_player_the_board_does_not_know():
     r = rows[0]
     assert r["price"] == 0.0 and r["team_code"] == 1 and r["on_bench"] is True
     assert r["stat"] == 1.0 and len(r["fixtures"]) == 3
+
+
+def _club_board():
+    """Three MIDs owned at club 10, plus candidates at club 10 and club 11."""
+    return pd.DataFrame([
+        {"code": 1, "web_name": "Own1", "position": "MID", "team_id": 10, "actual_price": 6.0},
+        {"code": 2, "web_name": "Own2", "position": "MID", "team_id": 10, "actual_price": 6.0},
+        {"code": 3, "web_name": "Own3", "position": "MID", "team_id": 10, "actual_price": 6.0},
+        {"code": 4, "web_name": "FourthAt10", "position": "MID", "team_id": 10, "actual_price": 6.0},
+        {"code": 5, "web_name": "Own4", "position": "MID", "team_id": 11, "actual_price": 6.0},
+        {"code": 6, "web_name": "TooDear", "position": "MID", "team_id": 11, "actual_price": 9.0},
+        {"code": 7, "web_name": "WrongPos", "position": "DEF", "team_id": 11, "actual_price": 5.0},
+    ])
+
+
+def test_eligible_pool_blocks_a_fourth_player_from_one_club():
+    """Axing a club-11 player leaves club 10 on three, so a fourth is illegal."""
+    R = _load_view_helpers()
+    pool = R.eligible_pool(_club_board(), codes_now=[1, 2, 3, 5], axed=[5],
+                           position="MID", budget=7.0)
+    assert pool.empty
+
+
+def test_eligible_pool_frees_a_club_seat_when_that_club_is_the_one_sold():
+    """Selling a club-10 player drops it to two, so a club-10 signing is legal."""
+    R = _load_view_helpers()
+    pool = R.eligible_pool(_club_board(), codes_now=[1, 2, 3, 5], axed=[3],
+                           position="MID", budget=7.0)
+    assert set(int(c) for c in pool["code"]) == {4}
+
+
+def test_eligible_pool_filters_on_position_budget_and_ownership():
+    R = _load_view_helpers()
+    pool = R.eligible_pool(_club_board(), codes_now=[1, 2, 5], axed=[5],
+                           position="MID", budget=7.0)
+    codes = set(int(c) for c in pool["code"])
+    assert codes == {3, 4}          # 5 is owned, 6 too dear, 7 wrong position

@@ -1,8 +1,13 @@
 """Row builders for My Team's forward-week pitch and candidate table.
 
-Pure functions so the shapes the pitch and `ff_table` expect are unit-tested
-without Streamlit. Mirrors the Draft's `planner()` dicts and `_pool_rows`, so
-the two pages cannot drift apart on what a shirt or a candidate row carries.
+Functions of their arguments, so the shapes the pitch and `ff_table` expect are
+unit-tested without a Streamlit runtime. Not Streamlit-free: `live_projection`
+is imported for `fixtures_for`, which pulls Streamlit in transitively. Nothing
+here reads `session_state` or writes to the page, which is the property the
+tests rely on.
+
+Mirrors the Draft's `planner()` dicts and `_pool_rows`, so the two pages cannot
+drift apart on what a shirt or a candidate row carries.
 
 Every numeric read goes through `_num` / `_ident` rather than
 `float(x or 0)`: a squad code the board has no row for arrives as NaN, and
@@ -14,6 +19,11 @@ from typing import Callable, Dict, List, Optional
 import pandas as pd
 
 from ui import live_projection as LP
+
+# FPL allows at most three players from one club. Hard-coded rather than shared
+# because the rule is a competition constant, not a tuning dial · the MILP's
+# `max_from_club` is a different thing (a per-club override you choose).
+MAX_FROM_CLUB = 3
 
 
 def _num(value, default: float = 0.0) -> float:
@@ -104,3 +114,34 @@ def candidate_rows(pool: pd.DataFrame, gw: int, proj, fix: Dict,
             "setp": glyph_fn(a),
         })
     return rows
+
+
+def eligible_pool(board: pd.DataFrame, codes_now: List[int], axed: List[int],
+                  position: str, budget: float) -> pd.DataFrame:
+    """Replacements you could actually sign · position, budget and the club cap.
+
+    The 3-per-club rule is counted against the squad you will have AFTER the
+    marked players are sold, not the one on the pitch, so selling a Man City
+    player to buy another Man City player is allowed while a fourth from an
+    untouched club is not. Filtering here rather than validating after the click
+    is what lets the table show only legal moves, which is how the interface
+    teaches the rule instead of enforcing it after the fact.
+    """
+    owned = {int(c) for c in codes_now}
+    outs = {int(c) for c in axed}
+    club_of = dict(zip(board["code"].astype(int), board["team_id"]))
+    clubs = {}
+    for c in owned - outs:
+        tid = club_of.get(int(c))
+        if tid is None or not pd.notna(tid):
+            continue
+        clubs[int(tid)] = clubs.get(int(tid), 0) + 1
+    price = pd.to_numeric(board["actual_price"], errors="coerce")
+    pool = board[(board["position"] == position)
+                 & (~board["code"].astype(int).isin(owned))
+                 & (price <= float(budget))].copy()
+    if pool.empty:
+        return pool
+    taken = pool["team_id"].map(
+        lambda t: clubs.get(int(t), 0) if pd.notna(t) else 0)
+    return pool[taken < MAX_FROM_CLUB]

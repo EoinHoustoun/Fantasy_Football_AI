@@ -14,6 +14,7 @@ from the previous version but visually tightened.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -32,6 +33,8 @@ from components.animations import (
     inject_global_animations,
     scribble_swap_overlay,
 )
+
+_logger = logging.getLogger(__name__)
 
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
@@ -401,7 +404,11 @@ from ui import team_pitch_rows as ROWS
 
 try:
     _LIVE = LP.projection(_freshness.inputs_stamp())
-except Exception:  # noqa: BLE001 · a missing archive must not take the page down
+except Exception as _exc:  # noqa: BLE001 · a missing archive must not take the page down
+    # The planner shows one friendly line for every failure here, so the real
+    # cause has to reach the log or a broken fetcher is indistinguishable from
+    # an archive that was simply never built.
+    _logger.warning("live projection unavailable: %s", _exc, exc_info=True)
     _LIVE = {"board": None, "proj": None, "fix": {}, "pts_col": None, "scout": None,
              "price_bt": None, "validation": None, "board_stamp": "", "window": []}
 
@@ -766,7 +773,8 @@ def _column_chart_dialog(label: str, season_col: str, gw_field, pool: pd.DataFra
         colors=[_tc(ts) for _, _, ts, _ in rows], horizontal=True)
     for item, (_nm, v, _ts, _cd) in zip(opt["series"][0]["data"], rows):
         item["label"] = {"show": True, "position": "right", "formatter": f"{v:g}",
-                         "color": "var(--ff-muted)", "fontSize": 11}
+                         # Canvas, not the DOM · var(--ff-*) resolves to nothing here.
+                         "color": theme.fill("muted"), "fontSize": 11}
     charts.with_image_labels(opt, [_ppu(cd) for _, _, _, cd in rows])
     opt["grid"]["left"] = 150
     opt["grid"]["right"] = 46
@@ -1272,6 +1280,32 @@ def _open_card(code: int, gw: int, codes_now) -> None:
     PC.open_player_card(ctx, int(code))
 
 
+def _captain_and_xi(entry, xi, pos_by, gw, playing):
+    """Honour a saved armband, promoting him into the XI when that is legal.
+
+    Returns `(xi, captain, stuck)`. A saved captain sitting on the bench used to
+    be replaced silently by the auto pick, so the card's "⭐ Captain for GWn"
+    looked like it had done nothing. Swapping him for the weakest starter of his
+    own position is what the user meant by pressing it; when even that would
+    break the formation we hand back `stuck` so the caller can say why rather
+    than leaving the armband somewhere the user did not put it.
+    """
+    saved = entry.get("captain")
+    saved = int(saved) if saved is not None else None
+    auto = max(playing or list(xi), key=lambda c: PROJ.points(c, gw), default=None)
+    if saved is None or saved not in pos_by:
+        return xi, auto, None
+    if saved in xi:
+        return xi, saved, None
+    same_pos = [c for c in xi if pos_by.get(c) == pos_by.get(saved)]
+    if same_pos:
+        drop = min(same_pos, key=lambda c: PROJ.points(c, gw))
+        promoted = (set(xi) - {drop}) | {saved}
+        if SR.is_legal_xi(promoted, pos_by):
+            return promoted, saved, None
+    return xi, auto, saved
+
+
 def _money_strip(wk, led, bank_m_after, xi_pts, band, bench_pts, chip,
                  n_match, n_asked) -> None:
     """The constraints every decision on this page runs into, above everything.
@@ -1366,11 +1400,13 @@ def _transfer_desk(axed, sq, gw, entry, bank_m_after, codes_now) -> None:
                 + ("  ·  filling %s first" % names.get(target, str(target))
                    if len(axed) > 1 else ""))
 
-    pool = BOARD[(BOARD["position"] == out_row["position"])
-                 & (~BOARD["code"].isin(codes_now))
-                 & (BOARD["actual_price"] <= pooled)].copy()
+    # Position, budget AND the 3-per-club cap counted after the marked players
+    # are sold · a signing that would leave four from one club is not available,
+    # and showing it would be offering a move the game rejects.
+    pool = ROWS.eligible_pool(BOARD, codes_now, axed, str(out_row["position"]), pooled)
     if pool.empty:
-        st.info("No %s is available for £%.1fm. Free more money, or keep him."
+        st.info("No %s is available for £%.1fm within the 3-per-club limit. "
+                "Free more money, mark a different player, or keep him."
                 % (out_row["position"], pooled))
         return
     pool = pool.sort_values(PTS_COL, ascending=False).head(60)
@@ -1432,18 +1468,31 @@ def _save_row(gw, entry, plans, drafts, start_codes, codes_now) -> None:
     # These three write to disk, which is one of the three sanctioned reasons to
     # call st.rerun() from a button (CLAUDE.md rule 5): the widgets above were
     # built before the write, so without it they show the old plan.
+    #
+    # Reset and Clear must also DROP the chip widget's own key. The selectbox is
+    # keyed, so its value outlives the entry it came from: without the pop, a
+    # week whose chip was just cleared on disk re-reads "BB" off the widget on
+    # the next run and the `chip != entry` branch above writes it straight back
+    # as a fresh draft. A chip could never be taken off, and Clear re-dirtied
+    # the week it had just cleaned.
+    def _drop_chip_widget() -> None:
+        st.session_state.pop(_sk("chip%d" % gw), None)
+
     if c1.button("💾 Save GW%d plan" % gw, key=_sk("save%d" % gw), type="primary",
                  use_container_width=True):
         TP.save_plan(int(team_id), int(gw), entry)
+        st.session_state[_sk("axe")] = []
         st.toast("Saved · GW%d plan" % gw)
         st.rerun()
     if c2.button("↩ Reset to saved", key=_sk("reset%d" % gw), use_container_width=True):
         TP.clear_draft(int(team_id), int(gw))
         st.session_state[_sk("axe")] = []
+        _drop_chip_widget()
         st.rerun()
     if c3.button("🧹 Clear this week", key=_sk("clear%d" % gw), use_container_width=True):
         TP.save_plan(int(team_id), int(gw), TP.empty_entry())
         st.session_state[_sk("axe")] = []
+        _drop_chip_widget()
         st.rerun()
 
 
@@ -1473,6 +1522,7 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
         "var(--ff-gold)"), unsafe_allow_html=True)
 
     # ── XI, captain, chip ────────────────────────────────────────────────────
+    names = {int(r["code"]): str(r["web_name"]) for _, r in sq.iterrows()}
     pos_by = {int(r["code"]): str(r["position"]) for _, r in sq.iterrows()}
     xi = set(best_xi(sq, PROJ, view_gw))
     manual = st.session_state[_sk("xi_override")].get(view_gw)
@@ -1489,11 +1539,11 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     playing = [c for c in xi
                if PROJ.expected_minutes(c, view_gw) is None
                or (PROJ.expected_minutes(c, view_gw) or 0) >= 45]
-    captain = entry.get("captain")
-    captain = int(captain) if captain is not None else None
-    if captain not in xi:
-        captain = max(playing or list(xi), key=lambda c: PROJ.points(c, view_gw),
-                      default=None)
+    xi, captain, _stuck = _captain_and_xi(entry, xi, pos_by, view_gw, playing)
+    if _stuck is not None:
+        st.caption("Saved captain %s is benched this week · the armband goes to %s."
+                   % (names.get(_stuck, str(_stuck)),
+                      names.get(captain, "the top starter")))
     xi_pts = (sum(PROJ.points(c, view_gw) for c in xi)
               + (PROJ.points(captain, view_gw) if captain else 0)
               * (2 if chip == "TC" else 1))
@@ -1547,8 +1597,7 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
                             swap_targets, entry)
     if sub_from is not None:
         st.info("Swapping **%s**. Tap a glowing kit to bring him on, or tap him "
-                "again to cancel." % str(sq[sq["code"].astype(int) == sub_from]
-                                         ["web_name"].iloc[0]))
+                "again to cancel." % names.get(sub_from, "him"))
 
     # ── Axe queue and candidates ─────────────────────────────────────────────
     if axed:
