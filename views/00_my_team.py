@@ -16,14 +16,14 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict
 
 import pandas as pd
 import streamlit as st
 
 from analytics import freshness as _freshness
 
-from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
+from components.loading import LINES_SQUAD, fpl_loader
 
 from ui import charts, theme
 from ui.charts import with_mark_line
@@ -726,12 +726,28 @@ with link_cols[2]:
 
 
 def _flat(html: str) -> str:
-    """One line of HTML.
+    """One line of HTML, without eating words.
 
     CLAUDE.md rule 6b · a whitespace-only line makes `st.markdown` stop passing
-    raw HTML through and render the rest as literal text.
+    raw HTML through and render the rest as literal text. The same joiner as
+    `ui.player_card._one_line`: concatenating stripped lines welds prose that
+    happened to wrap ("costs 0.6 pts a" + "gameweek" -> "pts agameweek"), and
+    joining on a space instead opens visible gaps between inline chips.
     """
-    return "".join(seg.strip() for seg in html.splitlines())
+    out = ""
+    for seg in html.splitlines():
+        seg = seg.strip()
+        if not seg:
+            continue
+        # A space is owed whenever the PREVIOUS line ended mid-prose. What comes
+        # next may be another word or an inline tag ("is <b>3.4</b>"); either
+        # way the sentence needs the gap. When the previous line ended on a tag
+        # ("</span>") no space is owed, which is what keeps chips flush.
+        if out and (out[-1].isalnum() or out[-1] in ",.;:!?") \
+                and (seg[0].isalnum() or seg[0] == "<"):
+            out += " "
+        out += seg
+    return out
 
 
 def _dedupe(click, nonce_key: str):
@@ -1109,8 +1125,11 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     """A future gameweek, planned on the pitch itself.
 
     Runs as a fragment so an axe, a signing, a bench or a chip redraws only this
-    block. In-block actions use `st.rerun(scope="fragment")`; the dialogs and
-    the disk writes keep app scope (CLAUDE.md rule 5).
+    block. In-block actions use `st.rerun(scope="fragment")`, INCLUDING the ones
+    that write a draft to disk: this fragment re-reads the plan file on every
+    run, so a fragment-scoped rerun already shows what was just written. The
+    dialogs, and the Save/Reset/Clear buttons that sit outside the fragment's
+    own re-read of the widgets above them, keep app scope (CLAUDE.md rule 5).
     """
     if PROJ is None:
         st.error("Archive not built · run `python scripts/build_archive.py` first.")
