@@ -33,8 +33,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Large frames that an adjacent HASHED stamp argument already describes.
 # The key is "<file stem>::<function>::<param>".
 UNHASHED_OK = {
-    "18_draft_2026_27::_projector::_board",
-    "18_draft_2026_27::_projector::_fix",
+    "live_projection::projector::_board",
+    "live_projection::projector::_fix",
     "18_draft_2026_27::_window_board::_base",
     "18_draft_2026_27::_lane_html::_df",
     "18_draft_2026_27::_routes::_board",
@@ -62,7 +62,7 @@ NO_ARGS_OK = {
     "11_gw_history::load_bootstrap", "15_mini_league::fetch_global_avg",
     "16_perfect_season::_load_all", "16_perfect_season::_replay_lookup",
     "17_value_lab::_summary", "home::_pl_logo_data_url",
-    "18_draft_2026_27::_club_fixtures", "18_draft_2026_27::_defcon_per90",
+    "live_projection::club_fixtures", "18_draft_2026_27::_defcon_per90",
     # The Dixon-Coles fit is itself cached on disk behind its own freshness
     # check, and club short names do not change inside a season. Neither can
     # go stale in a way a stamp would catch.

@@ -460,9 +460,23 @@ def _new_draft_defaults() -> Dict:
         "bench_boost_gw": _D["bench_boost_gw"],
         "wildcard_gw": _D["wildcard_gw"],
         "locks": [n for n in _D["locks"] if n in _names],
-        "vetoes": [n for n in _D["vetoes"] if n in _names],
+        # A banned price band is expanded into vetoes here, so every downstream
+        # surface (solver, multiselect, saved draft) sees one list of ruled-out
+        # players rather than a second rule it has to remember to apply.
+        "vetoes": ([n for n in _D["vetoes"] if n in _names]
+                   + [n for n in (SR.banned_price_names(
+                       board, _D.get("ban_price_bands", ()), NAME_COL,
+                       exempt=_D.get("price_band_exempt", ()))
+                       + SR.below_floor_names(
+                           board, _D.get("min_price_by_position", {}), NAME_COL))
+                      if n in _names]),
         "cover": [[_short_to_id[t], k, n] for t, k, n in _D["cover"]
                   if t in _short_to_id],
+        "attack_cap_exempt": [_short_to_id[t]
+                              for t in _D.get("attack_cap_exempt", ())
+                              if t in _short_to_id],
+        "max_price_band": [list(b) for b in _D.get("max_price_band", ())],
+        "cap_attackers": bool(_D.get("cap_attackers", False)),
     }
 _NAME_SET = set(NAMES)
 
@@ -499,78 +513,15 @@ for _w in (price_bt or {}).get("load_warnings", []):
     st.warning(_w, icon=":material/warning:")
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _club_fixtures() -> Dict:
-    """(team_id, gw) -> [(opponent short, is_home, fdr), ...] for 26/27.
+from ui import live_projection as LP
 
-    Difficulty comes from Fantasy Football Scout's model ratings where a ticker
-    snapshot exists, because theirs vary by venue and opponent form while FPL's
-    are fixed per club.
-    """
-    from components.fixture_ticker import load_scout_ticker
-    from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, get_fixtures_df
-    bs = fetch_bootstrap()
-    short = {int(t["id"]): t["short_name"] for t in bs["teams"]}
-    fx = get_fixtures_df(fetch_fixtures(), bs)
-    scout_fdr = load_scout_ticker() or {}
-    out: Dict = {}
-    for _, r in fx.iterrows():
-        if pd.isna(r.get("gameweek")):
-            continue
-        gw = int(r["gameweek"])
-        h, a = int(r["home_team_id"]), int(r["away_team_id"])
-        hs, as_ = short.get(h, "?"), short.get(a, "?")
-        out.setdefault((h, gw), []).append(
-            (as_, True, float(scout_fdr.get((hs, gw), r["home_fdr"]))))
-        out.setdefault((a, gw), []).append(
-            (hs, False, float(scout_fdr.get((as_, gw), r["away_fdr"]))))
-    return out
+_FIX = LP.club_fixtures()
+_module_stamp = LP.module_stamp
+_PROJ_VERSION = LP.PROJ_VERSION
 
 
-_FIX = _club_fixtures()
-
-
-# `cache_resource` holds the LIVE object across code edits, so an edited class
-# keeps serving the old INSTANCE. The manual version int below was meant to
-# guard that and it failed exactly the way manual steps do: `gw_points` (a
-# hand-set score for one gameweek) was added to GwProjection and the int was not
-# bumped, so the running app served a projector with no such feature and Foden's
-# GW2 stayed on the model's 1.2 instead of the 4.0 in the overrides file.
-#
-# So the key now carries the module's own mtime. Edit the class, get a new
-# object, with nothing to remember.
-_PROJ_VERSION = 3
-
-
-def _module_stamp(*mods) -> str:
-    """mtime of each module's source · a cache key that notices a code edit."""
-    import os
-    bits = []
-    for m in mods:
-        try:
-            bits.append("%s:%s" % (m.__name__, os.path.getmtime(m.__file__)))
-        except Exception:
-            bits.append(getattr(m, "__name__", "?"))
-    return "|".join(bits)
-
-
-@st.cache_resource(show_spinner=False)
-def _projector(_board: pd.DataFrame, _fix: Dict, stamp: str, version: int,
-               code_stamp: str):
-    """The per-gameweek projector.
-
-    **A leading underscore tells Streamlit not to hash that argument.** Every
-    parameter here used to carry one, so the cache key was EMPTY: one projector
-    was built per process and reused for the life of it, whatever changed
-    underneath. That is how a refreshed Scout snapshot could sit on disk while
-    the pitch kept showing the numbers it was started with.
-
-    `_board` and `_fix` keep their underscores deliberately · they are large and
-    are fully described by `stamp`. The other three must not have one, because
-    they ARE the key.
-    """
-    from analytics import gw_projection
-    return gw_projection.build(_board, _fix)
+def _fixtures_for(team_id: int, gw: int, n: int = 3) -> List[Dict]:
+    return LP.fixtures_for(team_id, gw, n, fix=_FIX)
 
 
 # Content stamp, not len(board). Refreshing a snapshot or editing an override
@@ -580,21 +531,9 @@ def _projector(_board: pd.DataFrame, _fix: Dict, stamp: str, version: int,
 BOARD_STAMP = _freshness.board_stamp(board, PTS_COL)
 
 from analytics import gw_projection as _gwp_mod
-PROJ = _projector(board, _FIX, BOARD_STAMP, _PROJ_VERSION,
-                  _module_stamp(_gwp_mod))
+PROJ = LP.projector(board, _FIX, BOARD_STAMP, _PROJ_VERSION,
+                     _module_stamp(_gwp_mod))
 MATCH_WINDOW = PROJ.window
-
-
-def _fixtures_for(team_id: int, gw: int, n: int = 3) -> List[Dict]:
-    out = []
-    for g in range(gw, gw + n):
-        fx = _FIX.get((int(team_id), g), [])
-        if not fx:
-            out.append({"opp": "BLANK", "blank": True, "fdr": 3, "home": True})
-            continue
-        for opp, home, fdr in fx:
-            out.append({"opp": opp, "home": home, "fdr": fdr})
-    return out[:n]
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
@@ -1490,6 +1429,20 @@ def _solve_opening_uncached(spec: Dict) -> Optional[Dict]:
     cap = None if not spec.get("cap_attackers") else 1
 
     _cover = tuple(tuple(c) for c in (spec.get("cover") or ()))
+    # Clubs released from the one-attacker-per-club rule. Falls back to the
+    # standing config list so a draft saved before the setting existed still
+    # gets Eoin's current rule rather than the old one.
+    _uncapped = tuple(int(t) for t in (spec.get("attack_cap_exempt")
+                                       or _new_draft_defaults().get("attack_cap_exempt")
+                                       or ()))
+    _bands = tuple(tuple(b) for b in (spec.get("max_price_band")
+                                      or _new_draft_defaults().get("max_price_band")
+                                      or ()))
+    # None is a MEANING here ("no cap"), not a missing value, so this cannot use
+    # `or` the way the tuples above do · a missing key falls back to the config
+    # default, and an explicit None stays None.
+    _maxdef = (spec["max_defenders_per_club"] if "max_defenders_per_club" in spec
+               else _new_draft_defaults().get("max_defenders_per_club", 1))
 
     def _arm(frame, bench_col):
         return solve_draft(frame, strategy, float(spec.get("budget", 100.0)),
@@ -1498,6 +1451,8 @@ def _solve_opening_uncached(spec: Dict) -> Optional[Dict]:
                            force_names=tuple(spec.get("locks", [])),
                            opening_map=omap, max_attackers_per_club=cap,
                            min_club_cover=_cover,
+                           attack_cap_exempt=_uncapped, max_price_band=_bands,
+                           max_defenders_per_club=_maxdef,
                            bench_pts_col=bench_col)
 
     def _weekly(frame, gw_cols, boost_col):
@@ -1507,6 +1462,8 @@ def _solve_opening_uncached(spec: Dict) -> Optional[Dict]:
                            force_names=tuple(spec.get("locks", [])),
                            opening_map=omap, max_attackers_per_club=cap,
                            min_club_cover=_cover,
+                           attack_cap_exempt=_uncapped, max_price_band=_bands,
+                           max_defenders_per_club=_maxdef,
                            gw_pts_cols=gw_cols, boost_col=boost_col)
 
     bb = spec.get("bench_boost_gw")
@@ -1839,6 +1796,9 @@ def _search_boost_week(spec_json: str, cands: tuple, stamp: str) -> Dict:
                            force_names=tuple(spec["locks"]), opening_map=(),
                            max_attackers_per_club=(None if not spec["cap_attackers"]
                                                    else 1),
+                           max_defenders_per_club=spec.get(
+                               "max_defenders_per_club",
+                               _new_draft_defaults().get("max_defenders_per_club", 1)),
                            bench_pts_col=bench_col)
 
     base = _window_board(_tuned_board(float(spec["minutes_gate"])),
@@ -2217,7 +2177,7 @@ def _run_chips(fixtures: List[Dict]) -> str:
     out = []
     for fx in fixtures:
         if fx.get("blank"):
-            out.append('<span style="background:rgba(128,128,128,0.5);color:#fff;'
+            out.append('<span style="background:rgba(128,128,128,0.5);color:var(--ff-text);'
                        'border-radius:4px;padding:2px 6px;font-size:10px;'
                        'font-weight:800;">BLK</span>')
             continue
@@ -4222,7 +4182,10 @@ with tab_ab:
                             strategy or "⚖️ Optimal value", float(_s.get("budget", 100.0)),
                             float(_s.get("risk", 0.3)), tuple(_s.get("vetoes", [])), ow,
                             force_names=tuple(_s.get("locks", [])), opening_map=omap,
-                            max_attackers_per_club=None if not _s.get("cap_attackers") else 1)
+                            max_attackers_per_club=None if not _s.get("cap_attackers") else 1,
+                            max_defenders_per_club=_s.get(
+                                "max_defenders_per_club",
+                                _new_draft_defaults().get("max_defenders_per_club", 1)))
 
                     phases = build_phases(spec, _solve, _window_map, window[0], window[1],
                                           board=board, first=solve_opening(spec))
@@ -4310,7 +4273,13 @@ with tab_ab:
                 rows.append({
                     "rank": i + 1, "name": d["name"],
                     "mean": d["total_mean"],
-                    "band": f"{d['total_lo']:.0f} to {d['total_hi']:.0f}",
+                    # Floor, median, ceiling · the 5th, 50th and 95th percentile
+                    # of the simulated total. The decision cut: what a bad run
+                    # really posts, the honest middle, and the dream scenario.
+                    "band": (f"{d['total_p5']:.0f} · {d['total_p50']:.0f} · "
+                             f"{d['total_p95']:.0f}"
+                             if "total_p5" in d else
+                             f"{d['total_lo']:.0f} to {d['total_hi']:.0f}"),
                     "vs_top": d["total_mean"] - top["total_mean"],
                     "p_best": d["p_best"] * 100,
                     "beats_top": (d["beats"].get(top["name"], 0.5) * 100) if i else 100.0,
@@ -4320,7 +4289,7 @@ with tab_ab:
                 T.col_player("name", "Draft"),
                 T.col_bar("mean", f"GW{window[0]}-{window[1]}",
                           max_value=max(d["total_mean"] for d in ranked) * 1.05),
-                T.col_text("band", "Middle 80%", align=T.ALIGN_NUM),
+                T.col_text("band", "Floor · median · ceiling", align=T.ALIGN_NUM),
                 T.col_num("vs_top", "vs best", fmt="%+.1f",
                           color_fn=lambda v: theme.fill("muted2") if v == 0 else theme.fill("red")),
                 T.col_bar("p_best", "Chance it's best", max_value=100, color="gold",
@@ -4356,6 +4325,39 @@ with tab_ab:
                     y=[round(d["p_best"] * 100, 1) for d in ranked],
                     colors=[colour[d["name"]] for d in ranked], horizontal=True),
                     height="330px", key="ab_pbest")
+
+            # ── Floor to ceiling, week by week · the two-draft decision view ─────
+            # Only for a final pair. With two drafts the question stops being
+            # "which is best on average" and becomes "which do I regret less":
+            # the floor (P5) is the week that ruins a Bench Boost, the ceiling
+            # (P95) is the week that wins a mini-league. More than two drafts
+            # turns this into eighteen bars and the ranked table reads better.
+            if len(ranked) == 2 and all("weekly_p5" in d for d in ranked):
+                _sec("Floor to ceiling, week by week", icon="candlestick_chart",
+                     sub="For each gameweek: the 5th percentile week (floor), the "
+                     "median, and the 95th (ceiling). A higher floor is worth more "
+                     "than a higher ceiling in a Bench Boost week · the chip "
+                     "multiplies whatever actually happens.")
+
+                def _fade(col: str, alpha: float) -> str:
+                    c = str(col).lstrip("#")
+                    if len(c) != 6:          # not a hex colour · leave it alone
+                        return str(col)
+                    r, g, b = (int(c[i:i + 2], 16) for i in (0, 2, 4))
+                    return f"rgba({r},{g},{b},{alpha})"
+
+                _fc_series = []
+                for d in ranked:
+                    base = colour[d["name"]]
+                    letter = d["ident"]["letter"]
+                    _fc_series += [
+                        (f"{letter} floor", d["weekly_p5"], _fade(base, 0.35)),
+                        (f"{letter} median", d["weekly_p50"], _fade(base, 0.7)),
+                        (f"{letter} ceiling", d["weekly_p95"], base),
+                    ]
+                charts.render(charts.grouped_bars_option(
+                    [f"GW{g}" for g in sim["gws"]], _fc_series),
+                    height="300px", key="ab_floorceil")
 
             # ── Head to head ─────────────────────────────────────────────────────
             # A grid of every pair is only readable up to about six drafts. Past
@@ -4981,7 +4983,9 @@ with tab_route:
                 return solve_draft(SOLVE_BOARD, strategy or "⚖️ Optimal value",
                                    budget, risk, tuple(excluded), ow,
                                    force_names=tuple(locked), opening_map=omap,
-                                   max_attackers_per_club=None if two_att else 1)
+                                   max_attackers_per_club=None if two_att else 1,
+                                   max_defenders_per_club=_new_draft_defaults().get(
+                                       "max_defenders_per_club", 1))
 
             _ph = build_phases(_spec, _rsolve, _window_map, 1, 10, board=board)
             _ph = [(g, s.merge(board[["code", "actual_price"]], on="code", how="left"))
