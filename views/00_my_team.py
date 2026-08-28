@@ -22,9 +22,9 @@ import streamlit as st
 
 from analytics import freshness as _freshness
 
-from components.loading import LINES_GENERIC, LINES_SOLVER, LINES_SQUAD, fpl_loader
+from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
 
-from ui import charts
+from ui import charts, theme
 from ui.charts import with_mark_line
 
 from components.animations import (
@@ -37,8 +37,8 @@ from components.animations import (
 inject_global_animations()
 
 # ── Design tokens (local for now; will promote to a shared module next) ───────
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#FF7B00"}
-FDR_COLORS = {1: "#00FF87", 2: "#00FF87", 3: "#FFD60A", 4: "#FF8C42", 5: "#FF4B4B"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "var(--ff-orange-v)"}
+FDR_COLORS = {1: "var(--ff-mint)", 2: "var(--ff-mint)", 3: "#FFD60A", 4: "var(--ff-orange-v)", 5: "var(--ff-red)"}
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 
 
@@ -73,13 +73,13 @@ def _mode_pill(title: str, sub: str, color: str) -> str:
     """A small centred status pill above the pitch (Actual vs Upcoming mode)."""
     return (
         f'<div style="display:flex;justify-content:center;margin:2px 0 10px;">'
-        f'<div style="display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,0.03);'
+        f'<div style="display:inline-flex;align-items:center;gap:10px;background:var(--ff-row-alt);'
         f'border:1px solid {color}55;border-radius:999px;padding:6px 16px;">'
         f'<span style="width:7px;height:7px;border-radius:50%;background:{color};'
         f'box-shadow:0 0 10px {color};"></span>'
         f'<span style="font-family:\'Archivo\',sans-serif;font-size:12px;font-weight:800;'
         f'letter-spacing:0.06em;text-transform:uppercase;color:{color};">{title}</span>'
-        f'<span style="font-size:12px;color:rgba(255,255,255,0.55);">{sub}</span>'
+        f'<span style="font-size:12px;color:var(--ff-muted2);">{sub}</span>'
         f'</div></div>'
     )
 
@@ -156,6 +156,12 @@ with st.sidebar:
         help="Find your ID in the FPL URL: fantasy.premierleague.com/entry/XXXXXX/...",
     )
     st.caption("Enter any team ID to spy on a rival ⚡")
+    st.number_input(
+        "Free transfers banked", min_value=1, max_value=5, value=1, step=1,
+        key="banked_fts",
+        help="FPL's public API does not publish this · tell the planner what "
+             "you are carrying into next week.",
+    )
 
     st.markdown("---")
     budget_boost = st.slider(
@@ -197,24 +203,24 @@ def _next_deadline_fmt(bootstrap: dict) -> tuple[str, str]:
         if ev.get("is_next") or (ev.get("is_current") and not ev.get("finished")):
             raw = ev.get("deadline_time")
             if not raw:
-                return "", "#00FF87"
+                return "", "var(--ff-mint)"
             try:
                 dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             except ValueError:
-                return "", "#00FF87"
+                return "", "var(--ff-mint)"
             delta = dt - datetime.now(timezone.utc)
             secs = delta.total_seconds()
             if secs <= 0:
-                return "Deadline passed", "#FF4B4B"
+                return "Deadline passed", "var(--ff-red)"
             days = delta.days
             hours, rem = divmod(delta.seconds, 3600)
             mins = rem // 60
             if days > 0:
-                return f"{days}d {hours}h to deadline", "#00FF87" if days > 1 else "#FFA500"
+                return f"{days}d {hours}h to deadline", "var(--ff-mint)" if days > 1 else "var(--ff-orange)"
             if hours > 0:
-                return f"{hours}h {mins}m to deadline", "#FFA500" if hours > 6 else "#FF4B4B"
-            return f"{mins}m to deadline", "#FF4B4B"
-    return "", "#00FF87"
+                return f"{hours}h {mins}m to deadline", "var(--ff-orange)" if hours > 6 else "var(--ff-red)"
+            return f"{mins}m to deadline", "var(--ff-red)"
+    return "", "var(--ff-mint)"
 
 
 deadline_text, deadline_color = _next_deadline_fmt(bs)
@@ -251,15 +257,15 @@ def _rank_fmt(rank: int) -> str:
 def _hero_stat(label: str, primary: str, accent: str, secondary: str = "") -> str:
     return f"""
 <div style="flex:1;min-width:120px;padding:12px 16px;
-     background:rgba(255,255,255,0.03);
-     border:1px solid rgba(255,255,255,0.06);
+     background:var(--ff-row-alt);
+     border:1px solid var(--ff-row-alt);
      border-radius:10px;">
-  <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:0.14em;
+  <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.14em;
        text-transform:uppercase;font-weight:800;">{label}</div>
   <div style="font-size:24px;font-weight:900;color:{accent};line-height:1.1;margin-top:4px;">
     {primary}
   </div>
-  {f'<div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:2px;">{secondary}</div>' if secondary else ''}
+  {f'<div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">{secondary}</div>' if secondary else ''}
 </div>
 """
 
@@ -267,7 +273,7 @@ def _hero_stat(label: str, primary: str, accent: str, secondary: str = "") -> st
 chip_label = (active_chip or "-").upper() if active_chip else "-"
 deadline_pill = (
     f'<div style="display:inline-flex;align-items:center;gap:7px;'
-    f'background:rgba(0,0,0,0.35);border:1px solid {deadline_color}66;'
+    f'background:var(--ff-card);border:1px solid {deadline_color}66;'
     f'border-radius:999px;padding:6px 14px;backdrop-filter:blur(6px);">'
     f'<span style="font-size:12px;">🕒</span>'
     f'<span style="font-size:12px;font-weight:800;color:{deadline_color};">{deadline_text}</span>'
@@ -275,17 +281,18 @@ deadline_pill = (
 ) if deadline_text else ""
 
 hero_stats_html = (
-    _hero_stat(f"GW{current_gw} Points", count_up(gw_pts - transfer_cost), "#00FF87",
+    _hero_stat(f"GW{int(entry_history.get('event') or current_gw)} Points",
+               count_up(gw_pts - transfer_cost), "var(--ff-mint)",
                f"−{transfer_cost} hit" if transfer_cost else "No hits")
     + _hero_stat("Overall Rank", _rank_fmt(int(overall_rank or 0)), "#fff",
                  f"Total {total_pts:,}")
-    + _hero_stat("Bank", f"£{bank_m:.2f}m", "#04f5ff",
+    + _hero_stat("Bank", f"£{bank_m:.2f}m", "var(--ff-cyan)",
                  f"Team £{value_m:.2f}m")
     + _hero_stat("Bench Points", count_up(bench_pts),
-                 "#FF4B4B" if bench_pts > 8 else "#FFD60A" if bench_pts > 3 else "#fff",
+                 "var(--ff-red)" if bench_pts > 8 else "#FFD60A" if bench_pts > 3 else "#fff",
                  f"{transfers_made} transfer{'s' if transfers_made != 1 else ''}")
     + _hero_stat("Active Chip", chip_label,
-                 "#FFD700" if active_chip else "rgba(255,255,255,0.5)",
+                 "var(--ff-gold)" if active_chip else "var(--ff-muted2)",
                  "" if active_chip else "No chip played")
 )
 
@@ -297,7 +304,7 @@ st.markdown(
       radial-gradient(circle at 0% 0%, rgba(0,255,135,0.12), transparent 55%),
       radial-gradient(circle at 100% 100%, rgba(55,0,60,0.35), transparent 65%),
       linear-gradient(135deg, rgba(22,26,34,0.96) 0%, rgba(14,17,22,0.98) 100%);
-    border:1px solid rgba(255,255,255,0.08);
+    border:1px solid var(--ff-row-alt);
     font-family:'Inter','SF Pro Display',sans-serif;
     box-shadow:0 10px 30px rgba(0,0,0,0.35);
 ">
@@ -305,16 +312,16 @@ st.markdown(
     <div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
         <span style="display:inline-block;width:7px;height:7px;border-radius:50%;
-              background:#00FF87;box-shadow:0 0 10px #00FF87;"></span>
-        <span style="font-size:11px;letter-spacing:0.22em;color:rgba(255,255,255,0.5);
+              background:var(--ff-mint);box-shadow:0 0 10px var(--ff-mint);"></span>
+        <span style="font-size:11px;letter-spacing:0.22em;color:var(--ff-muted2);
               text-transform:uppercase;font-weight:800;">
           Gameweek {current_gw}{f' · Chip: {chip_label}' if active_chip else ''}
         </span>
       </div>
-      <div style="font-size:40px;font-weight:900;color:#fff;letter-spacing:-1px;line-height:1;">
+      <div style="font-size:40px;font-weight:900;color:var(--ff-text);letter-spacing:-1px;line-height:1;">
         {team_name}
       </div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.55);margin-top:6px;">
+      <div style="font-size:13px;color:var(--ff-muted2);margin-top:6px;">
         {manager} &nbsp;·&nbsp; Team ID {int(team_id)}
       </div>
     </div>
@@ -374,13 +381,69 @@ if "upcoming_fixtures" in squad_enriched.columns:
     squad_enriched["upcoming_fixtures"] = squad_enriched["upcoming_fixtures"].apply(_attach_short)
 
 
+# ── Shared projection · the Draft's engine, pointed at the real squad ────────
+# One board, one projector, one transfer ledger and one player card across both
+# pages. Everything below is keyed by the stable player `code`, never the
+# season-local `fpl_id`. All of it is cached on the inputs stamp, so after the
+# first build this costs a dict lookup per rerun.
+from analytics import squad_rules as SR
+from analytics import team_plan as TP
+from analytics.grading import bench_boost_grade
+from analytics.gw_projection import best_xi
+from analytics.head_to_head import week_band
+from components import ff_table as T
+from components.pitch_view import render_squad_pitch
+from components.team_identity import player_photo_url
+from config import POSITIONS as _POSITIONS
+from ui import live_projection as LP
+from ui import player_card as PC
+from ui import team_pitch_rows as ROWS
+
+try:
+    _LIVE = LP.projection(_freshness.inputs_stamp())
+except Exception:  # noqa: BLE001 · a missing archive must not take the page down
+    _LIVE = {"board": None, "proj": None, "fix": {}, "pts_col": None, "scout": None,
+             "price_bt": None, "validation": None, "board_stamp": "", "window": []}
+
+BOARD, PROJ = _LIVE["board"], _LIVE["proj"]
+PTS_COL, FIX = _LIVE["pts_col"], _LIVE["fix"]
+_ELEMENT_BY_CODE = {int(p["code"]): p for p in bs["elements"]}
+_CODE_BY_ID = {int(p["id"]): int(p["code"]) for p in bs["elements"]}
+_PRICE_BY_CODE = {int(p["code"]): float(p["now_cost"]) / 10 for p in bs["elements"]}
+_TEAM_SHORT = {int(t["id"]): t["short_name"] for t in bs["teams"]}
+_TEAM_CODE = {int(t["id"]): int(t["code"]) for t in bs["teams"]}
+
+# DEFCON hit rates, and the one card context the page reuses for cheap lookups.
+# The context carrying the button callbacks is built per open in `_open_card`.
+# Deliberately NOT named CARD: the Draft page shadowed its card CSS constant
+# with exactly that name and spent an afternoon on it.
+DEFCON = PC.defcon_per90(_LIVE["board_stamp"]) if BOARD is not None else pd.DataFrame()
+_CARD_CTX = (PC.CardCtx(board=BOARD, proj=PROJ, pts_col=PTS_COL, fix=FIX, defcon=DEFCON,
+                        scout=_LIVE["scout"], board_stamp=_LIVE["board_stamp"])
+             if BOARD is not None else None)
+
+
+def _sk(name: str) -> str:
+    """Session keys namespaced by team id.
+
+    The Draft namespaces its own by draft id, so `axe` and `pitch_nonce` on the
+    two pages cannot collide, and neither can two team ids on this one.
+    """
+    return "%s::team%d" % (name, int(team_id))
+
+
+for _k, _v in (("axe", []), ("sub_from", None), ("xi_override", {}),
+               ("pitch_nonce", None), ("table_nonce", None), ("compare_pair", None)):
+    st.session_state.setdefault(_sk(_k), _v)
+
+
 # ── THIS WEEK'S DECISIONS · Captain · Sell · Opportunity ─────────────────────
 st.markdown(
     '<div class="fplh-animate-in" style="margin:6px 0 14px;display:flex;'
     'align-items:center;gap:14px;">'
-    '<div style="font-size:11px;letter-spacing:0.22em;color:rgba(255,255,255,0.55);'
+    '<div style="font-size:11px;letter-spacing:0.22em;color:var(--ff-muted2);'
     'text-transform:uppercase;font-weight:800;">This Gameweek\'s Decisions</div>'
-    '<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div>'
+    '<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div>'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -388,7 +451,7 @@ st.markdown(
 
 def _fixture_pills(fixtures, n: int = 4) -> str:
     if not isinstance(fixtures, list) or not fixtures:
-        return '<span style="color:rgba(255,255,255,0.35);font-size:11px;">-</span>'
+        return '<span style="color:var(--ff-muted2);font-size:11px;">-</span>'
     pills = []
     for f in fixtures[:n]:
         opp = str(f.get("opp_short") or f.get("opponent", "?"))[:3].upper()
@@ -467,7 +530,7 @@ def _decision_card(kind: str, accent: str, header: str, body_html: str) -> str:
     return f"""
 <div class="fplh-card-hover fplh-animate-in" style="
     background:rgba(22,26,34,0.85);
-    border:1px solid rgba(255,255,255,0.08);
+    border:1px solid var(--ff-row-alt);
     border-top:3px solid {accent};
     border-radius:14px;padding:18px;
     font-family:'Inter',sans-serif;
@@ -503,33 +566,33 @@ if cap_top is not None:
          onerror="this.src='{SHIRT_BASE}/shirt_1-66.png'"
          style="filter:drop-shadow(0 4px 6px rgba(0,0,0,0.45));"/>
     <div class="fplh-captain-pulse" style="position:absolute;top:-6px;right:-6px;
-         background:#FFD700;color:#000;border-radius:50%;width:24px;height:24px;
+         background:var(--ff-gold);color:#000;border-radius:50%;width:24px;height:24px;
          line-height:24px;text-align:center;font-weight:900;font-size:12px;">C</div>
   </div>
   <div style="flex:1;min-width:0;">
-    <div style="font-size:18px;font-weight:900;color:#fff;white-space:nowrap;
+    <div style="font-size:18px;font-weight:900;color:var(--ff-text);white-space:nowrap;
          overflow:hidden;text-overflow:ellipsis;">{ctop_name}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px;">
+    <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
       {_position_chip(ctop_pos)} <span style="margin-left:6px;">{ctop_team}</span>
     </div>
   </div>
   <div style="text-align:right;">
-    <div style="font-size:22px;font-weight:900;color:#FFD700;line-height:1;">{ctop_score:.2f}</div>
-    <div style="font-size:9px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">SCORE</div>
+    <div style="font-size:22px;font-weight:900;color:var(--ff-gold);line-height:1;">{ctop_score:.2f}</div>
+    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">SCORE</div>
   </div>
 </div>
 <div style="display:flex;gap:14px;margin-bottom:10px;">
-  <div><div style="font-size:14px;font-weight:800;color:#fff;">{ctop_form:.2f}</div>
-       <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">FORM</div></div>
+  <div><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{ctop_form:.2f}</div>
+       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
   <div><div style="font-size:14px;font-weight:800;color:{_fdr_color(ctop_fdr)};">{ctop_fdr:.2f}</div>
-       <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">FDR{FIXTURE_LOOKAHEAD}</div></div>
+       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">FDR{FIXTURE_LOOKAHEAD}</div></div>
 </div>
 <div style="margin-top:auto;">{ctop_fix}</div>
 """
-    cap_card_html = _decision_card("🏆", "#FFD700", "Captain Pick", cap_body)
+    cap_card_html = _decision_card("🏆", "var(--ff-gold)", "Captain Pick", cap_body)
 else:
-    cap_card_html = _decision_card("🏆", "#FFD700", "Captain Pick",
-                                    '<div style="color:rgba(255,255,255,0.5);">No data.</div>')
+    cap_card_html = _decision_card("🏆", "var(--ff-gold)", "Captain Pick",
+                                    '<div style="color:var(--ff-muted2);">No data.</div>')
 
 
 # ── Sell card ────────────────────────────────────────────────────────────────
@@ -542,13 +605,13 @@ if sell_candidates:
     wpos  = str(worst.get("position", ""))
     flag_html = "".join(
         f'<span style="display:inline-block;background:rgba(255,75,75,0.08);'
-        f'border:1px solid rgba(255,75,75,0.3);color:#fff;border-radius:4px;'
+        f'border:1px solid rgba(255,75,75,0.3);color:var(--ff-text);border-radius:4px;'
         f'padding:2px 8px;font-size:11px;margin:2px 4px 2px 0;">{f}</span>'
         for f in flags[:4]
     )
     others = len(sell_candidates) - 1
     others_html = (
-        f'<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:10px;">'
+        f'<div style="font-size:11px;color:var(--ff-muted2);margin-top:10px;">'
         f'+{others} other player{"s" if others > 1 else ""} flagged</div>'
         if others > 0 else ""
     )
@@ -559,9 +622,9 @@ if sell_candidates:
        onerror="this.src='{SHIRT_BASE}/shirt_1-66.png'"
        style="filter:drop-shadow(0 4px 6px rgba(0,0,0,0.45));"/>
   <div style="flex:1;min-width:0;">
-    <div style="font-size:18px;font-weight:900;color:#fff;white-space:nowrap;
+    <div style="font-size:18px;font-weight:900;color:var(--ff-text);white-space:nowrap;
          overflow:hidden;text-overflow:ellipsis;">{wname}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px;">
+    <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
       {_position_chip(wpos)} <span style="margin-left:6px;">{wteam}</span>
     </div>
   </div>
@@ -569,11 +632,11 @@ if sell_candidates:
 <div style="margin-top:4px;margin-bottom:4px;">{flag_html}</div>
 {others_html}
 """
-    sell_card_html = _decision_card("⚠️", "#FF4B4B", "Sell Alert", sell_body)
+    sell_card_html = _decision_card("⚠️", "var(--ff-red)", "Sell Alert", sell_body)
 else:
     sell_card_html = _decision_card(
-        "✅", "#00FF87", "Sell Alert",
-        '<div style="font-size:14px;color:rgba(255,255,255,0.75);line-height:1.5;">'
+        "✅", "var(--ff-mint)", "Sell Alert",
+        '<div style="font-size:14px;color:var(--ff-muted);line-height:1.5;">'
         'No major concerns in your starting XI. Everyone\'s playing and firing.'
         '</div>'
     )
@@ -593,7 +656,7 @@ if opp is not None:
     afford = oprice <= (bank_m + budget_boost + 15)   # 15 = rough swap headroom
     aff_badge = (
         '<span style="background:rgba(0,255,135,0.12);border:1px solid rgba(0,255,135,0.4);'
-        'color:#00FF87;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:800;'
+        'color:var(--ff-mint);border-radius:4px;padding:2px 7px;font-size:10px;font-weight:800;'
         'letter-spacing:0.05em;margin-left:6px;">IN BUDGET</span>'
         if afford else ""
     )
@@ -604,28 +667,28 @@ if opp is not None:
        onerror="this.src='{SHIRT_BASE}/shirt_1-66.png'"
        style="filter:drop-shadow(0 4px 6px rgba(0,0,0,0.45));"/>
   <div style="flex:1;min-width:0;">
-    <div style="font-size:18px;font-weight:900;color:#fff;white-space:nowrap;
+    <div style="font-size:18px;font-weight:900;color:var(--ff-text);white-space:nowrap;
          overflow:hidden;text-overflow:ellipsis;">{oname}{aff_badge}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px;">
+    <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
       {_position_chip(opos)} <span style="margin-left:6px;">{oteam} · £{oprice:.2f}m</span>
     </div>
   </div>
   <div style="text-align:right;">
-    <div style="font-size:22px;font-weight:900;color:#00FF87;line-height:1;">{oscore:.2f}</div>
-    <div style="font-size:9px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">SCORE</div>
+    <div style="font-size:22px;font-weight:900;color:var(--ff-mint);line-height:1;">{oscore:.2f}</div>
+    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">SCORE</div>
   </div>
 </div>
 <div style="display:flex;gap:14px;">
-  <div><div style="font-size:14px;font-weight:800;color:#fff;">{oform:.2f}</div>
-       <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">FORM</div></div>
-  <div><div style="font-size:14px;font-weight:800;color:#04f5ff;">{oep:.2f}</div>
-       <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">xP NEXT</div></div>
+  <div><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{oform:.2f}</div>
+       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
+  <div><div style="font-size:14px;font-weight:800;color:var(--ff-cyan);">{oep:.2f}</div>
+       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">xP NEXT</div></div>
 </div>
 """
-    opp_card_html = _decision_card("🔄", "#00FF87", "Opportunity", opp_body)
+    opp_card_html = _decision_card("🔄", "var(--ff-mint)", "Opportunity", opp_body)
 else:
-    opp_card_html = _decision_card("🔄", "#00FF87", "Opportunity",
-                                    '<div style="color:rgba(255,255,255,0.5);">No data.</div>')
+    opp_card_html = _decision_card("🔄", "var(--ff-mint)", "Opportunity",
+                                    '<div style="color:var(--ff-muted2);">No data.</div>')
 
 
 st.markdown(
@@ -672,7 +735,7 @@ def _column_chart_dialog(label: str, season_col: str, gw_field, pool: pd.DataFra
     from components.team_identity import team_color as _tc
     st.markdown(
         f'<div style="font-family:\'Archivo\',sans-serif;font-size:20px;'
-        f'font-weight:900;color:#fff;">Top ten · {label}</div>',
+        f'font-weight:900;color:var(--ff-text);">Top ten · {label}</div>',
         unsafe_allow_html=True)
     top = pool.dropna(subset=[season_col]).nlargest(15, season_col)
     if top.empty:
@@ -703,7 +766,7 @@ def _column_chart_dialog(label: str, season_col: str, gw_field, pool: pd.DataFra
         colors=[_tc(ts) for _, _, ts, _ in rows], horizontal=True)
     for item, (_nm, v, _ts, _cd) in zip(opt["series"][0]["data"], rows):
         item["label"] = {"show": True, "position": "right", "formatter": f"{v:g}",
-                         "color": "rgba(255,255,255,0.75)", "fontSize": 11}
+                         "color": "var(--ff-muted)", "fontSize": 11}
     charts.with_image_labels(opt, [_ppu(cd) for _, _, _, cd in rows])
     opt["grid"]["left"] = 150
     opt["grid"]["right"] = 46
@@ -724,13 +787,13 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
 
     st.markdown(
         f"""<div style="padding:12px 16px;
-            background:linear-gradient(135deg,rgba(255,75,75,0.10),rgba(0,0,0,0.4));
-            border:1px dashed #FF4B4B;border-radius:10px;margin-bottom:10px;" class="fplh-animate-in">
-        <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.12em;
+            background:linear-gradient(135deg,rgba(255,75,75,0.10),var(--ff-card));
+            border:1px dashed var(--ff-red);border-radius:10px;margin-bottom:10px;" class="fplh-animate-in">
+        <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.12em;
              text-transform:uppercase;font-weight:700;">Axed</div>
-        <div style="font-size:20px;font-weight:900;color:#fff;font-family:'Archivo',sans-serif;
-             text-decoration:line-through #FF4B4B 3px;">{out_name}</div>
-        <div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:3px;">
+        <div style="font-size:20px;font-weight:900;color:var(--ff-text);font-family:'Archivo',sans-serif;
+             text-decoration:line-through var(--ff-red) 3px;">{out_name}</div>
+        <div style="font-size:12px;color:var(--ff-muted2);margin-top:3px;">
          {out_pos} · £{out_price:.2f}m · budget £{avail_budget:.2f}m</div>
         </div>""",
         unsafe_allow_html=True,
@@ -811,7 +874,7 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
     _total = len(cand)
     cand = (cand if _show_all else cand.head(20)).reset_index(drop=True)
     st.markdown(
-        f"<div style='margin:8px 0 6px;font-size:12px;color:rgba(255,255,255,0.6);'>"
+        f"<div style='margin:8px 0 6px;font-size:12px;color:var(--ff-muted);'>"
         f"{_total} option{'s' if _total != 1 else ''} within £{avail_budget:.1f}m"
         f"{' · top 20' if not _show_all and _total > 20 else ''}</div>",
         unsafe_allow_html=True,
@@ -822,10 +885,10 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
     def _price_badge(pc) -> str:
         f = _pflags.get(int(pc["fpl_id"]))
         if f == "rise":
-            return ('<span style="color:#00FF87;font-weight:900;" '
+            return ('<span style="color:var(--ff-mint);font-weight:900;" '
                     'title="Price likely to rise soon">▲</span>')
         if f == "fall":
-            return ('<span style="color:#FF4B4B;font-weight:900;" '
+            return ('<span style="color:var(--ff-red);font-weight:900;" '
                     'title="Price likely to fall soon">▼</span>')
         return ""
 
@@ -950,10 +1013,10 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
         _pc = cand.iloc[_sel_rows[0]]
         st.markdown(
             f'<div style="padding:8px 14px;margin:2px 0 6px;border-radius:10px;'
-            f'background:linear-gradient(135deg,rgba(0,255,135,0.10),rgba(0,0,0,0.35));'
-            f'border:1px solid rgba(0,255,135,0.35);font-size:13px;color:#fff;">'
-            f'Selected: <b style="color:#00FF87;">{_pc["web_name"]}</b> '
-            f'<span style="color:rgba(255,255,255,0.55);">£{float(_pc["price"]):.1f}m · '
+            f'background:linear-gradient(135deg,rgba(0,255,135,0.10),var(--ff-card));'
+            f'border:1px solid rgba(0,255,135,0.35);font-size:13px;color:var(--ff-text);">'
+            f'Selected: <b style="color:var(--ff-mint);">{_pc["web_name"]}</b> '
+            f'<span style="color:var(--ff-muted2);">£{float(_pc["price"]):.1f}m · '
             f'replaces {out_name}</span></div>',
             unsafe_allow_html=True)
         _b1, _b2, _sp = st.columns([1.3, 1.3, 2])
@@ -969,7 +1032,7 @@ def _replacement_panel(out_name: str, out_pos: str, out_price: float,
                 result = ("compare", _pc)
     else:
         st.markdown(
-            '<div style="padding:6px 12px;font-size:12px;color:rgba(255,255,255,0.55);">'
+            '<div style="padding:6px 12px;font-size:12px;color:var(--ff-muted2);">'
             '👆 <b>Tick a row</b> (leftmost column) to sign or compare · '
             'click any header to sort · 📊 charts the column.</div>',
             unsafe_allow_html=True)
@@ -1049,17 +1112,17 @@ def _h2h_dialog(out_id: int, in_id: int) -> None:
             f'<div style="display:flex;align-items:center;gap:12px;">'
             f'{_face}'
             f'<div><div style="font-family:\'Archivo\',sans-serif;font-size:20px;'
-            f'font-weight:900;color:#fff;">{r.get("web_name", "?")}</div>'
-            f'<div style="font-size:12px;color:rgba(255,255,255,0.55);">'
+            f'font-weight:900;color:var(--ff-text);">{r.get("web_name", "?")}</div>'
+            f'<div style="font-size:12px;color:var(--ff-muted2);">'
             f'{r.get("team", "?")} · {r.get("position", "?")} · £{float(r.get("price", 0) or 0):.1f}m</div></div></div>'
             f'<div style="margin-top:10px;">{pills}</div></div>'
         )
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown(_head(p_out, "#FF4B4B", "Out"), unsafe_allow_html=True)
+        st.markdown(_head(p_out, "var(--ff-red)", "Out"), unsafe_allow_html=True)
     with c2:
-        st.markdown(_head(p_in, "#00FF87", "In"), unsafe_allow_html=True)
+        st.markdown(_head(p_in, "var(--ff-mint)", "In"), unsafe_allow_html=True)
 
     # Stat-by-stat · winner highlighted per row
     _stats = [("Form (30d)", "form", 1), ("xP next GW", "ep_next", 1),
@@ -1072,15 +1135,15 @@ def _h2h_dialog(out_id: int, in_id: int) -> None:
             continue
         vo = float(p_out.get(col, 0) or 0)
         vi = float(p_in.get(col, 0) or 0)
-        co = "#FF4B4B" if vo > vi else "rgba(255,255,255,0.65)"
-        ci = "#00FF87" if vi > vo else "rgba(255,255,255,0.65)"
+        co = "var(--ff-red)" if vo > vi else "var(--ff-muted)"
+        ci = "var(--ff-mint)" if vi > vo else "var(--ff-muted)"
         _rows_html += (
             f'<div style="display:flex;align-items:center;padding:5px 0;'
-            f'border-bottom:1px solid rgba(255,255,255,0.05);">'
+            f'border-bottom:1px solid var(--ff-row-alt);">'
             f'<div style="flex:1;text-align:right;font-weight:800;color:{co};'
             f'font-family:\'Archivo\',sans-serif;">{vo:.{dp}f}</div>'
             f'<div style="width:110px;text-align:center;font-size:10px;letter-spacing:0.12em;'
-            f'text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:700;">{label}</div>'
+            f'text-transform:uppercase;color:var(--ff-muted2);font-weight:700;">{label}</div>'
             f'<div style="flex:1;font-weight:800;color:{ci};'
             f'font-family:\'Archivo\',sans-serif;">{vi:.{dp}f}</div></div>'
         )
@@ -1089,14 +1152,14 @@ def _h2h_dialog(out_id: int, in_id: int) -> None:
         _hdf, _hfirst, _hn = _hz
         _vo5 = float(_hdf["xp_total"].get(int(out_id), 0.0))
         _vi5 = float(_hdf["xp_total"].get(int(in_id), 0.0))
-        _co5 = "#FF4B4B" if _vo5 > _vi5 else "rgba(255,255,255,0.65)"
-        _ci5 = "#00FF87" if _vi5 > _vo5 else "rgba(255,255,255,0.65)"
+        _co5 = "var(--ff-red)" if _vo5 > _vi5 else "var(--ff-muted)"
+        _ci5 = "var(--ff-mint)" if _vi5 > _vo5 else "var(--ff-muted)"
         _rows_html += (
             f'<div style="display:flex;align-items:center;padding:5px 0;">'
             f'<div style="flex:1;text-align:right;font-weight:800;color:{_co5};'
             f'font-family:\'Archivo\',sans-serif;">{_vo5:.1f}</div>'
             f'<div style="width:110px;text-align:center;font-size:10px;letter-spacing:0.12em;'
-            f'text-transform:uppercase;color:#FFD700;font-weight:800;">xP next {_hn} GWs</div>'
+            f'text-transform:uppercase;color:var(--ff-gold);font-weight:800;">xP next {_hn} GWs</div>'
             f'<div style="flex:1;font-weight:800;color:{_ci5};'
             f'font-family:\'Archivo\',sans-serif;">{_vi5:.1f}</div></div>'
         )
@@ -1106,29 +1169,400 @@ def _h2h_dialog(out_id: int, in_id: int) -> None:
     # Verdict + radar overlay
     _xp_gain = float(p_in.get("ep_next", 0) or 0) - float(p_out.get("ep_next", 0) or 0)
     _price_d = float(p_out.get("price", 0) or 0) - float(p_in.get("price", 0) or 0)
-    _vcol = "#00FF87" if _xp_gain >= 0 else "#FF4B4B"
+    _vcol = "var(--ff-mint)" if _xp_gain >= 0 else "var(--ff-red)"
     st.markdown(
-        f'<div style="text-align:center;padding:8px;font-size:13px;color:rgba(255,255,255,0.7);">'
+        f'<div style="text-align:center;padding:8px;font-size:13px;color:var(--ff-muted);">'
         f'This move buys <b style="color:{_vcol};">{_xp_gain:+.1f} xP</b> next GW and '
         f'{"banks" if _price_d >= 0 else "costs"} '
-        f'<b style="color:#04f5ff;">£{abs(_price_d):.1f}m</b></div>',
+        f'<b style="color:var(--ff-cyan);">£{abs(_price_d):.1f}m</b></div>',
         unsafe_allow_html=True,
     )
     ind_o, val_o = radar_percentiles(players_df_all, p_out)
     ind_i, val_i = radar_percentiles(players_df_all, p_in)
     if len(ind_o) >= 3 and len(ind_o) == len(ind_i):
         charts.render(_ch.radar_compare_option(ind_o, [
-            (str(p_out.get("web_name", "Out")), val_o, "#FF4B4B", 0.14),
-            (str(p_in.get("web_name", "In")), val_i, "#00FF87", 0.24),
+            (str(p_out.get("web_name", "Out")), val_o, "var(--ff-red)", 0.14),
+            (str(p_in.get("web_name", "In")), val_i, "var(--ff-mint)", 0.24),
         ]), height="300px", key=f"h2h_{out_id}_{in_id}")
+
+
+# ── FORWARD-WEEK PLANNER ──────────────────────────────────────────────────────
+# Scrub past the current gameweek and this is what answers "what is the best
+# move this week?". It runs the SAME engine as the 26/27 Draft: one projector
+# (`ui.live_projection`), one transfer ledger (`analytics.team_plan`), one
+# player card (`ui.player_card`) and one table component. The row shapes the
+# pitch and the table expect are unit-tested in `ui/team_pitch_rows.py`.
+
+
+def _flat(html: str) -> str:
+    """One line of HTML.
+
+    CLAUDE.md rule 6b · a whitespace-only line makes `st.markdown` stop passing
+    raw HTML through and render the rest as literal text.
+    """
+    return "".join(seg.strip() for seg in html.splitlines())
+
+
+def _dedupe(click, nonce_key: str):
+    """Act on a component click only when it is a NEW one.
+
+    A bidirectional component replays its LAST value on every rerun, so without
+    this a dialog reopens whenever an unrelated widget moves. CLAUDE.md rule 4b,
+    learned the hard way on the Draft.
+    """
+    if not click:
+        return None
+    if click.get("nonce") == st.session_state.get(nonce_key):
+        return None
+    st.session_state[nonce_key] = click.get("nonce")
+    return click
+
+
+def _planner_squad(codes_now):
+    """The fifteen for the viewed week as board rows, in slot order.
+
+    A player the board has no row for (should not happen in season, guarded
+    anyway) keeps his name, club and price from the bootstrap and projects at
+    zero, rather than arriving as a row of NaN that renders as "nan" on a shirt.
+    """
+    frame = BOARD.drop_duplicates("code").set_index("code").reindex(codes_now)
+    missing = [int(c) for c in frame.index[frame["web_name"].isna()]]
+    for c in missing:
+        el = _ELEMENT_BY_CODE.get(int(c))
+        if el is None:
+            continue
+        tid = int(el.get("team", 0) or 0)
+        for col, val in (("web_name", el.get("web_name", "Unknown")),
+                         ("position", _POSITIONS.get(el.get("element_type"), "MID")),
+                         ("team_id", tid),
+                         ("team_code", _TEAM_CODE.get(tid, 1)),
+                         ("team_short", _TEAM_SHORT.get(tid, "?")),
+                         ("actual_price", float(el.get("now_cost", 0) or 0) / 10)):
+            if col in frame.columns:
+                frame.at[int(c), col] = val
+    return frame.reset_index(), missing
+
+
+def _open_card(code: int, gw: int, codes_now) -> None:
+    """The Draft's player card, with My Team's own actions wired into it."""
+    owned = {int(c) for c in codes_now}
+
+    def _replace(c):
+        cur = [int(x) for x in st.session_state[_sk("axe")]]
+        if int(c) not in cur:
+            cur.append(int(c))
+        st.session_state[_sk("axe")] = cur
+        st.rerun()
+
+    def _captain(c):
+        plans, drafts = TP.load(int(team_id), _CODE_BY_ID)
+        e = dict(drafts.get(int(gw)) or plans.get(int(gw)) or TP.empty_entry())
+        e["captain"] = int(c)
+        TP.save_draft(int(team_id), int(gw), e)
+        st.rerun()
+
+    ctx = PC.CardCtx(board=BOARD, proj=PROJ, pts_col=PTS_COL, fix=FIX, defcon=DEFCON,
+                     scout=_LIVE["scout"], board_stamp=_LIVE["board_stamp"],
+                     # on_compare stays off until the head-to-head dialog lands ·
+                     # the card HIDES the button when the callback is None, and a
+                     # visible control that does nothing is worse than no control.
+                     on_replace=_replace, on_compare=None, on_captain=_captain,
+                     captain_gw=int(gw), in_squad=lambda c: int(c) in owned,
+                     current_gw=int(gw))
+    PC.open_player_card(ctx, int(code))
+
+
+def _money_strip(wk, led, bank_m_after, xi_pts, band, bench_pts, chip,
+                 n_match, n_asked) -> None:
+    """The constraints every decision on this page runs into, above everything.
+
+    Free transfers, moves made, hits, money, the week's points with its 80%
+    band, and how much of that total is a real match forecast rather than a
+    fixture shape.
+    """
+    free_before = wk["available_before"] if wk else led["available_now"]
+    used = wk["used"] if wk else 0
+    hits = wk["hits"] if wk else 0
+    # A chip week has unlimited transfers and costs nothing, so a count and a
+    # hit warning are both wrong there.
+    wild = bool(wk and wk.get("wildcard")) or chip in ("WC", "FH")
+    grade = bench_boost_grade(bench_pts)
+    tiles = [
+        ("Free", "∞" if wild else str(free_before),
+         "var(--ff-mag)" if wild else ("var(--ff-mint)" if free_before else "var(--ff-orange)"),
+         "chip week, all free" if wild else "bank of %d" % led["cap"]),
+        ("Moves", str(used), "var(--ff-cyan)" if used else "var(--ff-text)", "this week"),
+        ("Hits", ("−%d" % (hits * 4)) if hits else "0",
+         "var(--ff-red)" if hits else "var(--ff-text)", "%d × −4" % hits),
+        ("Bank", "£%.1fm" % bank_m_after,
+         "var(--ff-cyan)" if bank_m_after >= 0 else "var(--ff-red)", "after moves"),
+        ("%s xP" % ("Squad" if chip == "BB" else "XI"), "%.0f" % xi_pts, "var(--ff-gold)",
+         "%.0f to %.0f · 80%%" % (band["lo"], band["hi"])),
+        ("Bench", "%.1f" % bench_pts, "var(--ff-text)",
+         grade["call"] if chip == "BB" else "not boosted"),
+        ("Forecasts", "%d/%d" % (n_match, n_asked),
+         "var(--ff-mint)" if n_match >= n_asked * 0.8 else "var(--ff-text)",
+         "on match forecasts" if n_match else "fixture shape"),
+    ]
+    body = "".join(
+        "<div style='flex:1;min-width:112px;background:var(--ff-card);"
+        "border:1px solid var(--ff-line);border-radius:12px;padding:10px 12px;'>"
+        "<div style='font-size:10px;font-weight:800;letter-spacing:0.14em;"
+        "text-transform:uppercase;color:var(--ff-muted);'>%s</div>"
+        "<div class='ff-display' style='font-size:22px;font-weight:900;color:%s;'>%s</div>"
+        "<div style='font-size:11px;color:var(--ff-muted);'>%s</div></div>"
+        % (lab, col, val, sub) for lab, val, col, sub in tiles)
+    st.markdown(_flat("<div style='display:flex;gap:10px;flex-wrap:wrap;"
+                      "margin:8px 0 14px 0;'>" + body + "</div>"),
+                unsafe_allow_html=True)
+
+
+def _handle_pitch_click(click, gw, xi, codes_now, pos_by, sub_from, swap_targets,
+                        entry) -> None:
+    action, cid = click.get("action"), int(click.get("id") or 0)
+    if action == "detail":
+        _open_card(cid, gw, codes_now)
+    elif action in ("axe", "unaxe"):
+        # ✕ marks a player out and ✕ again takes him off the list, so several
+        # can be queued and filled one by one from the table.
+        cur = [int(c) for c in st.session_state[_sk("axe")]]
+        if action == "axe" and cid not in cur:
+            cur.append(cid)
+        elif action == "unaxe" and cid in cur:
+            cur.remove(cid)
+        st.session_state[_sk("axe")] = cur
+        st.rerun(scope="fragment")
+    elif action == "bench":
+        # First tap arms the swap, second completes it. Tapping the armed player
+        # again cancels, which is the only way out that needs no extra control.
+        if sub_from == cid:
+            st.session_state[_sk("sub_from")] = None
+        elif sub_from is not None and cid in swap_targets:
+            new_xi = ((set(xi) - {sub_from}) | {cid} if sub_from in xi
+                      else (set(xi) - {cid}) | {sub_from})
+            if SR.is_legal_xi(new_xi, pos_by):
+                st.session_state[_sk("xi_override")][int(gw)] = new_xi
+            st.session_state[_sk("sub_from")] = None
+        else:
+            st.session_state[_sk("sub_from")] = cid
+        st.rerun(scope="fragment")
+
+
+def _transfer_desk(axed, sq, gw, entry, bank_m_after, codes_now) -> None:
+    """Who you could have instead, for the first player in the axe queue.
+
+    Budget is pooled across everyone marked, because marking two players and
+    shopping with one player's money is not the choice the manager is making.
+    """
+    names = {int(r["code"]): str(r["web_name"]) for _, r in sq.iterrows()}
+    target = int(axed[0])
+    out_rows = sq[sq["code"].astype(int) == target]
+    if out_rows.empty:
+        return
+    out_row = out_rows.iloc[0]
+    pooled = float(bank_m_after) + sum(_PRICE_BY_CODE.get(int(c), 0.0) for c in axed)
+    st.markdown("**Replacing:** " + " · ".join(names.get(int(c), str(c)) for c in axed)
+                + "  ·  £%.1fm to spend" % pooled
+                + ("  ·  filling %s first" % names.get(target, str(target))
+                   if len(axed) > 1 else ""))
+
+    pool = BOARD[(BOARD["position"] == out_row["position"])
+                 & (~BOARD["code"].isin(codes_now))
+                 & (BOARD["actual_price"] <= pooled)].copy()
+    if pool.empty:
+        st.info("No %s is available for £%.1fm. Free more money, or keep him."
+                % (out_row["position"], pooled))
+        return
+    pool = pool.sort_values(PTS_COL, ascending=False).head(60)
+    rows = ROWS.candidate_rows(pool, gw, PROJ, FIX, out_row, PTS_COL,
+                               dc_hit_fn=lambda c, p: PC.dc_hit(_CARD_CTX, c, p),
+                               glyph_fn=PC.setpiece_glyphs)
+    cols = [T.col_face("code", url_fn=player_photo_url),
+            T.col_player("web_name", "Player", sub="team_short", action="inspect"),
+            T.col_chip("position", "Pos", color_fn=theme.pos_color),
+            T.col_num("actual_price", "£m", fmt="%.1f"),
+            T.col_num("d_price", "Δ£m", fmt="%+.1f",
+                      color_fn=lambda v: theme.fill("mint") if v <= 0 else theme.fill("red")),
+            T.col_run("run", "GW%d-%d" % (gw, gw + 2)),
+            T.col_num("gw_pts", "GW%d" % gw, fmt="%.1f"),
+            # The match model has no row for every player. A bare dot there
+            # reads as a rendering bug rather than the real answer.
+            T.col_num("mins", "Mins", fmt="%.0f", empty="no forecast",
+                      color_fn=lambda v: theme.fill("red") if v < 45 else None),
+            T.col_num("dc_hit", "DEFCON", fmt="%.0f%%", empty="-"),
+            T.col_html("setp", ""),
+            T.col_num("season", "Season", fmt="%.0f"),
+            T.col_num("per_m", "Per £m", fmt="%.1f"),
+            T.col_num("spread", "±", fmt="%.0f%%", empty="-"),
+            T.col_chip("confidence", "Conf.", color_fn=PC.conf_color),
+            T.col_action("code", "swap", "Swap in")]
+    click = _dedupe(T.render(rows, cols, key=_sk("cands"), max_height=440),
+                    _sk("table_nonce"))
+    if click:
+        cid = int(click.get("id") or 0)
+        if click.get("action") == "inspect":
+            _open_card(cid, gw, codes_now)
+        elif click.get("action") == "swap":
+            e = dict(entry)
+            e["swaps"] = dict(e.get("swaps") or {})
+            e["swaps"][target] = cid
+            TP.save_draft(int(team_id), int(gw), e)
+            st.session_state[_sk("axe")] = [int(c) for c in axed if int(c) != target]
+            st.rerun(scope="fragment")
+
+
+def _save_row(gw, entry, plans, drafts, start_codes, codes_now) -> None:
+    """Chip, save, reset, clear.
+
+    `plans`, `drafts`, `start_codes` and `codes_now` are carried for the
+    "is the gap real?" Monte Carlo that lands beside these buttons next.
+    """
+    chips = ["None", "BB", "TC", "WC", "FH"]
+    c1, c2, c3, c4 = st.columns([1.2, 1, 1, 1.6])
+    chip = c4.selectbox("Chip", chips, key=_sk("chip%d" % gw),
+                        index=chips.index(entry.get("chip") or "None"),
+                        help="Bench Boost counts the bench, Triple Captain triples the "
+                             "armband, Wildcard and Free Hit make every move free · a "
+                             "Free Hit squad reverts the following week.")
+    if chip != (entry.get("chip") or "None"):
+        e = dict(entry)
+        e["chip"] = None if chip == "None" else chip
+        TP.save_draft(int(team_id), int(gw), e)
+        st.rerun(scope="fragment")
+    # These three write to disk, which is one of the three sanctioned reasons to
+    # call st.rerun() from a button (CLAUDE.md rule 5): the widgets above were
+    # built before the write, so without it they show the old plan.
+    if c1.button("💾 Save GW%d plan" % gw, key=_sk("save%d" % gw), type="primary",
+                 use_container_width=True):
+        TP.save_plan(int(team_id), int(gw), entry)
+        st.toast("Saved · GW%d plan" % gw)
+        st.rerun()
+    if c2.button("↩ Reset to saved", key=_sk("reset%d" % gw), use_container_width=True):
+        TP.clear_draft(int(team_id), int(gw))
+        st.session_state[_sk("axe")] = []
+        st.rerun()
+    if c3.button("🧹 Clear this week", key=_sk("clear%d" % gw), use_container_width=True):
+        TP.save_plan(int(team_id), int(gw), TP.empty_entry())
+        st.session_state[_sk("axe")] = []
+        st.rerun()
+
+
+@st.fragment
+def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
+    """A future gameweek, planned on the pitch itself.
+
+    Runs as a fragment so an axe, a signing, a bench or a chip redraws only this
+    block. In-block actions use `st.rerun(scope="fragment")`; the dialogs and
+    the disk writes keep app scope (CLAUDE.md rule 5).
+    """
+    if PROJ is None:
+        st.error("Archive not built · run `python scripts/build_archive.py` first.")
+        return
+    plans, drafts = TP.load(int(team_id), _CODE_BY_ID)
+    entry = dict(drafts.get(view_gw) or plans.get(view_gw) or TP.empty_entry())
+    start_codes = [int(c) for c in squad_df["code"]]
+    codes_now = TP.effective_codes(start_codes, plans, drafts, view_gw)
+    sq, missing = _planner_squad(codes_now)
+    if missing:
+        st.warning("%d player(s) have no projection on the board · shown at 0."
+                   % len(missing))
+    st.markdown(_mode_pill(
+        "Planning · GW%d" % view_gw,
+        ("unsaved changes · save below" if view_gw in drafts
+         else "saved plan" if view_gw in plans else "no moves yet"),
+        "var(--ff-gold)"), unsafe_allow_html=True)
+
+    # ── XI, captain, chip ────────────────────────────────────────────────────
+    pos_by = {int(r["code"]): str(r["position"]) for _, r in sq.iterrows()}
+    xi = set(best_xi(sq, PROJ, view_gw))
+    manual = st.session_state[_sk("xi_override")].get(view_gw)
+    if manual:
+        # A saved override can name a player who has since been transferred out,
+        # so it is filtered and re-checked rather than trusted.
+        manual = {int(c) for c in manual if int(c) in pos_by}
+        if SR.is_legal_xi(manual, pos_by):
+            xi = manual
+    chip = entry.get("chip")
+    # A captain who does not start scores you nothing twice, so the armband is
+    # gated on expected minutes. Silence (None) is not a statement that he is
+    # out, so it stays eligible · the Draft's rule.
+    playing = [c for c in xi
+               if PROJ.expected_minutes(c, view_gw) is None
+               or (PROJ.expected_minutes(c, view_gw) or 0) >= 45]
+    captain = entry.get("captain")
+    captain = int(captain) if captain is not None else None
+    if captain not in xi:
+        captain = max(playing or list(xi), key=lambda c: PROJ.points(c, view_gw),
+                      default=None)
+    xi_pts = (sum(PROJ.points(c, view_gw) for c in xi)
+              + (PROJ.points(captain, view_gw) if captain else 0)
+              * (2 if chip == "TC" else 1))
+    bench_pts = sum(PROJ.points(c, view_gw) for c in codes_now if c not in xi)
+    if chip == "BB":
+        xi_pts += bench_pts
+    # An 80% band, closed form · this strip redraws on every click.
+    band = week_band(list(xi), PROJ, BOARD, view_gw, captain=captain)
+    n_match, n_asked = PROJ.coverage(codes_now, view_gw)
+
+    # ── Money strip ──────────────────────────────────────────────────────────
+    banked_now = int(st.session_state.get("banked_fts", 1))
+    led = TP.ledger(plans, drafts, view_gw, start_codes, first_gw=int(plan_first),
+                    banked_now=banked_now)
+    wk = next((w for w in led["weeks"]
+               if w["gw"] == view_gw and w["gw"] >= int(plan_first)), None)
+    bank_m_after = TP.bank_after(bank_m_now, _PRICE_BY_CODE, start_codes, plans,
+                                 drafts, view_gw)
+    _money_strip(wk, led, bank_m_after, xi_pts, band, bench_pts, chip, n_match, n_asked)
+
+    # ── Pitch ────────────────────────────────────────────────────────────────
+    axed = [int(c) for c in st.session_state[_sk("axe")] if int(c) in set(codes_now)]
+    st.session_state[_sk("axe")] = axed
+    sub_from = st.session_state[_sk("sub_from")]
+    swap_targets = set()
+    if sub_from is not None and int(sub_from) in pos_by:
+        sub_from = int(sub_from)
+        if sub_from in xi:
+            swap_targets = set(SR.legal_swaps(sub_from, xi, codes_now, pos_by))
+        else:
+            # A benched player was tapped: light every starter he could replace.
+            swap_targets = {c for c in xi
+                            if SR.is_legal_xi((set(xi) - {c}) | {sub_from}, pos_by)}
+    else:
+        # An armed player who has since been transferred out · drop him from
+        # state too, or the key holds a stale code for the rest of the session.
+        sub_from = None
+        st.session_state[_sk("sub_from")] = None
+    rows = ROWS.pitch_rows(sq, view_gw, PROJ, FIX, xi, captain, axed, sub_from,
+                           swap_targets)
+    click = _dedupe(render_squad_pitch(
+        rows, stat_label="xP", title_right="GW%d plan" % view_gw, interactive=True,
+        compact=True,
+        # The same number as the tile · the pitch would otherwise sum the cards
+        # and quietly drop the captain's double.
+        xi_total_override=round(xi_pts, 1),
+        total_label="SQUAD" if chip == "BB" else "XI",
+        key=_sk("pitch")), _sk("pitch_nonce"))
+    if click:
+        _handle_pitch_click(click, view_gw, xi, codes_now, pos_by, sub_from,
+                            swap_targets, entry)
+    if sub_from is not None:
+        st.info("Swapping **%s**. Tap a glowing kit to bring him on, or tap him "
+                "again to cancel." % str(sq[sq["code"].astype(int) == sub_from]
+                                         ["web_name"].iloc[0]))
+
+    # ── Axe queue and candidates ─────────────────────────────────────────────
+    if axed:
+        _transfer_desk(axed, sq, view_gw, entry, bank_m_after, codes_now)
+
+    _save_row(view_gw, entry, plans, drafts, start_codes, codes_now)
 
 
 # ── SQUAD ─────────────────────────────────────────────────────────────────────
 st.markdown(
     '<div style="margin:30px 0 12px;display:flex;align-items:center;gap:14px;">'
-    '<div style="font-size:11px;letter-spacing:0.22em;color:rgba(255,255,255,0.55);'
+    '<div style="font-size:11px;letter-spacing:0.22em;color:var(--ff-muted2);'
     'text-transform:uppercase;font-weight:800;">Squad</div>'
-    '<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div>'
+    '<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div>'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -1242,20 +1676,20 @@ with tab_lineup:
     _delta = _cur - _orig
     _c = _cnt(_lu["starters"])
     _formation = f"{_c.get('DEF',0)}-{_c.get('MID',0)}-{_c.get('FWD',0)}"
-    _dcol = "#00FF87" if _delta > 0.05 else "#FF4B4B" if _delta < -0.05 else "rgba(255,255,255,0.6)"
+    _dcol = "var(--ff-mint)" if _delta > 0.05 else "var(--ff-red)" if _delta < -0.05 else "var(--ff-muted)"
     _tiles = [
-        ("Formation", _formation, "GKP · DEF · MID · FWD", "#04f5ff"),
-        ("Projected XI", f"{_cur:.1f} xP", "captain doubled", "#00FF87"),
+        ("Formation", _formation, "GKP · DEF · MID · FWD", "var(--ff-cyan)"),
+        ("Projected XI", f"{_cur:.1f} xP", "captain doubled", "var(--ff-mint)"),
         ("Vs your saved XI", f"{'+' if _delta >= 0 else ''}{_delta:.1f} xP",
          "improvement" if _delta > 0.05 else "worse" if _delta < -0.05 else "no change", _dcol),
     ]
     st.markdown(
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 4px;">' + "".join(
-            f'<div style="flex:1;min-width:150px;background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);'
+            f'<div style="flex:1;min-width:150px;background:rgba(22,26,34,0.85);border:1px solid var(--ff-row-alt);'
             f'border-radius:12px;padding:14px 16px;font-family:\'Inter\',sans-serif;">'
-            f'<div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:rgba(255,255,255,0.5);text-transform:uppercase;">{lab}</div>'
+            f'<div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:var(--ff-muted2);text-transform:uppercase;">{lab}</div>'
             f'<div style="font-size:24px;font-weight:900;color:{acc};margin:2px 0;">{val}</div>'
-            f'<div style="font-size:11px;color:rgba(255,255,255,0.45);">{sub}</div></div>'
+            f'<div style="font-size:11px;color:var(--ff-muted2);">{sub}</div></div>'
             for lab, val, sub, acc in _tiles
         ) + "</div>",
         unsafe_allow_html=True,
@@ -1266,15 +1700,15 @@ with tab_lineup:
         d = _info[i]
         tag = ""
         if i == _lu["captain"]:
-            tag = '<span style="color:#FFD700;font-weight:900;">Ⓒ</span> '
+            tag = '<span style="color:var(--ff-gold);font-weight:900;">Ⓒ</span> '
         elif i == _lu["vice"]:
             tag = '<span style="color:#bbb;font-weight:900;">Ⓥ</span> '
         flag = "" if d["status"] == "a" else " 🚑"
         op = "0.6" if bench else "1"
         return (f'<div style="display:inline-flex;align-items:center;gap:7px;background:rgba(22,26,34,0.85);'
-                f'border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:6px 10px;margin:3px;opacity:{op};">'
-                f'{team_dot(d["short"], size=11)}<span style="font-size:12px;font-weight:700;color:#fff;">{tag}{d["name"]}{flag}</span>'
-                f'<span style="font-size:11px;font-weight:800;color:#00FF87;">{d["ep"]:.1f}</span></div>')
+                f'border:1px solid var(--ff-row-alt);border-radius:9px;padding:6px 10px;margin:3px;opacity:{op};">'
+                f'{team_dot(d["short"], size=11)}<span style="font-size:12px;font-weight:700;color:var(--ff-text);">{tag}{d["name"]}{flag}</span>'
+                f'<span style="font-size:11px;font-weight:800;color:var(--ff-mint);">{d["ep"]:.1f}</span></div>')
 
     for _pos in ["GKP", "DEF", "MID", "FWD"]:
         _row = [i for i in _lu["starters"] if _info[i]["pos"] == _pos]
@@ -1286,8 +1720,8 @@ with tab_lineup:
                 unsafe_allow_html=True,
             )
     st.markdown(
-        '<div style="margin:8px 0 2px;"><span style="display:inline-block;background:rgba(255,255,255,0.12);'
-        'color:#fff;border-radius:4px;padding:1px 8px;font-size:10px;font-weight:900;margin-right:6px;">BENCH</span>'
+        '<div style="margin:8px 0 2px;"><span style="display:inline-block;background:var(--ff-line);'
+        'color:var(--ff-text);border-radius:4px;padding:1px 8px;font-size:10px;font-weight:900;margin-right:6px;">BENCH</span>'
         + "".join(_pill(i, bench=True) for i in _lu["bench"]) + "</div>",
         unsafe_allow_html=True,
     )
@@ -1329,7 +1763,6 @@ with tab_pitch:
 
         from components.pitch_view import render_pitch_view, render_squad_pitch
         from components.loading import LINES_SQUAD, fpl_loader
-        from analytics import squad_planner as planner
         from config import SIM_HORIZON
 
         # ── Deep link (?gw=41 jumps the scrubber) ────────────────────────────────
@@ -1340,37 +1773,6 @@ with tab_pitch:
             except (TypeError, ValueError):
                 pass
             del _qp["gw"]
-
-        @st.dialog("Player intel", width="large")
-        def _player_dialog(pid: int, plan_gw: Optional[int] = None) -> None:
-            from ui.player_detail import render_player_detail
-            render_player_detail(pid, players_df_all, key_prefix="dlg")
-            with st.expander("📋 Gameweek-by-gameweek history table"):
-                _h = _gw_stats(int(pid))
-                if _h:
-                    _hdfv = pd.DataFrame(_h).rename(columns={
-                        "round": "GW", "total_points": "Pts", "minutes": "Mins",
-                        "goals_scored": "Goals", "assists": "Assists",
-                        "bonus": "Bonus", "defensive_contribution": "DEF acts",
-                        "expected_goals": "xG",
-                        "expected_goal_involvements": "xGI"})
-                    st.dataframe(_hdfv, hide_index=True, use_container_width=True,
-                                 height=min(420, 42 + 35 * len(_hdfv)))
-                    st.caption("One row per gameweek · most recent season on record.")
-                else:
-                    st.caption("No gameweek history available for this player yet.")
-            if plan_gw:
-                _nm = players_df_all.loc[players_df_all["fpl_id"] == int(pid), "web_name"]
-                _nm = str(_nm.iloc[0]) if not _nm.empty else "him"
-                if st.button(f"⭐ Captain {_nm} for GW{plan_gw}", key=f"dlg_cap_{pid}",
-                             type="primary", use_container_width=True):
-                    _drafts = planner.load_drafts(int(team_id))
-                    _e = dict(_drafts[plan_gw]) if plan_gw in _drafts else                     dict(planner.normalize_entry(
-                            planner.load_plans(int(team_id)).get(plan_gw, [])))
-                    _e["captain"] = int(pid)
-                    planner.save_draft(int(team_id), plan_gw, _e)
-                    st.toast(f"Captained · {_nm} for GW{plan_gw}")
-                    st.rerun()
 
         # ── Timeline scrubber · history ↔ current ↔ future plan ─────────────────
         # Scrub back through played gameweeks (actual points, to GW1), sit on the
@@ -1407,400 +1809,13 @@ with tab_pitch:
         _is_upcoming = (view_gw == _cur) and not _finished
 
         if view_gw > _cur:
-            # The planner reruns as a FRAGMENT · axe/sign/chip clicks re-execute
-            # only this block (fast), not the whole page. st.rerun inside uses
-            # scope="fragment"; dialogs keep app-scope reruns.
-            @st.fragment
-            def _planner_fragment() -> None:
-                # ══ PLANNER · a future gameweek, transfers made on the pitch ═════════
-                # Working moves (pending) live on DISK as a draft, because ✕/kit taps
-                # reload the page and would wipe session state.
-                plans = planner.load_plans(int(team_id))
-                drafts = planner.load_drafts(int(team_id))
-                entry = dict(drafts[view_gw]) if view_gw in drafts \
-                    else dict(planner.normalize_entry(plans.get(view_gw, [])))
-                pending = list(entry.get("transfers", []))
-                chip = entry.get("chip")
-
-                # Squad after every EARLIER saved week, then this week's pending moves.
-                prev_plans = {g: t for g, t in plans.items() if g < view_gw}
-                eff_base = planner.effective_squad(
-                    squad_df, players_df_all, prev_plans,
-                    up_to_gw=view_gw - 1, first_gw=_plan_first)
-                eff_now = planner.effective_squad(
-                    eff_base, players_df_all, {view_gw: entry},
-                    up_to_gw=view_gw, first_gw=view_gw)
-                if "upcoming_fixtures" in eff_now.columns:
-                    eff_now["upcoming_fixtures"] = eff_now["upcoming_fixtures"].apply(_attach_short)
-                _in_ids = {int(t["in_id"]) for t in pending}
-                eff_now["_is_new"] = eff_now["fpl_id"].astype(int).isin(_in_ids)
-
-                # Per-GW xP from the shared engine · the pitch shows THIS week's
-                # projection, not FPL's generic next-GW estimate.
-                _hz = _xp_horizon()
-                _xp_gw_map = {}
-                if _hz is not None:
-                    from analytics.xp_engine import xp_for_gw
-                    _xp_gw_map = xp_for_gw(_hz[0], view_gw)
-                    if _xp_gw_map:
-                        eff_now["ep_next"] = eff_now["fpl_id"].astype(int).map(
-                            _xp_gw_map).fillna(eff_now.get("ep_next"))
-
-                # Transfer economy for THIS week
-                fts   = planner.free_transfers_for(prev_plans, view_gw, _plan_first)
-                used  = len(pending)
-                cost  = planner.hit_cost(used, fts, chip=chip)
-
-                # What the moves actually buy: xP in minus xP out, net of the hit.
-                # Uses THIS week's projection when the engine has one.
-                if _xp_gw_map:
-                    _xp_by_id = _xp_gw_map
-                else:
-                    _xp_by_id = dict(zip(players_df_all["fpl_id"].astype(int),
-                                         pd.to_numeric(players_df_all.get("ep_next"),
-                                                       errors="coerce").fillna(0.0)))
-                xp_swing = sum(_xp_by_id.get(int(t["in_id"]), 0.0)
-                               - _xp_by_id.get(int(t["out_id"]), 0.0) for t in pending)
-                net_gain = xp_swing - cost
-                bank_now = planner.bank_after(bank_m, prev_plans, view_gw - 1, _plan_first,
-                                              extra_pending=pending)
-                _saved = planner.normalize_entry(plans.get(view_gw, [])) == \
-                    planner.normalize_entry(entry)
-
-                # Squad xP this week · XI + captain extra (TC ×3, BB adds the bench)
-                _ids = eff_now["fpl_id"].astype(int)
-                if _xp_gw_map:
-                    _xpv = _ids.map(_xp_gw_map).fillna(0.0)
-                else:
-                    _xpv = pd.to_numeric(eff_now.get("ep_next"), errors="coerce").fillna(0.0)
-                _xi = ~eff_now["on_bench"].astype(bool)
-                squad_xp = float(_xpv[_xi].sum())
-                _cap_xp = float(_xpv[_xi & eff_now["is_captain"].astype(bool)].sum())
-                squad_xp += _cap_xp * (2.0 if chip == "TC" else 1.0)
-                if chip == "BB":
-                    squad_xp += float(_xpv[~_xi].sum())
-
-                # ── ✨ Optimise · write a suggested 5-week plan into the drafts ──────
-                @st.dialog("Suggested plan", width="large")
-                def _plan_summary_dialog(notes, plan_map, summary, first_gw_, horizon_):
-                    st.markdown(
-                        f'<div style="text-align:center;padding:4px 0 10px;">'
-                        f'<span style="font-family:\'Archivo\',sans-serif;font-size:26px;'
-                        f'font-weight:900;color:#00FF87;">+{summary["net"]:.1f} xP</span>'
-                        f'<span style="font-size:12px;color:rgba(255,255,255,0.55);"> net over '
-                        f'{horizon_} weeks · {summary["hits"]} hit{"s" if summary["hits"] != 1 else ""}'
-                        f'</span></div>', unsafe_allow_html=True)
-                    for n in notes:
-                        st.markdown(
-                            f'<div style="background:rgba(255,255,255,0.03);border:1px solid '
-                            f'rgba(255,255,255,0.08);border-left:3px solid #FFD700;border-radius:8px;'
-                            f'padding:8px 12px;margin-bottom:5px;font-size:13px;color:'
-                            f'rgba(255,255,255,0.85);">{n}</div>', unsafe_allow_html=True)
-                    st.caption("Written to the timeline as drafts · scrub through the weeks to "
-                               "review, tweak any move, then save week by week. Or:")
-                    if st.button("💾 Save the entire plan", type="primary",
-                                 use_container_width=True, key="opt_save_all"):
-                        for g in range(first_gw_, first_gw_ + horizon_):
-                            planner.save_plan(int(team_id), g, plan_map.get(g, []))
-                            planner.clear_draft(int(team_id), g)
-                        st.toast("Saved · the full suggested plan")
-                        st.rerun()
-
-                @st.dialog("Plan review", width="large")
-                def _plan_review_dialog(cards, summary) -> None:
-                    _vc = "#00FF87" if summary["net"] >= 0 else "#FF4B4B"
-                    st.markdown(
-                        f'<div style="text-align:center;padding:4px 0 10px;">'
-                        f'<span style="font-family:\'Archivo\',sans-serif;font-size:26px;'
-                        f'font-weight:900;color:{_vc};">{summary["net"]:+.1f} xP</span>'
-                        f'<span style="font-size:12px;color:rgba(255,255,255,0.55);"> net '
-                        f'across the plan · {summary["n_moves"]} move'
-                        f'{"s" if summary["n_moves"] != 1 else ""} · {summary["hits"]} '
-                        f'hit{"s" if summary["hits"] != 1 else ""}</span></div>',
-                        unsafe_allow_html=True)
-                    _vcol = {"great": "#00FF87", "good": "#04f5ff",
-                             "marginal": "#FFA500", "negative": "#FF4B4B"}
-                    for c in cards:
-                        st.markdown(
-                            f'<div style="background:rgba(255,255,255,0.03);border:1px solid '
-                            f'rgba(255,255,255,0.08);border-left:3px solid {_vcol[c["verdict"]]};'
-                            f'border-radius:8px;padding:8px 12px;margin-bottom:5px;font-size:13px;'
-                            f'color:rgba(255,255,255,0.85);">{c["text"]}'
-                            + (f'<div style="font-size:12px;color:#FFD700;margin-top:4px;">'
-                               f'💡 Better available: {c["better"]}</div>' if c["better"] else "")
-                            + '</div>', unsafe_allow_html=True)
-                    if not cards:
-                        st.info("No transfers in the plan yet · scrub forward, ✕ a "
-                                "player and sign a replacement, then review here.")
-                    st.caption("Verdicts come straight from the projections: each move's "
-                               "xP over the remaining weeks, hits at −4, and the best "
-                               "same-position alternative you could have afforded.")
-
-                _oc1, _oc15, _oc2 = st.columns([1.5, 1.2, 1])
-                with _oc1:
-                    if st.button("✨ Optimise my next 5 weeks", key="optimise_plan",
-                                 use_container_width=True,
-                                 help="Suggests the best transfer path over the horizon: "
-                                      "like-for-like swaps ranked by projected points, "
-                                      "respecting budget, club limits, free-transfer "
-                                      "banking and the -4 hit rule."):
-                        _hz_opt = _xp_horizon()
-                        if _hz_opt is None:
-                            st.warning("Projections unavailable right now.")
-                        else:
-                            from analytics.plan_optimizer import suggest_plan
-                            _hdf, _hfirst, _hn = _hz_opt
-                            _base = squad_df.copy()
-                            if "team_id" not in _base.columns:
-                                _base = _base.merge(players_df_all[["fpl_id", "team_id"]],
-                                                    on="fpl_id", how="left")
-                            with fpl_loader("Optimising your next 5 weeks", LINES_SOLVER):
-                                _plan_map, _notes, _sumry = suggest_plan(
-                                    _base, players_df_all, _hdf, _hfirst, _hn, bank_m)
-                            for g in range(_hfirst, _hfirst + _hn):
-                                planner.save_draft(int(team_id), g, _plan_map.get(g, []))
-                            _plan_summary_dialog(_notes, _plan_map, _sumry, _hfirst, _hn)
-                with _oc15:
-                    if st.button("🧠 Analyse my plan", key="analyse_plan",
-                                 use_container_width=True,
-                                 help="Data-driven review of every saved/draft move "
-                                      "across the horizon: what each buys, what the "
-                                      "hits cost, and where a better move existed."):
-                        _hz_an = _xp_horizon()
-                        if _hz_an is None:
-                            st.warning("Projections unavailable right now.")
-                        else:
-                            from analytics.plan_optimizer import analyse_plan
-                            _hdf2, _hfirst2, _hn2 = _hz_an
-                            _all = dict(plans)
-                            _all.update({g: e for g, e in drafts.items()})
-                            _base2 = squad_df.copy()
-                            if "team_id" not in _base2.columns:
-                                _base2 = _base2.merge(
-                                    players_df_all[["fpl_id", "team_id"]],
-                                    on="fpl_id", how="left")
-                            _cards, _sumry2 = analyse_plan(
-                                _base2, players_df_all, _hdf2, _all,
-                                _hfirst2, _hn2, bank_m)
-                            _plan_review_dialog(_cards, _sumry2)
-                with _oc2:
-                    if st.button("🧹 Discard all drafts", key="optimise_clear",
-                                 use_container_width=True,
-                                 help="Drops every unsaved draft week · saved plans stay."):
-                        for g in range(_plan_first, _plan_last + 1):
-                            planner.clear_draft(int(team_id), g)
-                        st.rerun(scope="fragment")
-
-                # ── Chip for this week (each chip once across the plan) ─────────────
-                _chip_labels = {None: "No chip", "BB": "Bench Boost", "TC": "Triple Captain",
-                                "WC": "Wildcard", "FH": "Free Hit"}
-                _used_elsewhere = set()
-                for _g in range(_plan_first, _plan_last + 1):
-                    if _g == view_gw:
-                        continue
-                    _src = drafts.get(_g) or plans.get(_g)
-                    if _src and planner.normalize_entry(_src).get("chip"):
-                        _used_elsewhere.add(planner.normalize_entry(_src)["chip"])
-                _chip_opts = [c for c in (None, "BB", "TC", "WC", "FH")
-                              if c == chip or c not in _used_elsewhere]
-                _cc1, _cc2 = st.columns([1, 2.2])
-                with _cc1:
-                    _chip_pick = st.selectbox(
-                        "Chip this week", _chip_opts,
-                        index=_chip_opts.index(chip) if chip in _chip_opts else 0,
-                        format_func=lambda c: _chip_labels[c],
-                        key=f"chip_pick_{view_gw}",
-                        help="Bench Boost counts your bench; Triple Captain triples the "
-                             "armband; Wildcard and Free Hit make every move free · a "
-                             "Free Hit squad reverts the following week.")
-                if _chip_pick != chip:
-                    entry["chip"] = _chip_pick
-                    planner.save_draft(int(team_id), view_gw, entry)
-                    st.rerun(scope="fragment")
-
-                _hit_html = (
-                    f'<div style="background:#FF4B4B;color:#fff;border-radius:8px;padding:6px 14px;'
-                    f'font-weight:900;font-size:15px;font-family:\'Archivo\',sans-serif;'
-                    f'box-shadow:0 0 18px rgba(255,75,75,0.45);">−{cost} pts hit</div>'
-                ) if cost > 0 else ""
-                _save_dot = ("#00FF87" if _saved else "#FFA500")
-                _save_txt = ("Saved" if _saved else "Unsaved changes")
-
-                def _chipbox(label, value, color="#fff"):
-                    return (f'<div style="text-align:center;padding:6px 14px;">'
-                            f'<div style="font-size:18px;font-weight:900;color:{color};'
-                            f'font-family:\'Archivo\',sans-serif;">{value}</div>'
-                            f'<div style="font-size:9px;letter-spacing:0.14em;color:rgba(255,255,255,0.5);'
-                            f'text-transform:uppercase;font-weight:800;">{label}</div></div>')
-
-                st.markdown(
-                    f'<div class="fplh-animate-in" style="display:flex;align-items:center;gap:8px;'
-                    f'flex-wrap:wrap;justify-content:space-between;margin:4px 0 10px;padding:8px 14px;'
-                    f'background:linear-gradient(135deg,rgba(255,215,0,0.07),rgba(0,0,0,0.35));'
-                    f'border:1px solid rgba(255,215,0,0.30);border-radius:12px;">'
-                    f'<div style="display:flex;align-items:center;gap:10px;">'
-                    f'<span style="background:#FFD700;color:#000;border-radius:6px;padding:3px 10px;'
-                    f'font-size:11px;font-weight:900;letter-spacing:0.08em;">PLANNING · GW{view_gw}</span>'
-                    + (f'<span style="background:#c084fc;color:#000;border-radius:6px;padding:3px 10px;'
-                       f'font-size:11px;font-weight:900;letter-spacing:0.08em;">'
-                       + {"BB": "BENCH BOOST", "TC": "TRIPLE CAPTAIN", "WC": "WILDCARD",
-                          "FH": "FREE HIT"}.get(chip, "")
-                       + '</span>' if chip else "")
-                    + f'<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;'
-                    f'color:rgba(255,255,255,0.6);"><span style="width:7px;height:7px;border-radius:50%;'
-                    f'background:{_save_dot};"></span>{_save_txt}</span></div>'
-                    f'<div style="display:flex;align-items:center;gap:2px;">'
-                    + _chipbox("Transfers", used, "#fff")
-                    + _chipbox("Free", "∞" if chip in ("WC", "FH") else fts, "#00FF87")
-                    + _chipbox("Bank", f"£{bank_now:.1f}m", "#04f5ff")
-                    + _chipbox("Squad xP", f"{squad_xp:.0f}", "#FFD700")
-                    + (_chipbox("Net xP", f"{net_gain:+.1f}",
-                                "#00FF87" if net_gain >= 0 else "#FF4B4B") if used else "")
-                    + f'{_hit_html}</div></div>',
-                    unsafe_allow_html=True,
-                )
-
-                _axes = st.session_state.get("plan_axes", [])
-                # Drop queue entries that no longer exist in the squad (already signed)
-                _sq_ids = set(eff_now["fpl_id"].astype(int).tolist())
-                _axes = [a for a in _axes if int(a["id"]) in _sq_ids]
-                st.session_state.plan_axes = _axes
-                eff_now["_is_axed"] = eff_now["fpl_id"].astype(int).isin(
-                    {int(a["id"]) for a in _axes})
-
-                _click = render_pitch_view(eff_now, interactive=True, fixture_gw=view_gw,
-                                           title_right=f"GW{view_gw} plan")
-
-                # Handle a FRESH pitch click (the component re-reports its last value
-                # every rerun · the nonce dedupes).
-                if _click and _click.get("nonce") != st.session_state.get("_pitch_nonce"):
-                    st.session_state._pitch_nonce = _click.get("nonce")
-                    _cid = int(_click.get("id", 0) or 0)
-                    if _click.get("action") == "detail" and _cid:
-                        _player_dialog(_cid, plan_gw=view_gw)
-                    elif _click.get("action") == "axe" and _cid:
-                        if _cid in _in_ids:
-                            # Axing a player you just signed = undo that move.
-                            entry["transfers"] = [
-                                t for t in pending if int(t["in_id"]) != _cid]
-                            planner.save_draft(int(team_id), view_gw, entry)
-                            st.rerun(scope="fragment")
-                        if _cid in {int(a["id"]) for a in _axes}:
-                            # ✕ on an already-queued player = keep him after all
-                            st.session_state.plan_axes = [
-                                a for a in _axes if int(a["id"]) != _cid]
-                            st.rerun(scope="fragment")
-                        _row = eff_now[eff_now["fpl_id"].astype(int) == _cid]
-                        if not _row.empty:
-                            _r = _row.iloc[0]
-                            _axes.append({
-                                "id": _cid, "name": str(_r["web_name"]),
-                                "pos": str(_r["position"]), "price": float(_r["price"]),
-                            })
-                            st.session_state.plan_axes = _axes
-                            st.rerun(scope="fragment")
-                if _axes:
-                    st.markdown(
-                        '<div style="margin:16px 0 8px;display:flex;align-items:center;gap:14px;">'
-                        '<div style="font-size:11px;letter-spacing:0.22em;color:#FF4B4B;'
-                        'text-transform:uppercase;font-weight:800;">Transfer desk · sign the '
-                        'replacements</div>'
-                        '<div style="flex:1;height:1px;background:rgba(255,75,75,0.25);"></div></div>',
-                        unsafe_allow_html=True)
-                    with st.container():
-                        # Which axed slot are we filling? (✕ as many as you like ·
-                        # the pooled budget assumes every queued player is sold)
-                        if len(_axes) > 1:
-                            _sel_name = st.radio(
-                                "Replacing", [a["name"] for a in _axes],
-                                horizontal=True, key=f"axe_pick_{view_gw}",
-                                label_visibility="collapsed")
-                            _swap = next(a for a in _axes if a["name"] == _sel_name)
-                        else:
-                            _swap = _axes[0]
-                        _budget = bank_now + sum(float(a["price"]) for a in _axes)
-                        _owned = set(eff_now["fpl_id"].astype(int).tolist())
-                        _action, _pick = _replacement_panel(
-                            _swap["name"], _swap["pos"], float(_swap["price"]),
-                            _budget, _owned, key_prefix=f"plan{view_gw}",
-                            out_id=int(_swap["id"]), xp_map=_xp_gw_map or None)
-                        if _action == "compare" and _pick is not None:
-                            _h2h_dialog(int(_swap["id"]), int(_pick["fpl_id"]))
-                        elif _action == "sign" and _pick is not None:
-                            pending.append({
-                                "out_id":    int(_swap["id"]),
-                                "out_name":  _swap["name"],
-                                "in_id":     int(_pick["fpl_id"]),
-                                "in_name":   str(_pick["web_name"]),
-                                "position":  _swap["pos"],
-                                "price_out": float(_swap["price"]),
-                                "price_in":  float(_pick["price"]),
-                            })
-                            entry["transfers"] = pending
-                            planner.save_draft(int(team_id), view_gw, entry)
-                            st.session_state.plan_axes = [
-                                a for a in _axes if int(a["id"]) != int(_swap["id"])]
-                            # No scribble overlay here: the planner needs st.rerun(scope="fragment") so
-                            # the pitch above refreshes, and overlay + rerun race (rule 5).
-                            st.rerun(scope="fragment")
-                        elif _action == "cancel":
-                            st.session_state.plan_axes = [
-                                a for a in _axes if int(a["id"]) != int(_swap["id"])]
-                            st.rerun(scope="fragment")
-
-                # This week's moves + save controls
-                if pending:
-                    st.markdown(
-                        "<div style='margin-top:12px;font-size:13px;font-weight:800;color:#fff;'>"
-                        f"GW{view_gw} moves</div>", unsafe_allow_html=True)
-                    for _i, _t in enumerate(pending):
-                        _c1, _c2 = st.columns([10, 1])
-                        with _c1:
-                            st.markdown(
-                                f"<div style='background:rgba(255,255,255,0.03);border:1px solid "
-                                f"rgba(255,255,255,0.08);border-left:3px solid #00FF87;border-radius:8px;"
-                                f"padding:8px 12px;margin-bottom:5px;'>"
-                                f"<span style='color:rgba(255,255,255,0.45);text-decoration:line-through;'>"
-                                f"{_t['out_name']}</span>"
-                                f"<span style='color:rgba(255,255,255,0.5);margin:0 8px;'>→</span>"
-                                f"<span style='color:#00FF87;font-weight:800;'>{_t['in_name']}</span>"
-                                f"<span style='font-size:11px;color:rgba(255,255,255,0.4);margin-left:8px;'>"
-                                f"£{_t['price_out']:.1f}m → £{_t['price_in']:.1f}m</span></div>",
-                                unsafe_allow_html=True)
-                        with _c2:
-                            if st.button("↩", key=f"plan_undo_{view_gw}_{_i}", help="Undo this move"):
-                                pending.pop(_i)
-                                entry["transfers"] = pending
-                                planner.save_draft(int(team_id), view_gw, entry)
-                                st.rerun(scope="fragment")
-
-                _b1, _b2, _b3 = st.columns([1.4, 1, 1])
-                with _b1:
-                    if st.button(f"💾 Save GW{view_gw} plan", key=f"plan_save_{view_gw}",
-                                 type="primary", disabled=_saved, use_container_width=True):
-                        planner.save_plan(int(team_id), view_gw, entry)
-                        planner.clear_draft(int(team_id), view_gw)
-                        st.toast(f"Saved · GW{view_gw} plan ({used} transfer{'s' if used != 1 else ''})")
-                        st.rerun(scope="fragment")
-                with _b2:
-                    if st.button("Reset to saved", key=f"plan_reset_{view_gw}",
-                                 disabled=_saved, use_container_width=True):
-                        planner.clear_draft(int(team_id), view_gw)
-                        st.rerun(scope="fragment")
-                with _b3:
-                    if st.button("Clear this week", key=f"plan_clear_{view_gw}",
-                                 disabled=not (pending or chip or entry.get("captain")
-                                               or plans.get(view_gw)),
-                                 use_container_width=True):
-                        planner.save_plan(int(team_id), view_gw, [])
-                        planner.clear_draft(int(team_id), view_gw)
-                        st.rerun(scope="fragment")
-
-
-            _planner_fragment()
+            # The forward-week planner lives at module level (see
+            # FORWARD-WEEK PLANNER above) and runs as its own fragment, so
+            # an axe, a signing, a bench or a chip redraws only that block.
+            _planner_fragment(view_gw, _plan_first, bank_m)
         elif _is_upcoming:
             st.markdown(_mode_pill(f"Upcoming · GW{view_gw}", "your pick team · projected xP & fixtures",
-                                   "#04f5ff"), unsafe_allow_html=True)
+                                   "var(--ff-cyan)"), unsafe_allow_html=True)
             render_pitch_view(squad_df)
         else:
             try:
@@ -1821,7 +1836,7 @@ with tab_pitch:
                     })
                 _gwtot = (_hist or {}).get("points")
                 _sub = f"{_gwtot} pts scored" if _gwtot is not None else "actual points"
-                st.markdown(_mode_pill(f"Actual · GW{view_gw}", _sub, "#00FF87"),
+                st.markdown(_mode_pill(f"Actual · GW{view_gw}", _sub, "var(--ff-mint)"),
                             unsafe_allow_html=True)
                 render_squad_pitch(_players, stat_label="pts", title_right=f"Gameweek {view_gw}")
                 if view_gw != _max_gw:
@@ -1896,7 +1911,7 @@ with tab_pitch:
                            for pos in ("GKP", "DEF", "MID", "FWD")}
 
                 st.markdown(
-                    "<div style='margin:2px 0 6px;font-size:13px;color:rgba(255,255,255,0.5);"
+                    "<div style='margin:2px 0 6px;font-size:13px;color:var(--ff-muted2);"
                     "letter-spacing:0.12em;text-transform:uppercase;font-weight:700;'>"
                     "Tap ✕ to axe a player</div>",
                     unsafe_allow_html=True,
@@ -1904,7 +1919,7 @@ with tab_pitch:
                 _axe_row(_by_pos["GKP"]); _axe_row(_by_pos["DEF"])
                 _axe_row(_by_pos["MID"]); _axe_row(_by_pos["FWD"])
                 st.markdown(
-                    "<div style='margin:10px 0 6px;font-size:12px;color:rgba(255,255,255,0.4);"
+                    "<div style='margin:10px 0 6px;font-size:12px;color:var(--ff-muted2);"
                     "letter-spacing:0.12em;text-transform:uppercase;font-weight:700;'>Bench</div>",
                     unsafe_allow_html=True,
                 )
@@ -1917,8 +1932,8 @@ with tab_pitch:
                         "<div class='ff-glass' style='padding:24px 20px;text-align:center;'>"
                         "<div style='font-size:30px;'>🔁</div>"
                         "<div style='font-family:\"Archivo\",sans-serif;font-size:15px;font-weight:800;"
-                        "color:#fff;margin-top:6px;'>Replacements appear here</div>"
-                        "<div style='font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px;'>"
+                        "color:var(--ff-text);margin-top:6px;'>Replacements appear here</div>"
+                        "<div style='font-size:12px;color:var(--ff-muted2);margin-top:4px;'>"
                         "Tap ✕ on any player to browse who you can sign in · filter by club, "
                         "position and sort by points, xG, form or value.</div></div>",
                         unsafe_allow_html=True,
@@ -1960,7 +1975,7 @@ with tab_pitch:
         pending_swaps = st.session_state.get("pending_swaps", [])
         if pending_swaps:
             st.markdown(
-                "<div style='margin-top:18px;font-size:14px;font-weight:800;color:#fff;'>"
+                "<div style='margin-top:18px;font-size:14px;font-weight:800;color:var(--ff-text);'>"
                 "📝 Pending Swaps (not yet applied to FPL)</div>",
                 unsafe_allow_html=True,
             )
@@ -1973,16 +1988,16 @@ with tab_pitch:
                 with cols[0]:
                     st.markdown(
                         f"""<div class="fplh-animate-in" style="
-                            background:rgba(255,255,255,0.03);
-                            border:1px solid rgba(255,255,255,0.08);
-                            border-left:3px solid #00FF87;
+                            background:var(--ff-row-alt);
+                            border:1px solid var(--ff-row-alt);
+                            border-left:3px solid var(--ff-mint);
                             border-radius:8px;padding:10px 14px;margin-bottom:6px;
                         ">
-                          <span style="color:rgba(255,255,255,0.45);text-decoration:line-through;">
+                          <span style="color:var(--ff-muted2);text-decoration:line-through;">
                            {swap['out_name']}</span>
-                          <span style="color:rgba(255,255,255,0.5);margin:0 10px;">→</span>
-                          <span style="color:#00FF87;font-weight:800;">{swap['in_name']}</span>
-                          <span style="font-size:11px;color:rgba(255,255,255,0.4);margin-left:10px;">
+                          <span style="color:var(--ff-muted2);margin:0 10px;">→</span>
+                          <span style="color:var(--ff-mint);font-weight:800;">{swap['in_name']}</span>
+                          <span style="font-size:11px;color:var(--ff-muted2);margin-left:10px;">
                            {swap['position']} · {delta_str}</span>
                         </div>""",
                         unsafe_allow_html=True,
@@ -2039,9 +2054,9 @@ with tab_table:
 # ── SEASON TREND ──────────────────────────────────────────────────────────────
 st.markdown(
     '<div style="margin:30px 0 12px;display:flex;align-items:center;gap:14px;">'
-    '<div style="font-size:11px;letter-spacing:0.22em;color:rgba(255,255,255,0.55);'
+    '<div style="font-size:11px;letter-spacing:0.22em;color:var(--ff-muted2);'
     'text-transform:uppercase;font-weight:800;">Season Trend</div>'
-    '<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div>'
+    '<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div>'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -2062,13 +2077,13 @@ try:
         total_bench = int(hist_df["points_on_bench"].sum()) if "points_on_bench" in hist_df.columns else 0
 
         summary_html = (
-            _hero_stat("Best GW", f"{count_up(best_row['net_points'])} pts", "#00FF87",
+            _hero_stat("Best GW", f"{count_up(best_row['net_points'])} pts", "var(--ff-mint)",
                        f"GW{int(best_row['event'])}")
-            + _hero_stat("Worst GW", f"{count_up(worst_row['net_points'])} pts", "#FF4B4B",
+            + _hero_stat("Worst GW", f"{count_up(worst_row['net_points'])} pts", "var(--ff-red)",
                          f"GW{int(worst_row['event'])}")
             + _hero_stat("Season Avg", f"{count_up(season_avg, 1)} pts", "#fff",
                          f"over {len(hist_df)} GWs")
-            + _hero_stat("Bench Loss", f"{count_up(total_bench)} pts", "#FFA500",
+            + _hero_stat("Bench Loss", f"{count_up(total_bench)} pts", "var(--ff-orange)",
                          f"Total hits: −{total_hits}")
         )
         st.markdown(
@@ -2080,7 +2095,7 @@ try:
         opt = charts.bar_option(
             x=list(hist_df["event"]),
             y=[int(p) for p in hist_df["net_points"]],
-            colors=["#00FF87" if p >= season_avg else "#FF4B4B"
+            colors=[theme.fill("mint") if p >= season_avg else theme.fill("red")
                     for p in hist_df["net_points"]],
         )
         opt["tooltip"]["formatter"] = "GW{b}: {c} pts"
