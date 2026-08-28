@@ -20,6 +20,7 @@ from config import (
     FPL_FIXTURES,
     FPL_LIVE_GW,
     FPL_TEAM,
+    FPL_TRANSFERS,
     CACHE_DIR,
     CACHE_TTL,
     POSITIONS,
@@ -97,11 +98,55 @@ def fetch_live_gw(gw: int) -> dict:
 
 
 def fetch_team_picks(team_id: int, gw: int) -> dict:
-    """Fetch a manager's picks for a specific gameweek."""
-    url = FPL_TEAM.format(team_id=team_id, gw=gw)
-    resp = requests.get(url, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+    """Fetch a manager's picks for a gameweek.
+
+    FPL only publishes a gameweek's picks once its deadline has passed, so
+    between gameweeks the upcoming one 404s. The app plans against that
+    upcoming week, so on a 404 this walks back to the latest gameweek that
+    has picks and layers on any transfers already confirmed for `gw` (the
+    transfers endpoint is public). The result carries `requested_gw` and
+    `picks_gw` so a page can label points honestly.
+    """
+    last_err: Optional[Exception] = None
+    for candidate in range(gw, 0, -1):
+        url = FPL_TEAM.format(team_id=team_id, gw=candidate)
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        if resp.status_code == 404 and candidate > 1:
+            last_err = requests.HTTPError("404", response=resp)
+            continue
+        resp.raise_for_status()
+        data = resp.json()
+        data["requested_gw"] = gw
+        data["picks_gw"] = candidate
+        if candidate < gw:
+            data["picks"] = _apply_confirmed_transfers(team_id, data["picks"], candidate, gw)
+        return data
+    raise last_err or requests.HTTPError("no picks")
+
+
+def _apply_confirmed_transfers(team_id: int, picks: List[dict],
+                               picks_gw: int, target_gw: int) -> List[dict]:
+    """Swap in transfers the manager has already made for GWs after `picks_gw`."""
+    try:
+        resp = requests.get(FPL_TRANSFERS.format(team_id=team_id), headers=HEADERS, timeout=15)
+        resp.raise_for_status()
+        transfers = resp.json() or []
+    except Exception as exc:  # noqa: BLE001 · picks are still right, just older
+        logger.warning(f"Transfers for {team_id} unavailable ({exc}); showing GW{picks_gw} picks")
+        return picks
+    pending = [t for t in transfers if picks_gw < int(t.get("event", 0)) <= target_gw]
+    if not pending:
+        return picks
+    out = [dict(p) for p in picks]
+    for t in sorted(pending, key=lambda t: (t["event"], t.get("time", ""))):
+        for p in out:
+            if p["element"] == t["element_out"]:
+                p["element"] = t["element_in"]
+                p["is_captain"] = False
+                p["is_vice_captain"] = False
+                break
+    logger.info(f"Applied {len(pending)} confirmed transfer(s) on top of GW{picks_gw} picks")
+    return out
 
 
 def fetch_team_info(team_id: int) -> dict:
@@ -146,6 +191,7 @@ def get_team_squad(team_id: int, gw: int, bootstrap: Optional[dict] = None) -> p
         price = p.get("now_cost", 0) / 10
         records.append({
             "fpl_id":           pick["element"],
+            "code":             int(p.get("code", 0) or 0),
             "web_name":         p.get("web_name", "Unknown"),
             "team":             teams.get(p.get("team"), "?"),
             "position":         POSITIONS.get(p.get("element_type"), "?"),
