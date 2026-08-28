@@ -172,3 +172,28 @@ def test_free_hit_week_accrues_no_free_transfer():
     none = tp.ledger({3: {"swaps": {}, "captain": None, "chip": None}}, {}, 4,
                      START, first_gw=2, banked_now=1)
     assert {x["gw"]: x for x in none["weeks"]}[4]["available_before"] == 3
+
+
+def test_saving_one_week_does_not_flatten_a_v1_file():
+    """A save must patch its own week only · loading a v1 file without an id
+    map empties every other week, and that must never reach disk."""
+    v1 = {"transfers": [{"out_id": 501, "in_id": 502}], "captain": 501, "chip": "BB"}
+    sp._write({"plans": {"45595": {"2": dict(v1), "3": dict(v1)}}, "drafts": {}})
+    tp.save_draft(45595, 4, {"swaps": {7: 77}, "captain": None, "chip": None})
+    raw = json.loads(sp.PLANS_PATH.read_text())
+    for gw in ("2", "3"):
+        assert raw["plans"]["45595"][gw]["transfers"] == v1["transfers"]
+        assert raw["plans"]["45595"][gw]["captain"] == 501
+    assert "schema" not in raw                      # still half v1, so not tagged
+    assert raw["drafts"]["45595"]["4"]["swaps"] == {"7": 77}
+
+
+def test_save_plan_patches_only_its_own_week():
+    tp.save_plan(45595, 2, {"swaps": {1: 21}, "captain": None, "chip": None})
+    tp.save_draft(45595, 3, {"swaps": {2: 22}, "captain": None, "chip": None})
+    tp.save_plan(45595, 4, {"swaps": {3: 23}, "captain": None, "chip": None})
+    plans, drafts = tp.load(45595)
+    assert plans == {2: {"swaps": {1: 21}, "captain": None, "chip": None},
+                     4: {"swaps": {3: 23}, "captain": None, "chip": None}}
+    assert drafts == {3: {"swaps": {2: 22}, "captain": None, "chip": None}}
+    assert json.loads(sp.PLANS_PATH.read_text())["schema"] == 2

@@ -79,23 +79,51 @@ def _store(team_id: int, plans: Dict[int, Entry], drafts: Dict[int, Entry]) -> N
     _sp._write(raw)
 
 
+def _is_v2(entry: Any) -> bool:
+    return isinstance(entry, dict) and "swaps" in entry
+
+
+def _all_v2(raw: Dict) -> bool:
+    """True when every entry on disk is already schema 2 (has `swaps`)."""
+    for kind in ("plans", "drafts"):
+        for weeks in (raw.get(kind) or {}).values():
+            for e in (weeks or {}).values():
+                if not _is_v2(e):
+                    return False
+    return True
+
+
+def _patch(team_id: int, kind: str, gw: int, entry: Optional[Entry]) -> None:
+    """Replace (or remove, with entry=None) exactly one week on disk.
+
+    Deliberately does NOT round-trip through `load`: a v1 file read without an
+    fpl_id → code mapping normalizes every OTHER week to an empty swap dict,
+    and writing that back would quietly delete plans this save never touched.
+    The schema tag is only raised once nothing v1 is left in the file, so a
+    half-migrated file is never labelled as migrated.
+    """
+    raw = _sp._read()
+    team = raw.setdefault(kind, {}).setdefault(str(int(team_id)), {})
+    if entry is None:
+        team.pop(str(int(gw)), None)
+    else:
+        team[str(int(gw))] = normalize(entry)
+    if _all_v2(raw):
+        raw["schema"] = SCHEMA
+    _sp._write(raw)
+
+
 def save_plan(team_id: int, gw: int, entry: Entry) -> None:
-    plans, drafts = load(team_id)
-    plans[int(gw)] = normalize(entry)
-    drafts.pop(int(gw), None)
-    _store(team_id, plans, drafts)
+    _patch(team_id, "plans", gw, normalize(entry))
+    _patch(team_id, "drafts", gw, None)       # the plan supersedes the draft
 
 
 def save_draft(team_id: int, gw: int, entry: Entry) -> None:
-    plans, drafts = load(team_id)
-    drafts[int(gw)] = normalize(entry)
-    _store(team_id, plans, drafts)
+    _patch(team_id, "drafts", gw, normalize(entry))
 
 
 def clear_draft(team_id: int, gw: int) -> None:
-    plans, drafts = load(team_id)
-    drafts.pop(int(gw), None)
-    _store(team_id, plans, drafts)
+    _patch(team_id, "drafts", gw, None)
 
 
 def clear_all(team_id: int) -> None:
