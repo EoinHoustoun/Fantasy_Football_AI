@@ -1364,3 +1364,315 @@ with.** Stepping through gameweeks left a trail of live watchers still asking
 about weeks already left, each firing its own `st.rerun()`: five extra app reruns
 of 1-2.5 s after a single step. The watcher now stands down when it is no longer
 about the week on screen, and fires at most one rerun per (week, budget, board).
+
+## 2026-08-09 · A second points model, and the benchmark that judges it
+
+### Why
+The per-gameweek model on the Predictions and Free Hit pages
+(`analytics/points_model.py`, XGBoost + Optuna) reports R² ~0.31 on a temporal
+holdout. Re-scored on the population a manager actually chooses between, players
+with a rolling minutes average of 60 or more, it reports **R² ~0.00 and Spearman
+0.14**, behind a four-game rolling average of points. The headline number comes
+almost entirely from correctly predicting that reserves score zero.
+
+Three structural causes, not tuning:
+1. It regresses the points TOTAL, so one squared-error model has to learn a
+   did-he-play Bernoulli, a Poisson goal process, a team clean sheet and a bonus
+   ranking at once.
+2. The opponent is not a feature. Difficulty arrives afterwards as a hand-set
+   `1 + (3 - FDR) x 0.15` multiplier, and `was_home` is set to 0.5 at prediction
+   time because the fixture is unknown to the model.
+3. It trains on the current season only, which is why it cannot exist in
+   preseason at all (`model_store._warm` skips it).
+
+### What was built
+`analytics/component_model.py` · predicts the countable events and adds them up
+with the scoring table. Minutes are two models of their own (P(60+) and expected
+minutes) and every rate is scaled by them. Team attack and defence ratings, built
+from both sides of every historical fixture with a six-match halflife, are
+features of the goal, assist and conceded models. Rates are Poisson per 90 with
+minutes as the exposure weight. The conceded model is fitted once per fixture
+side and prices both the clean sheet and the -1 per two goals analytically from
+the Poisson distribution.
+
+Two data traps it has to handle, both of which silently corrupt a naive build:
+- **`team_id` is reassigned alphabetically every summer.** Id 3 was Bournemouth
+  in 2024-25 and Burnley in 2025-26. Ratings are therefore keyed by club NAME;
+  keyed by id, every promoted side inherits the form of whoever held its number.
+  Test: `test_ratings_follow_the_club_not_the_reused_team_id`.
+- **Defensive contribution points only exist from 2025-26.** The threshold model
+  trains on the actions in every season that records them (2016-17 to 2018-19
+  and 2025-26 · the CBIT blackout covers the rest), but the two points are only
+  added where the rule was in force, or the model is scored against totals that
+  could not contain them.
+
+It is **off by default**, behind `config.COMPONENT_MODEL["enabled"]`
+(`FF_COMPONENT_MODEL=1` in the environment). `model_store.train_and_store`
+dispatches on the flag and falls back to the incumbent if the component model
+raises, so an experiment cannot take a page down.
+
+### How it is judged
+`scripts/benchmark_points_models.py` · expanding walk-forward over the full
+ten-season archive. Every fold trains on everything that finished strictly before
+its first scored gameweek; blocks are GW 10-16, 17-23, 24-30, 31-38 in each test
+season. Five arms: the component model, the incumbent as it runs today (current
+season only), the incumbent given the full archive (so architecture and data
+volume can be told apart), and two free baselines. All arms score the identical
+rows. Reported on all rows AND on likely starters, per season so the worst one is
+visible, plus a decision metric (actual points of the top-11 by prediction).
+
+### The verdict · 36 folds, 178,485 scored rows, all nine test seasons
+Among likely starters, Spearman (the whole point of a ranking model):
+
+| arm | mean | worst season |
+|---|---|---|
+| **component model** | **0.291** | **0.250** (2025-26) |
+| incumbent, full archive | 0.240 | 0.187 |
+| baseline: EWM points | 0.208 | 0.138 |
+| incumbent, as it runs today | 0.173 | 0.125 |
+| baseline: career PPG | 0.168 | 0.066 |
+
+The component model wins **every one of the nine seasons**, and its worst season
+(0.250) is better than the incumbent's best (0.218). On the decision metric,
+actual points of the top-11 by prediction, it takes **54.5 pts/GW against 46.8**,
+a capture of 39.8% of the hindsight ceiling against 34.2%, and it wins the worst
+season there too (36.8% against 32.1%).
+
+**The ablation is the interesting part.** Giving the incumbent the full archive
+lifts it from 0.173 to 0.240, so roughly **57% of the gain is training data and
+43% is the architecture**. Neither alone would have got there, and the data half
+is only available to a model that can use ten seasons of a schema the incumbent's
+feature list cannot fill.
+
+R² among starters goes from -0.032 to +0.075. Still small, and it should be:
+single-gameweek FPL returns are mostly irreducible noise, and any model claiming a
+lot more is fitting something that will not repeat.
+
+### What this does NOT cover
+- **Preseason.** Every fold starts at GW10, so nothing here says the model is
+  right about GW1 of a new season, which is exactly where the 26/27 Draft needs
+  it. The consensus blend still owns that question.
+- **The tuner, and it matters.** The incumbent arm above uses `points_model`'s
+  untuned defaults; the live app runs 50 Optuna trials.
+  `scripts/benchmark_tuning_check.py` re-scores two 2025-26 folds both ways:
+  among starters the search is worth **Spearman 0.131 → 0.191**, and RMSE 3.221 →
+  3.106. So the honest read of the table above is that the live incumbent sits
+  near **0.23**, not 0.173, and the component model's edge is roughly **+0.05 to
+  +0.06 Spearman rather than +0.12**. Still an edge, in the one season tested,
+  and still every-season on the untuned comparison · but the headline gap is
+  about a third smaller than the main table implies. Tuning all 36 folds was not
+  run: 50 trials x 3 CV folds takes ~140s on 13k rows and hours on the
+  full-archive arm.
+- **Rule changes.** 2025-26 is the only season with defensive contribution, so
+  the DEFCON threshold model is fitted on one season of live rules plus three
+  pre-2019 seasons of CBIT, and is the least-evidenced component in the stack.
+- **Shared blind spots.** Both models read the same FPL data and neither sees
+  team news, a press conference, or a manager change.
+
+### Status
+**Still behind the flag.** The evidence is good but the decision to swap is
+Eoin's, and the preseason gap above is a real one for the surface that matters
+most right now.
+
+### The cold-start fold · and the answer is no, not for the Draft
+`scripts/benchmark_gw1_fold.py` removes the current season entirely: train on
+every prior season in full, score GW1-6 with no in-season information at all.
+Eight test seasons, 21,506 opening fixtures, 3,639 player-seasons.
+
+The component model is run twice on purpose. **Frozen at GW1** carries every
+player feature from his first row of the season and lets only the opponent and
+home/away vary, which is what a draft knows. **Updating** lets a GW5 row see
+GW1-4. The first run of this harness only had the updating arm and reported
+Spearman 0.908 on the draft question · that number was the leak, not the model.
+
+Ranking the GW1-6 total, likely starters:
+
+| arm | mean Spearman | worst season |
+|---|---|---|
+| baseline: last season's points | **0.274** | 0.191 |
+| season projector (flat) | 0.267 | 0.177 |
+| season projector x fixture ease | 0.265 | 0.177 |
+| **component model, frozen** | **0.199** | **0.025** (2025-26) |
+| component model, updating (leaks) | 0.709 | 0.585 |
+
+**The component model is worse than doing nothing clever for the draft
+question.** It does win the single opening gameweek (GW1-only Spearman 0.278
+against the projector's 0.193 and last season's 0.233) and it edges the
+take-eleven decision on the mean (64.9% of ceiling against 63.2% and 62.6%), but
+the projector has the better worst season there (56.8% against 54.9%), and on
+the window ranking it is beaten by both.
+
+**The mechanism is clear and worth remembering.** Its player features are a
+three-match-halflife form window, so in August they describe a player's last few
+games of MAY. That is a noisier read of his level than a whole-season regression,
+which is exactly what `season_projection` is. Short-window form is the right
+signal in-season and the wrong one before a ball is kicked. Its 2025-26 collapse
+to 0.025 compounds that: the DEFCON threshold model is fitted on 2016-17 to
+2018-19 CBIT plus nothing else usable, so the one season where those two points
+matter is the one it understands least.
+
+**Decision: the component model is an in-season model.** It stays behind the
+flag, and if it is ever turned on it belongs on Predictions and Free Hit, which
+is exactly where `model_store` wires it. The Value Board, the Draft and the
+Chip Planner keep the consensus blend. Nothing about the GW10-onward result is
+withdrawn · it was never evidence about August, and this is why we tested it.
+
+Worth a follow-up if the preseason case is ever revisited: give the component
+model season-level carryover features instead of a three-game form window and
+re-run this fold. The GW1-only win suggests the event decomposition itself is
+sound and it is the form window that does not survive the summer.
+
+### The season-carryover follow-up · helps preseason, changes nothing in-season
+Thirteen whole-prior-season features were added to the model (minutes, points,
+pp90, start rate, per-90 goals/assists/BPS/DEFCON, clean-sheet rate, two-seasons
+-back points and minutes, PL seasons played), plus a `PRESEASON_FEATURES` view of
+the feature list with the form window removed. Both benchmarks were re-run.
+
+**Preseason.** The form-free variant lifts the cold-start window ranking from
+Spearman 0.200 to 0.245, and it is still behind the season projector (0.265) and
+behind last season's points (0.274). Its take-eleven capture is worse than either
+(55.9% against 63.2% and 62.6%).
+
+**Why, and it is a lesson rather than a bug.** With the form window gone the
+model leans on prior-season VOLUME. Its predictions correlate with prior minutes
+at 0.588 where the actual outcome correlates at 0.367, so it drafts iron men. In
+2024-25 its XI averaged 2,871 prior-season minutes against the hindsight XI's
+2,541; Palmer and Salah, the two best assets of the window, fell to 33rd and
+20th, and three of its twelve worst picks (Gallagher, Diaby, Álvarez) scored zero
+because they had left the league. It ranks the broad middle well and gets the top
+wrong, which is why Spearman rose while the squad got worse. `prev_points` and
+`prev_minutes` are near-collinear with each other and the model reads volume as
+rate. **If this is picked up again: give it `prev_pp90` and `prev_start_rate`
+and drop the volume levels, or let minutes enter only through the minutes
+sub-model where they belong.**
+
+**In-season, the new features are neutral.** Re-running the 36-fold walk-forward:
+mean Spearman among starters 0.290 (was 0.291), worst season 0.245 (was 0.250),
+capture 39.3% (was 39.8%). Still wins all nine seasons. Form dominates in-season,
+so season carryover has nothing left to add there. No reason to remove them and
+no reason to expect anything from them.
+
+---
+
+## 2026-08-16 · Full snapshot refresh, and the final two opening drafts
+
+All FOUR hand-refreshed inputs re-pulled from Eoin's logged-in Chrome sessions
+(11 days stale). Hub 568 players (was 520), Scout RMT per-GW 587 with adjP/xMin,
+RMT season 587, Scout stats 568. Join rates 91-98% and even BY POSITION · the
+GK-category check from 2026-08-05 was run and passed. Previous versions in
+`data/cache/_snapshot_backups/`.
+
+**How the pull actually worked, for next time:**
+- The Hub predictions page keeps its data behind
+  `public-api.fantasyfootballhub.co.uk/league/players` (Bearer token from
+  `/auth/access-token`, called from the page context). Cursor pagination · the
+  cursor query param is named `after`, NOT `cursor`; the wrong name silently
+  returns page one forever.
+- Rate My Team is a plain DOM table; `?first=1&last=38` turns it into the season
+  view. Read cells with `textContent`, never `innerText` · 26k cells of
+  `innerText` forces layout per cell and freezes the tab.
+- Getting data OUT of a Scout page: fetch to a localhost receiver hangs on both
+  Scout origins (fine from the Hub). A Blob download (`a[download]`) worked from
+  rate-my-team; clipboard `writeText` needs a real click first and only works
+  the FIRST time per page load. Prefer the Blob download.
+
+**The models moved.** Both cooled on Haaland's opening weeks and warmed on
+Fernandes; the armband now reads Fernandes GW1-2, Haaland GW3 (both pens
+takers, so the MILP pens rule stays free).
+
+**Re-solved the opener** (BB1, WC4, GW1-3 objective, risk 0.3 / opening 0.35 ·
+the risk-0.3 pass that was still open from 2026-08-09). Findings, all by
+ablation on `scripts/solve_opening_draft.py`'s spec:
+- Calvert-Lewin and João Pedro cost **0.0** · both are in the unforced optimum
+  around Haaland + Fernandes, as are Le Fée, Ballard and O'Shea.
+- The Fernandes lock costs **2.6** over GW1-3 (the free optimum spreads his
+  £12.0m across Gabriel, Mbeumo and Cunha).
+- The Kinsky + Maguire bench-lock pack costs **1.4** and is the ONLY difference
+  between the final two drafts (Kinsky+Maguire+Sangaré vs Leno+Kadıoğlu+Groß).
+
+Saved as `fresh-a-optimum-gw1-3` (183.4) and `fresh-b-lockpack-gw1-3` (182.0).
+Monte Carlo, 5,000 shared draws: **A ahead in 55.5%**, and ahead at P5, P50 and
+P95 alike. Comparison artifact published in the standard format.
+
+**`simulate_drafts` now also reports P5/P50/P95** (weekly and total; 10/90 kept
+for the existing bands). The A/B tab's ranked table shows floor · median ·
+ceiling, and a final PAIR of drafts gets a per-week floor/median/ceiling
+grouped-bar section (`ab_floorceil`). 635 tests pass.
+
+Not refreshed: `assets/player_overrides_2026_27.json` (hand-written, 8 days
+old) · the Hub's new expected minutes may have overtaken parts of it. Flagged
+to Eoin rather than edited.
+
+## 2026-08-16 (evening) · The rules reset, and the final draft
+
+Eoin reset the standing rules to: **locks Haaland + B.Fernandes + Mbeumo**, a
+**140-name veto list** he supplied verbatim (plus Davis on review), pens-only
+captaincy, and every price-band/cover rule OFF. Written into
+`config.NEW_DRAFT_DEFAULTS`; final draft re-saved as
+`final-three-locks-gw1-3` · **188.1 pts over GW1-3, BB1/WC4**, captain
+Fernandes ×2 then Haaland.
+
+Fifteen: Lammens, Verbruggen / Virgil, Tarkowski, Ballard, O'Shea, Diop /
+Fernandes, Mbeumo, Szoboszlai, Le Fée, Gomez (BHA) / Haaland, Calvert-Lewin,
+Georginio.
+
+Decisions priced along the way (all by ablation on the day's refreshed data):
+- Whole veto list 0.7 · only six names were ever solver picks.
+- Fernandes vs spread: solver 188.8 vs 189.7, Monte Carlo 48.5/51.5 · coin
+  flip at ~48% ownership → own the template. Closed.
+- Szoboszlai doubt (off pens · Isak takes them at LIV) costs 0.3 if acted on.
+- Mamadou Sangaré (BRE) is NOT Ibrahim (NFO) · no PL data, lock costs 2.1.
+- Banning Davis produced Diop, the next £4.0 Ipswich body · a name list
+  plays whack-a-mole where the old band rule would not. Flagged, accepted.
+
+635 tests pass. The A/B artifact carries the earlier state of this decision;
+the saved draft is the source of truth.
+
+## 2026-08-16 (late) · Market signals, João Pedro, and the back-line criteria
+
+**New: `analytics/market_signals.py`.** Match odds (1X2 + over/under 2.5,
+Pinnacle preferred, written one-shot from F_PRED's Odds-API cache into
+`data/cache/market_odds_2026_27.json`) become team-level facts: market xG for,
+xG against, and clean-sheet probability per fixture. Poisson total solved from
+the under price, split by supremacy to match the de-vigged 1X2. It is a CHECK
+surface, not a projection input · blending into consensus waits for in-season
+validation. GW1: ARS 58% CS, MUN 46%, MCI 34%; ARS 2.59 market xG.
+
+**Squad:** João Pedro locked (57.9% owned, preseason form, Eoin's call ·
+cost 0.2), O'Brien vetoed, one-£4.0-defender rule reinstated (cost 1.0, and
+it evicted Szoboszlai on its own, resolving the off-pens doubt without a
+veto). Final saved: 186.9 · Lammens, Verbruggen / Virgil, Ballard, Van Hecke,
+O'Shea, Hume / Fernandes, Mbeumo, Le Fée, Groß, Gomez / Haaland, João Pedro,
+Calvert-Lewin. 636 tests pass.
+
+**Defender-criteria composite** (nailed + DEFCON hit rate + market CS) worth
+keeping: Tarkowski (100% mins, 59% hit, 31% CS) and Ballard (58% hit) are the
+criteria's poster boys; Mosquera has the CS (58%) without the DEFCON floor;
+Maguire is NOT on the veto list and scores 46% CS · 42% hit at £5.0.
+
+## 2026-08-16 (close) · Keeper allowlist, and where the draft finished
+
+Final rules of the night, all in `config.NEW_DRAFT_DEFAULTS`:
+- **Keepers: only Kinsky, Raya, Lammens** · every other keeper vetoed by name
+  (61 added, list at 207). Verbruggen and Leno out.
+- Min one ARS defensive asset, fillable ONLY by Gabriel, Raya or Mosquera.
+- Max two Sunderland (`max_from_club`, plumbed through the solver script).
+- Max one Brighton attacker. One £4.0m defender. Pens-only captaincy.
+- Locks: Haaland, B.Fernandes, Mbeumo, João Pedro.
+- Ibrahim Sangaré (NFO) banned · Eoin's interest is Mamadou (BRE), whose lock
+  costs 2.3 and waits on a first Brentford team sheet.
+
+**Final draft `final-three-locks-gw1-3` · 183.9:** Lammens, Kinsky / Ballard,
+Canvot, Mosquera, Van Hecke, O'Shea / Fernandes, Mbeumo, Le Fée, Ndiaye,
+Gomez / Haaland, João Pedro, Calvert-Lewin. Captains Fernandes ×2, Haaland.
+
+**The Fernandes margin narrowed all night as rules tightened the budget:**
+the no-Fernandes draft now wins the Monte Carlo 53.5/46.5 with the edge at
+floor, median and ceiling (it buys Cunha, Raya, Virgil, Tarkowski). Still
+inside the 65/35 coin-flip band → the template rule (48% owned, GW1-2
+armband) kept him. Watch this one before Friday.
+
+Accuracy pass: Lammens's Carrick ×1.174 removed from the overrides (it
+multiplied the blended cell · double-count); Kinsky checked and NOT boosted
+(7 starts, 1.43 saves/game · the sites being low on him is defensible);
+Saliba's injury confirmed current, so Mosquera's minutes hold. 636 tests.
