@@ -9,7 +9,7 @@ season to season. All reads from the prebuilt archive · zero compute.
 from __future__ import annotations
 
 import pandas as pd
-from ui import charts
+from ui import charts, theme
 import streamlit as st
 
 from components.animations import count_up, inject_global_animations
@@ -18,9 +18,9 @@ from config import ARCHIVE_SEASONS, LAST_COMPLETE_SEASON
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
 
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#FF7B00"}
-MUTED = "rgba(255,255,255,0.5)"
-CARD = ("background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);"
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "var(--ff-orange-v)"}
+MUTED = "var(--ff-muted2)"
+CARD = ("background:rgba(22,26,34,0.85);border:1px solid var(--ff-row-alt);"
         "border-radius:12px;padding:14px 18px;")
 
 
@@ -35,8 +35,8 @@ def _section(title: str, sub: str = "") -> None:
         f'<div style="display:flex;align-items:center;gap:14px;margin:30px 0 4px;">'
         f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;'
         f'text-transform:uppercase;color:{MUTED};white-space:nowrap;">{title}</div>'
-        f'<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div></div>'
-        + (f'<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:10px;">{sub}</div>'
+        f'<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div></div>'
+        + (f'<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:10px;">{sub}</div>'
            if sub else ""),
         unsafe_allow_html=True,
     )
@@ -47,7 +47,7 @@ def _tile(label: str, value: str, sub: str, accent: str = "#fff") -> str:
             f'<div style="font-size:10px;font-weight:800;letter-spacing:0.14em;color:{MUTED};'
             f'text-transform:uppercase;">{label}</div>'
             f'<div style="font-size:26px;font-weight:900;color:{accent};margin:2px 0;">{value}</div>'
-            f'<div style="font-size:11px;color:rgba(255,255,255,0.45);">{sub}</div></div>')
+            f'<div style="font-size:11px;color:var(--ff-muted2);">{sub}</div></div>')
 
 
 summary = _summary()
@@ -63,7 +63,7 @@ n_seasons = summary["season"].nunique()
 st.markdown(
     f"""
 <div class="fplh-animate-in" style="padding:18px 0 6px;font-family:'Inter',sans-serif;">
-  <div style="font-size:42px;font-weight:900;color:#fff;letter-spacing:-1.2px;">🔬 Value Lab</div>
+  <div style="font-size:42px;font-weight:900;color:var(--ff-text);letter-spacing:-1.2px;">🔬 Value Lab</div>
   <div style="font-size:14px;color:{MUTED};margin-top:4px;">
     {n_seasons} seasons · {len(summary):,} player-seasons · where FPL value actually lives
   </div>
@@ -73,12 +73,12 @@ st.markdown(
 
 st.markdown(
     '<div class="fplh-stagger" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 6px;">'
-    + _tile("Seasons", count_up(n_seasons), "2016-17 → 2025-26", "#04f5ff")
+    + _tile("Seasons", count_up(n_seasons), "2016-17 → 2025-26", "var(--ff-cyan)")
     + _tile("Best value ever", best_value["web_name"],
             f"{best_value['season']} · £{best_value['start_price']:.1f} → "
-            f"{best_value['total_points']:.0f} pts", "#00FF87")
+            f"{best_value['total_points']:.0f} pts", "var(--ff-mint)")
     + _tile("Pts per £m", count_up(best_value["pts_per_million"], 1),
-            "the bar every pick chases", "#FFD700")
+            "the bar every pick chases", "var(--ff-gold)")
     + "</div>",
     unsafe_allow_html=True,
 )
@@ -113,8 +113,8 @@ for ppm, lab in ((20, "20 pts/£m"), (30, "30 pts/£m")):
     opt["series"].append({
         "name": lab, "type": "line", "data": [[3.8, 3.8 * ppm], [15, 15 * ppm]],
         "symbol": "none", "silent": True, "tooltip": {"show": False},
-        "lineStyle": {"type": "dotted", "color": "rgba(255,255,255,0.25)", "width": 1},
-        "itemStyle": {"color": "rgba(255,255,255,0.25)"}, "z": 1,
+        "lineStyle": {"type": "dotted", "color": theme.fill("line"), "width": 1},
+        "itemStyle": {"color": theme.fill("line")}, "z": 1,
     })
 charts.render(opt, height="520px", key="vl_frontier")
 
@@ -145,17 +145,17 @@ charts.render(opt, height="380px", key="vl_roi_bands")
 _section("Archetypes", "The three squads every winning team is built from.")
 arch_cols = st.columns(3)
 archetypes = [
-    ("💎 Budget enablers", view[view["start_price"] <= 4.5], "#00FF87"),
-    ("⚙️ Mid-price engines", view[(view["start_price"] > 4.5) & (view["start_price"] <= 8.0)], "#04f5ff"),
-    ("👑 Premium anchors", view[view["start_price"] > 8.0], "#FFD700"),
+    ("💎 Budget enablers", view[view["start_price"] <= 4.5], "var(--ff-mint)"),
+    ("⚙️ Mid-price engines", view[(view["start_price"] > 4.5) & (view["start_price"] <= 8.0)], "var(--ff-cyan)"),
+    ("👑 Premium anchors", view[view["start_price"] > 8.0], "var(--ff-gold)"),
 ]
 for col, (title, grp, accent) in zip(arch_cols, archetypes):
-    top5 = grp.nlargest(5, "pts_per_million" if accent != "#FFD700" else "total_points")
+    top5 = grp.nlargest(5, "pts_per_million" if accent != "var(--ff-gold)" else "total_points")
     rows = "".join(
         f'<div style="display:flex;justify-content:space-between;padding:5px 0;'
-        f'border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px;">'
-        f'<span style="color:#fff;font-weight:700;">{r["web_name"][:14]}'
-        f'<span style="color:rgba(255,255,255,0.35);font-weight:400;"> '
+        f'border-bottom:1px solid var(--ff-row-alt);font-size:12px;">'
+        f'<span style="color:var(--ff-text);font-weight:700;">{r["web_name"][:14]}'
+        f'<span style="color:var(--ff-muted2);font-weight:400;"> '
         f'{r["season"][2:] if season_pick == "All seasons" else ""}</span></span>'
         f'<span style="color:{accent};font-weight:800;">£{r["start_price"]:.1f} · '
         f'{r["total_points"]:.0f}</span></div>'
@@ -163,7 +163,7 @@ for col, (title, grp, accent) in zip(arch_cols, archetypes):
     with col:
         st.markdown(
             f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid {accent};">'
-            f'<div style="font-size:13px;font-weight:800;color:#fff;margin-bottom:8px;">{title}</div>'
+            f'<div style="font-size:13px;font-weight:800;color:var(--ff-text);margin-bottom:8px;">{title}</div>'
             f'{rows}</div>', unsafe_allow_html=True)
 
 # ── DEFCON earners (2025-26) ──────────────────────────────────────────────────
@@ -177,7 +177,7 @@ if not defcon.empty:
     opt = charts.bar_option(
         x=list(dc["web_name"]),
         y=[int(v) for v in dc["defcon_points"]],
-        colors=[POS_COLORS.get(p, "#00FF87") for p in dc["position"]],
+        colors=[POS_COLORS.get(p, theme.fill("mint")) for p in dc["position"]],
         horizontal=True)
     for item, (_, r) in zip(opt["series"][0]["data"], dc.iterrows()):
         item["tooltip"] = {"formatter": (
@@ -215,6 +215,6 @@ for s in opt["series"]:
 charts.render(opt, height="420px", key="vl_repeat")
 st.markdown(
     f'<div style="font-size:12px;color:{MUTED};">Season-to-season value correlation '
-    f'(Spearman): <span style="color:#00FF87;font-weight:800;">{corr:.2f}</span> '
+    f'(Spearman): <span style="color:var(--ff-mint);font-weight:800;">{corr:.2f}</span> '
     f'across {len(rep):,} player-season pairs (min 900 mins both seasons).</div>',
     unsafe_allow_html=True)

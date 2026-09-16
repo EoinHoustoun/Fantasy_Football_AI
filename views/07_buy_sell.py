@@ -11,14 +11,14 @@ from components.loading import LINES_GENERIC, LINES_MODEL, LINES_SQUAD, fpl_load
 import pandas as pd
 from typing import Optional, List
 
-from ui import charts
+from ui import charts, theme
 
 from components.badges import render_badges
 from components.team_identity import shirt_url, shirt_fallback_url, badge_url, team_color
 
 # set_page_config is owned by the app.py router (st.navigation)
 
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "#ff6900"}
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -107,8 +107,8 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
                 f"saves £{abs(cost_diff):.1f}m" if cost_diff < 0 else "same price")
     bank_str = f"£{new_bank:.1f}m bank remaining"
 
-    gain_color = "#00FF87" if ppg_gain > 0 else "#FF4B4B" if ppg_gain < 0 else "#aaa"
-    fdr_color  = "#00FF87" if fdr_delta > 0.3 else "#aaa" if abs(fdr_delta) <= 0.3 else "#FF4B4B"
+    gain_color = theme.fill("mint") if ppg_gain > 0 else theme.fill("red") if ppg_gain < 0 else "#aaa"
+    fdr_color  = theme.fill("mint") if fdr_delta > 0.3 else "#aaa" if abs(fdr_delta) <= 0.3 else theme.fill("red")
 
     pos    = str(sell.get("position", ""))
     pc     = POS_COLORS.get(pos, "#888")
@@ -116,9 +116,9 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
     sell_status = str(sell.get("status", "a"))
     status_note = ""
     if sell_status == "i":
-        status_note = '<span style="background:#FF4B4B;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:8px;">INJURED</span>'
+        status_note = '<span style="background:var(--ff-red);color:var(--ff-text);border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:8px;">INJURED</span>'
     elif sell_status == "d":
-        status_note = '<span style="background:#FFA500;color:#000;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:8px;">DOUBT</span>'
+        status_note = '<span style="background:var(--ff-orange);color:#000;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:8px;">DOUBT</span>'
 
     buy_own = float(buy.get("ownership", 0) or 0)
     buy_dgw = bool(buy.get("has_dgw", False))
@@ -127,8 +127,8 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
 
     return f"""
     <div style="
-        background:rgba(255,255,255,0.03);
-        border:1px solid rgba(255,255,255,0.1);
+        background:var(--ff-row-alt);
+        border:1px solid var(--ff-line);
         border-radius:14px;
         padding:20px 24px;
         font-family:sans-serif;
@@ -137,7 +137,7 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
       <!-- Position badge -->
       <div style="margin-bottom:12px;">
         <span style="background:{pc};color:#000;border-radius:4px;padding:2px 10px;font-size:11px;font-weight:900;">{pos}</span>
-        <span style="color:rgba(255,255,255,0.35);font-size:11px;margin-left:10px;">{cost_str} · {bank_str}</span>
+        <span style="color:var(--ff-muted2);font-size:11px;margin-left:10px;">{cost_str} · {bank_str}</span>
       </div>
 
       <!-- Sell / Buy row -->
@@ -145,43 +145,43 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
 
         <!-- SELL side -->
         <div style="flex:1;background:rgba(255,75,75,0.08);border:1px solid rgba(255,75,75,0.25);border-radius:10px;padding:14px;text-align:center;">
-          <div style="font-size:11px;color:#FF4B4B;font-weight:700;letter-spacing:2px;margin-bottom:8px;">SELL</div>
+          <div style="font-size:11px;color:var(--ff-red);font-weight:700;letter-spacing:2px;margin-bottom:8px;">SELL</div>
           {_shirt_with_crest(sell_code, sell_gkp)}
-          <div style="font-size:16px;font-weight:800;color:#fff;margin-top:6px;">{sell.get("web_name","?")}{status_note}</div>
-          <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:10px;">{sell.get("team","")} · £{sell_price:.1f}m</div>
+          <div style="font-size:16px;font-weight:800;color:var(--ff-text);margin-top:6px;">{sell.get("web_name","?")}{status_note}</div>
+          <div style="font-size:11px;color:var(--ff-muted2);margin-bottom:10px;">{sell.get("team","")} · £{sell_price:.1f}m</div>
           <div style="display:flex;justify-content:center;gap:18px;">
-            <div><div style="font-size:15px;font-weight:700;color:#ff6b6b;">{sell_form:.1f}</div><div style="font-size:10px;color:rgba(255,255,255,0.4);">Form</div></div>
-            <div><div style="font-size:15px;font-weight:700;color:#ff6b6b;">{sell_ppg:.1f}</div><div style="font-size:10px;color:rgba(255,255,255,0.4);">PPG</div></div>
-            <div><div style="font-size:15px;font-weight:700;color:#ff6b6b;">{sell_fdr:.1f}</div><div style="font-size:10px;color:rgba(255,255,255,0.4);">FDR</div></div>
+            <div><div style="font-size:15px;font-weight:700;color:var(--ff-red);">{sell_form:.1f}</div><div style="font-size:10px;color:var(--ff-muted2);">Form</div></div>
+            <div><div style="font-size:15px;font-weight:700;color:var(--ff-red);">{sell_ppg:.1f}</div><div style="font-size:10px;color:var(--ff-muted2);">PPG</div></div>
+            <div><div style="font-size:15px;font-weight:700;color:var(--ff-red);">{sell_fdr:.1f}</div><div style="font-size:10px;color:var(--ff-muted2);">FDR</div></div>
           </div>
         </div>
 
         <!-- Arrow -->
-        <div style="font-size:28px;color:#FFD700;flex-shrink:0;">→</div>
+        <div style="font-size:28px;color:var(--ff-gold);flex-shrink:0;">→</div>
 
         <!-- BUY side -->
         <div style="flex:1;background:rgba(0,255,135,0.08);border:1px solid rgba(0,255,135,0.3);border-radius:10px;padding:14px;text-align:center;">
-          <div style="font-size:11px;color:#00FF87;font-weight:700;letter-spacing:2px;margin-bottom:8px;">BUY</div>
+          <div style="font-size:11px;color:var(--ff-mint);font-weight:700;letter-spacing:2px;margin-bottom:8px;">BUY</div>
           {_shirt_with_crest(buy_code, buy_gkp)}
-          <div style="font-size:16px;font-weight:800;color:#fff;margin-top:6px;">{buy.get("web_name","?")}{dgw_tag}</div>
-          <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-bottom:6px;">{buy.get("team","")} · £{buy_price:.1f}m · {buy_own:.1f}% owned</div>
+          <div style="font-size:16px;font-weight:800;color:var(--ff-text);margin-top:6px;">{buy.get("web_name","?")}{dgw_tag}</div>
+          <div style="font-size:11px;color:var(--ff-muted2);margin-bottom:6px;">{buy.get("team","")} · £{buy_price:.1f}m · {buy_own:.1f}% owned</div>
           <div style="margin-bottom:8px;">{buy_badges}</div>
           <div style="display:flex;justify-content:center;gap:18px;">
-            <div><div style="font-size:15px;font-weight:700;color:#00FF87;">{buy_form:.1f}</div><div style="font-size:10px;color:rgba(255,255,255,0.4);">Form</div></div>
-            <div><div style="font-size:15px;font-weight:700;color:#00FF87;">{buy_ppg:.1f}</div><div style="font-size:10px;color:rgba(255,255,255,0.4);">PPG</div></div>
-            <div><div style="font-size:15px;font-weight:700;color:#00FF87;">{buy_fdr:.1f}</div><div style="font-size:10px;color:rgba(255,255,255,0.4);">FDR</div></div>
+            <div><div style="font-size:15px;font-weight:700;color:var(--ff-mint);">{buy_form:.1f}</div><div style="font-size:10px;color:var(--ff-muted2);">Form</div></div>
+            <div><div style="font-size:15px;font-weight:700;color:var(--ff-mint);">{buy_ppg:.1f}</div><div style="font-size:10px;color:var(--ff-muted2);">PPG</div></div>
+            <div><div style="font-size:15px;font-weight:700;color:var(--ff-mint);">{buy_fdr:.1f}</div><div style="font-size:10px;color:var(--ff-muted2);">FDR</div></div>
           </div>
         </div>
       </div>
 
       <!-- Summary bar -->
-      <div style="display:flex;gap:24px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.07);">
+      <div style="display:flex;gap:24px;margin-top:14px;padding-top:12px;border-top:1px solid var(--ff-row-alt);">
         <div>
-          <span style="color:rgba(255,255,255,0.4);font-size:12px;">PPG gain: </span>
+          <span style="color:var(--ff-muted2);font-size:12px;">PPG gain: </span>
           <span style="color:{gain_color};font-weight:800;font-size:14px;">{'+' if ppg_gain>=0 else ''}{ppg_gain:.1f} pts/GW</span>
         </div>
         <div>
-          <span style="color:rgba(255,255,255,0.4);font-size:12px;">Fixture swing: </span>
+          <span style="color:var(--ff-muted2);font-size:12px;">Fixture swing: </span>
           <span style="color:{fdr_color};font-weight:800;font-size:14px;">{'+' if fdr_delta>=0 else ''}{fdr_delta:.1f} FDR easier</span>
         </div>
       </div>
@@ -320,12 +320,12 @@ st.markdown("##### Upgrade impact")
 st.caption("Projected points-per-gameweek gain for each swap. Green = upgrade, red = downgrade.")
 _labels = [f"{p['sell'].get('web_name','?')} → {p['buy'].get('web_name','?')}" for p in pairings]
 _gains  = [p["ppg_gain"] for p in pairings]
-_colors = ["#00FF87" if g > 0 else "#FF4B4B" for g in _gains]
+_colors = [theme.fill("mint") if g > 0 else theme.fill("red") for g in _gains]
 _opt = charts.bar_option(x=_labels, y=[round(g, 2) for g in _gains],
                          colors=_colors, horizontal=True)
 for _item, _g in zip(_opt["series"][0]["data"], _gains):
     _item["label"] = {"show": True, "formatter": f"{_g:+.1f}", "position": "right",
-                      "color": "rgba(255,255,255,0.7)", "fontSize": 10}
+                      "color": "var(--ff-muted)", "fontSize": 10}
 _opt["grid"]["left"] = 170
 _opt["tooltip"]["formatter"] = "{b}<br/>{c} PPG/GW"
 charts.render(_opt, height=f"{max(200, 34 * len(pairings) + 50)}px", key="bs_impact")

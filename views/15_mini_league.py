@@ -111,8 +111,8 @@ def build_league_df(standings: List[dict]) -> pd.DataFrame:
 # ── Chart builders ─────────────────────────────────────────────────────────────
 
 PALETTE = [
-    "#00FF87", "#FFD700", "#04f5ff", "#FF4B4B", "#c084fc",
-    "#ff6900", "#e90052", "#a3e635", "#fb923c", "#38bdf8",
+    "var(--ff-mint)", "var(--ff-gold)", "var(--ff-cyan)", "var(--ff-red)", "#c084fc",
+    "#ff6900", "var(--ff-mag)", "#a3e635", "#fb923c", "#38bdf8",
     "#f472b6", "#34d399", "#facc15", "#818cf8", "#f87171",
 ]
 
@@ -134,7 +134,7 @@ def _league_lines(df: pd.DataFrame, value_col: str, title: str, height: int,
     if reversed_y:
         opt["yAxis"]["inverse"] = True
     opt["title"] = {"text": title, "textStyle": {
-        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+        "color": "var(--ff-text)", "fontSize": 13, "fontWeight": "bold"}}
     opt["legend"]["top"] = 22
     opt["grid"]["top"] = 56
     charts.render(opt, height=f"{height}px", key=key)
@@ -153,7 +153,7 @@ def _gw_scores_chart(df: pd.DataFrame, highlight: Optional[str] = None) -> None:
     for s, (team, _, _) in zip(opt["series"], series):
         s["itemStyle"]["opacity"] = 1.0 if (highlight is None or team == highlight) else 0.4
     opt["title"] = {"text": "GW Scores (net of hits)", "textStyle": {
-        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+        "color": "var(--ff-text)", "fontSize": 13, "fontWeight": "bold"}}
     opt["legend"]["top"] = 22
     opt["grid"]["top"] = 56
     charts.render(opt, height="350px", key="ml_gw_scores")
@@ -173,18 +173,18 @@ def _standings_cards(df: pd.DataFrame, current_gw: int) -> None:
             if i > 0:
                 leader_pts = int(latest.iloc[0]["cumulative"])
                 diff       = leader_pts - int(row["cumulative"])
-                gap        = f"<div style='font-size:11px;color:rgba(255,255,255,0.4);'>-{diff} pts</div>"
+                gap        = f"<div style='font-size:11px;color:var(--ff-muted2);'>-{diff} pts</div>"
             st.markdown(
                 f"""<div style="
-                    background:rgba(255,255,255,0.03);
-                    border:1px solid rgba(255,255,255,0.08);
+                    background:var(--ff-row-alt);
+                    border:1px solid var(--ff-row-alt);
                     border-top:3px solid {color};
                     border-radius:8px;padding:14px 12px;
                     text-align:center;margin-bottom:8px;
                 ">
                   <div style="font-size:20px;">{medal}</div>
-                  <div style="font-size:13px;font-weight:700;color:#fff;margin:4px 0 2px;">{row['team_name']}</div>
-                  <div style="font-size:11px;color:rgba(255,255,255,0.4);">{row['manager']}</div>
+                  <div style="font-size:13px;font-weight:700;color:var(--ff-text);margin:4px 0 2px;">{row['team_name']}</div>
+                  <div style="font-size:11px;color:var(--ff-muted2);">{row['manager']}</div>
                   <div style="font-size:20px;font-weight:800;color:{color};margin-top:6px;">{int(row['cumulative'])}</div>
                   {gap}
                 </div>""",
@@ -196,8 +196,8 @@ def _standings_cards(df: pd.DataFrame, current_gw: int) -> None:
 
 st.markdown(
     "<div style='padding:20px 0 4px;'>"
-    "<div style='font-size:30px;font-weight:900;color:#04f5ff;'>🏅 Mini-League Tracker</div>"
-    "<div style='font-size:14px;color:rgba(255,255,255,0.4);margin-top:4px;'>"
+    "<div style='font-size:30px;font-weight:900;color:var(--ff-cyan);'>🏅 Mini-League Tracker</div>"
+    "<div style='font-size:14px;color:var(--ff-muted2);margin-top:4px;'>"
     "See every manager's season journey · cumulative points, rank progression &amp; head-to-head."
     "</div></div>",
     unsafe_allow_html=True,
@@ -363,9 +363,9 @@ with col_a:
     st.markdown(
         f"<div style='background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.3);"
         f"border-radius:8px;padding:14px 16px;'>"
-        f"<div style='font-size:28px;font-weight:900;color:#FFD700;'>{int(best_gw_row['gw_pts'])} pts</div>"
-        f"<div style='font-size:14px;color:#fff;font-weight:700;'>{best_gw_row['team_name']}</div>"
-        f"<div style='font-size:12px;color:rgba(255,255,255,0.4);'>GW{int(best_gw_row['GW'])}</div>"
+        f"<div style='font-size:28px;font-weight:900;color:var(--ff-gold);'>{int(best_gw_row['gw_pts'])} pts</div>"
+        f"<div style='font-size:14px;color:var(--ff-text);font-weight:700;'>{best_gw_row['team_name']}</div>"
+        f"<div style='font-size:12px;color:var(--ff-muted2);'>GW{int(best_gw_row['GW'])}</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -376,9 +376,9 @@ with col_b:
     st.markdown(
         f"<div style='background:rgba(255,75,75,0.08);border:1px solid rgba(255,75,75,0.3);"
         f"border-radius:8px;padding:14px 16px;'>"
-        f"<div style='font-size:28px;font-weight:900;color:#FF4B4B;'>{int(worst_gw_row['gw_pts'])} pts</div>"
-        f"<div style='font-size:14px;color:#fff;font-weight:700;'>{worst_gw_row['team_name']}</div>"
-        f"<div style='font-size:12px;color:rgba(255,255,255,0.4);'>GW{int(worst_gw_row['GW'])}</div>"
+        f"<div style='font-size:28px;font-weight:900;color:var(--ff-red);'>{int(worst_gw_row['gw_pts'])} pts</div>"
+        f"<div style='font-size:14px;color:var(--ff-text);font-weight:700;'>{worst_gw_row['team_name']}</div>"
+        f"<div style='font-size:12px;color:var(--ff-muted2);'>GW{int(worst_gw_row['GW'])}</div>"
         f"</div>",
         unsafe_allow_html=True,
     )

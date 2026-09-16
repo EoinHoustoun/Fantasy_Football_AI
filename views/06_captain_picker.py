@@ -10,7 +10,7 @@ Shows:
 import streamlit as st
 
 from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
-from ui import charts
+from ui import charts, theme
 import pandas as pd
 from typing import Optional, List, Dict, Any
 
@@ -20,7 +20,7 @@ from components.team_identity import face_html, shirt_html, team_color
 # set_page_config is owned by the app.py router (st.navigation)
 
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "#ff6900"}
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
     own     = float(player.get("ownership", 0) or 0)
     xgi     = float(player.get("fpl_xgi_per90", 0) or 0)
     fdr     = float(player.get("next_gw_fdr", 3.0) or 3.0)
-    pos_col = POS_COLORS.get(pos, "#00FF87")
+    pos_col = POS_COLORS.get(pos, "var(--ff-mint)")
 
     has_dgw = bool(player.get("has_dgw", False))
     dgw_badge = (
@@ -166,13 +166,13 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
     avg_mins    = float(player.get("avg_minutes", 0) or 0)
     mins_str    = f"{avg_mins:.0f}" if avg_mins > 0 else "-"
 
-    fdr_color = {1: "#00FF87", 2: "#00FF87", 3: "#FFA500", 4: "#FF6B6B", 5: "#FF4B4B"}.get(int(fdr), "#FFA500")
+    fdr_color = {1: theme.fill("mint"), 2: theme.fill("mint"), 3: theme.fill("orange"), 4: theme.fill("red"), 5: theme.fill("red")}.get(int(fdr), theme.fill("orange"))
 
     return f"""
     <div style="
         position:relative;
-        background:linear-gradient(135deg, rgba(0,255,135,0.08) 0%, rgba(0,0,0,0.5) 100%);
-        border:2px solid #FFD700;
+        background:linear-gradient(135deg, rgba(0,255,135,0.08) 0%, var(--ff-card) 100%);
+        border:2px solid var(--ff-gold);
         border-radius:16px;
         padding:28px 32px;
         display:flex;
@@ -186,7 +186,7 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
       <div style="
           position:absolute; left:-2px; top:50%; transform:translateY(-50%);
           width:22px; height:70px;
-          background:linear-gradient(180deg,#FFD700,#FFA500);
+          background:linear-gradient(180deg,var(--ff-gold),var(--ff-orange));
           border-radius:6px 0 0 6px;
           display:flex; align-items:center; justify-content:center;
       ">
@@ -203,11 +203,11 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
 
       <!-- Info -->
       <div>
-        <div style="font-size:26px; font-weight:900; color:#fff; margin-bottom:4px;">
+        <div style="font-size:26px; font-weight:900; color:var(--ff-text); margin-bottom:4px;">
           {name}{dgw_badge}
         </div>
         <div style="margin-bottom:8px;">{badges_html}</div>
-        <div style="color:rgba(255,255,255,0.55); font-size:13px; margin-bottom:14px;">
+        <div style="color:var(--ff-muted2); font-size:13px; margin-bottom:14px;">
           <span style="
               background:{pos_col}; color:#000; border-radius:3px;
               padding:1px 7px; font-weight:700; font-size:11px; margin-right:6px;
@@ -216,24 +216,24 @@ def _hero_card(player: pd.Series, rank: int = 1) -> str:
         </div>
         <div style="display:flex; gap:24px;">
           <div style="text-align:center;">
-            <div style="font-size:22px; font-weight:800; color:#00FF87;">{form:.1f}</div>
-            <div style="font-size:11px; color:rgba(255,255,255,0.45);">Form</div>
+            <div style="font-size:22px; font-weight:800; color:var(--ff-mint);">{form:.1f}</div>
+            <div style="font-size:11px; color:var(--ff-muted2);">Form</div>
           </div>
           <div style="text-align:center;">
-            <div style="font-size:22px; font-weight:800; color:#00FF87;">{ppg:.1f}</div>
-            <div style="font-size:11px; color:rgba(255,255,255,0.45);">PPG</div>
+            <div style="font-size:22px; font-weight:800; color:var(--ff-mint);">{ppg:.1f}</div>
+            <div style="font-size:11px; color:var(--ff-muted2);">PPG</div>
           </div>
           <div style="text-align:center;">
             <div style="font-size:22px; font-weight:800; color:{fdr_color};">{fdr:.0f}</div>
-            <div style="font-size:11px; color:rgba(255,255,255,0.45);">Next FDR</div>
+            <div style="font-size:11px; color:var(--ff-muted2);">Next FDR</div>
           </div>
           <div style="text-align:center;">
-            <div style="font-size:22px; font-weight:800; color:#04f5ff;">{xgi:.2f}</div>
-            <div style="font-size:11px; color:rgba(255,255,255,0.45);">xGI/90</div>
+            <div style="font-size:22px; font-weight:800; color:var(--ff-cyan);">{xgi:.2f}</div>
+            <div style="font-size:11px; color:var(--ff-muted2);">xGI/90</div>
           </div>
           <div style="text-align:center;">
-            <div style="font-size:22px; font-weight:800; color:rgba(255,255,255,0.7);">{mins_str}</div>
-            <div style="font-size:11px; color:rgba(255,255,255,0.45);">Avg Mins</div>
+            <div style="font-size:22px; font-weight:800; color:var(--ff-muted);">{mins_str}</div>
+            <div style="font-size:11px; color:var(--ff-muted2);">Avg Mins</div>
           </div>
         </div>
       </div>
@@ -256,8 +256,8 @@ def _mini_card(player: pd.Series, rank: int) -> str:
     pos     = str(player.get("position", ""))
     pos_col = POS_COLORS.get(pos, "#888")
     tcol    = team_color(player.get("team_short"))
-    fdr_color = {1: "#00FF87", 2: "#00FF87", 3: "#FFA500", 4: "#FF6B6B", 5: "#FF4B4B"}.get(int(fdr), "#FFA500")
-    border_col = "#FFD700" if rank == 1 else "#silver" if rank == 2 else "rgba(255,255,255,0.15)"
+    fdr_color = {1: theme.fill("mint"), 2: theme.fill("mint"), 3: theme.fill("orange"), 4: theme.fill("red"), 5: theme.fill("red")}.get(int(fdr), theme.fill("orange"))
+    border_col = "var(--ff-gold)" if rank == 1 else "#silver" if rank == 2 else "var(--ff-line)"
     rank_labels = {1: "🥇", 2: "🥈", 3: "🥉", 4: "4th", 5: "5th"}
 
     has_dgw = bool(player.get("has_dgw", False))
@@ -266,7 +266,7 @@ def _mini_card(player: pd.Series, rank: int) -> str:
 
     return f"""
     <div style="
-        background:rgba(255,255,255,0.04);
+        background:var(--ff-row-alt);
         border:1px solid {border_col};
         border-left:3px solid {tcol};
         border-radius:12px;
@@ -280,10 +280,10 @@ def _mini_card(player: pd.Series, rank: int) -> str:
       <div style="font-size:18px; width:28px; text-align:center; flex-shrink:0;">{rank_labels.get(rank, str(rank))}</div>
       {face_html(player.get('code'), code, is_gkp, width=40)}
       <div style="flex:1; min-width:0;">
-        <div style="font-size:15px; font-weight:800; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+        <div style="font-size:15px; font-weight:800; color:var(--ff-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
           {name}{dgw_tag}
         </div>
-        <div style="font-size:11px; color:rgba(255,255,255,0.45); margin-bottom:3px;">
+        <div style="font-size:11px; color:var(--ff-muted2); margin-bottom:3px;">
           <span style="background:{pos_col};color:#000;border-radius:2px;padding:0 4px;font-weight:700;font-size:10px;margin-right:4px;">{pos}</span>
           {team} · {own:.1f}% owned
         </div>
@@ -291,21 +291,21 @@ def _mini_card(player: pd.Series, rank: int) -> str:
       </div>
       <div style="display:flex; gap:16px; flex-shrink:0; text-align:center;">
         <div>
-          <div style="font-size:16px; font-weight:800; color:#00FF87;">{form:.1f}</div>
-          <div style="font-size:10px; color:rgba(255,255,255,0.4);">Form</div>
+          <div style="font-size:16px; font-weight:800; color:var(--ff-mint);">{form:.1f}</div>
+          <div style="font-size:10px; color:var(--ff-muted2);">Form</div>
         </div>
         <div>
-          <div style="font-size:16px; font-weight:800; color:#00FF87;">{ppg:.1f}</div>
-          <div style="font-size:10px; color:rgba(255,255,255,0.4);">PPG</div>
+          <div style="font-size:16px; font-weight:800; color:var(--ff-mint);">{ppg:.1f}</div>
+          <div style="font-size:10px; color:var(--ff-muted2);">PPG</div>
         </div>
         <div>
           <div style="font-size:16px; font-weight:800; color:{fdr_color};">{fdr:.0f}</div>
-          <div style="font-size:10px; color:rgba(255,255,255,0.4);">FDR</div>
+          <div style="font-size:10px; color:var(--ff-muted2);">FDR</div>
         </div>
       </div>
       <div style="text-align:right; flex-shrink:0;">
-        <div style="font-size:14px; font-weight:800; color:#FFD700;">{score:.3f}</div>
-        <div style="font-size:10px; color:rgba(255,255,255,0.4);">Score</div>
+        <div style="font-size:14px; font-weight:800; color:var(--ff-gold);">{score:.3f}</div>
+        <div style="font-size:10px; color:var(--ff-muted2);">Score</div>
       </div>
     </div>
     """
@@ -315,7 +315,7 @@ def score_breakdown_chart(top5: pd.DataFrame, title: str, key: str) -> None:
     """Horizontal stacked bar showing captain score components for top 5."""
     components = ["c_form", "c_fixture", "c_xg", "c_setpiece"]
     labels     = ["Form", "Fixture", "xGI", "Set Pieces"]
-    colors     = ["#00FF87", "#04f5ff", "#e90052", "#FFD700"]
+    colors     = [theme.fill("mint"), theme.fill("cyan"), theme.fill("mag"), theme.fill("gold")]
 
     names = top5["web_name"].tolist()
     series = [
@@ -419,7 +419,7 @@ if squad_df is not None:
 
             st.markdown(
                 f"<div style='margin-top:14px;padding:12px;background:rgba(0,255,135,0.07);"
-                f"border-left:3px solid #00FF87;border-radius:6px;font-size:13px;color:rgba(255,255,255,0.85);'>"
+                f"border-left:3px solid var(--ff-mint);border-radius:6px;font-size:13px;color:var(--ff-text);'>"
                 f"{'<br>• '.join([''] + reasons)}</div>",
                 unsafe_allow_html=True,
             )
@@ -464,7 +464,7 @@ if not diffs.empty:
         st.markdown(
             f"<div style='margin-top:10px;padding:10px 14px;"
             f"background:rgba(255,105,0,0.07);border-left:3px solid #ff6900;"
-            f"border-radius:6px;font-size:13px;color:rgba(255,255,255,0.8);'>"
+            f"border-radius:6px;font-size:13px;color:var(--ff-text);'>"
             f"Only <b>{float(top_diff.get('ownership',0)):.1f}%</b> own this player. "
             f"Captaining a {float(top_diff.get('ownership',0)):.1f}% player gives "
             f"you massive rank upside if they deliver.</div>",

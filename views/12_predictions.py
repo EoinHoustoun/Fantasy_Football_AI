@@ -9,7 +9,7 @@ Evaluated on a temporal holdout (last 30% of GWs) for honest out-of-sample RMSE.
 import streamlit as st
 
 from components.loading import LINES_MODEL, LINES_SQUAD, fpl_loader
-from ui import charts
+from ui import charts, theme
 import pandas as pd
 import numpy as np
 
@@ -17,7 +17,7 @@ import numpy as np
 
 from components.team_identity import team_dot
 
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "#ff6900"}
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 
 
@@ -85,14 +85,14 @@ def _prediction_card(player: pd.Series, rank: int, mae: float) -> str:
     roll4   = float(player.get("roll_pts_4", 0) or 0)
 
     pos_col   = POS_COLORS.get(pos, "#888")
-    fdr_color = {1:"#00FF87",2:"#00FF87",3:"#FFA500",4:"#FF6B6B",5:"#FF4B4B"}.get(int(fdr),"#FFA500")
+    fdr_color = {1:theme.fill("mint"),2:theme.fill("mint"),3:theme.fill("orange"),4:theme.fill("red"),5:theme.fill("red")}.get(int(fdr),theme.fill("orange"))
     rank_labels = {1:"🥇",2:"🥈",3:"🥉"}
     rank_str = rank_labels.get(rank, f"#{rank}")
 
     return f"""
     <div style="
-        background:rgba(255,255,255,0.03);
-        border:1px solid rgba(255,255,255,0.09);
+        background:var(--ff-row-alt);
+        border:1px solid var(--ff-line);
         border-left:3px solid {pos_col};
         border-radius:10px;
         padding:14px 16px;
@@ -105,25 +105,25 @@ def _prediction_card(player: pd.Series, rank: int, mae: float) -> str:
       <div style="font-size:20px;width:32px;text-align:center;flex-shrink:0;">{rank_str}</div>
       {team_dot(tshort, size=14)}
       <div style="flex:1;min-width:0;">
-        <div style="font-size:15px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.4);">
+        <div style="font-size:15px;font-weight:800;color:var(--ff-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</div>
+        <div style="font-size:11px;color:var(--ff-muted2);">
           <span style="background:{pos_col};color:#000;border-radius:2px;padding:0 5px;font-weight:700;font-size:10px;margin-right:5px;">{pos}</span>
           {team} · £{price:.1f}m · {own:.1f}% owned
         </div>
       </div>
       <div style="display:flex;gap:18px;flex-shrink:0;text-align:center;">
         <div>
-          <div style="font-size:20px;font-weight:900;color:#00FF87;">{pts:.1f}</div>
-          <div style="font-size:10px;color:rgba(255,255,255,0.35);">Predicted</div>
-          <div style="font-size:10px;color:rgba(255,255,255,0.25);">{low:.1f}–{high:.1f}</div>
+          <div style="font-size:20px;font-weight:900;color:var(--ff-mint);">{pts:.1f}</div>
+          <div style="font-size:10px;color:var(--ff-muted2);">Predicted</div>
+          <div style="font-size:10px;color:var(--ff-line);">{low:.1f}–{high:.1f}</div>
         </div>
         <div>
-          <div style="font-size:16px;font-weight:700;color:#04f5ff;">{roll4:.1f}</div>
-          <div style="font-size:10px;color:rgba(255,255,255,0.35);">Avg last 4</div>
+          <div style="font-size:16px;font-weight:700;color:var(--ff-cyan);">{roll4:.1f}</div>
+          <div style="font-size:10px;color:var(--ff-muted2);">Avg last 4</div>
         </div>
         <div>
           <div style="font-size:16px;font-weight:700;color:{fdr_color};">{fdr:.0f}</div>
-          <div style="font-size:10px;color:rgba(255,255,255,0.35);">FDR</div>
+          <div style="font-size:10px;color:var(--ff-muted2);">FDR</div>
         </div>
       </div>
     </div>
@@ -156,10 +156,12 @@ bs = fetch_bootstrap()
 current_gw  = get_current_gameweek(bs)
 captain_gw  = get_next_gw(bs, current_gw)
 
-st.caption(f"Predictions for **Gameweek {captain_gw}** · Model trained on GW1–{current_gw}")
+from analytics.points_model import MIN_TRAIN_GWS
+from ui.preseason import stop_if_too_few_gameweeks
+stop_if_too_few_gameweeks("GW predictions", MIN_TRAIN_GWS)
 
-from ui.preseason import stop_if_preseason
-stop_if_preseason("GW predictions")
+st.caption(f"Predictions for **Gameweek {captain_gw}** · Model trained on GW1–{current_gw - 1}")
+
 
 with fpl_loader("Training the points model", LINES_MODEL):
     predictions, metrics, players_df = run_model(current_gw, captain_gw)
@@ -173,49 +175,57 @@ predictions = predictions[predictions["position"].notna()].copy()
 
 # ── Model accuracy header ──────────────────────────────────────────────────────
 st.markdown("### Model Accuracy")
-st.caption(
-    f"Tested on GW{metrics['test_gws'][0]}–{metrics['test_gws'][1]} "
-    f"({metrics['n_test']:,} player-GW predictions). "
-    f"Trained on GW{metrics['train_gws'][0]}–{metrics['train_gws'][1]}."
-)
-
-m1, m2, m3, m4 = st.columns(4)
-m1.metric(
-    "RMSE",
-    f"{rmse:.2f} pts",
-    help="Root Mean Squared Error · penalises big misses more heavily than small ones.",
-)
-m2.metric(
-    "MAE",
-    f"{mae:.2f} pts",
-    help="Mean Absolute Error · on average, predictions are this many points off.",
-)
-m3.metric(
-    "R²",
-    f"{r2:.3f}",
-    help="Proportion of variance explained. FPL is inherently noisy · 0.28 is solid.",
-)
-m4.metric(
-    "Prediction range",
-    f"±{mae:.1f} pts",
-    help="Use this as the typical error band around any single prediction.",
-)
-
-# Friendly interpretation
-if mae < 1.5:
-    interp_col, interp_txt = "#00FF87", f"On average predictions are **{mae:.1f} pts off** per player per GW · a solid baseline."
-elif mae < 2.5:
-    interp_col, interp_txt = "#FFA500", f"Predictions average **{mae:.1f} pts off** · decent for FPL's inherent randomness."
+if metrics["n_test"] == 0:
+    st.caption(
+        f"Trained on GW{metrics['train_gws'][0]}–{metrics['train_gws'][1]}. "
+        "No holdout yet · accuracy figures appear once a second gameweek "
+        "has been played."
+    )
 else:
-    interp_col, interp_txt = "#FF4B4B", f"Average error of **{mae:.1f} pts** · use predictions directionally, not literally."
+    st.caption(
+        f"Tested on GW{metrics['test_gws'][0]}–{metrics['test_gws'][1]} "
+        f"({metrics['n_test']:,} player-GW predictions). "
+        f"Trained on GW{metrics['train_gws'][0]}–{metrics['train_gws'][1]}."
+    )
 
-st.markdown(
-    f"<div style='padding:10px 16px;background:rgba(255,255,255,0.03);"
-    f"border-left:3px solid {interp_col};border-radius:6px;font-size:13px;'>"
-    f"{interp_txt} Predicting Bruno Fernandes to score 5.1 pts means: likely between "
-    f"{max(0, 5.1 - mae):.1f} and {5.1 + mae:.1f} pts.</div>",
-    unsafe_allow_html=True,
-)
+if metrics["n_test"] > 0:
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric(
+        "RMSE",
+        f"{rmse:.2f} pts",
+        help="Root Mean Squared Error · penalises big misses more heavily than small ones.",
+    )
+    m2.metric(
+        "MAE",
+        f"{mae:.2f} pts",
+        help="Mean Absolute Error · on average, predictions are this many points off.",
+    )
+    m3.metric(
+        "R²",
+        f"{r2:.3f}",
+        help="Proportion of variance explained. FPL is inherently noisy · 0.28 is solid.",
+    )
+    m4.metric(
+        "Prediction range",
+        f"±{mae:.1f} pts",
+        help="Use this as the typical error band around any single prediction.",
+    )
+
+    # Friendly interpretation
+    if mae < 1.5:
+        interp_col, interp_txt = "var(--ff-mint)", f"On average predictions are **{mae:.1f} pts off** per player per GW · a solid baseline."
+    elif mae < 2.5:
+        interp_col, interp_txt = "var(--ff-orange)", f"Predictions average **{mae:.1f} pts off** · decent for FPL's inherent randomness."
+    else:
+        interp_col, interp_txt = "var(--ff-red)", f"Average error of **{mae:.1f} pts** · use predictions directionally, not literally."
+
+    st.markdown(
+        f"<div style='padding:10px 16px;background:var(--ff-row-alt);"
+        f"border-left:3px solid {interp_col};border-radius:6px;font-size:13px;'>"
+        f"{interp_txt} Predicting Bruno Fernandes to score 5.1 pts means: likely between "
+        f"{max(0, 5.1 - mae):.1f} and {5.1 + mae:.1f} pts.</div>",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 
@@ -233,12 +243,12 @@ with col_a:
         opt = charts.bar_option(
             x=list(pos_df["Position"]),
             y=[round(float(v), 2) for v in pos_df["RMSE"]],
-            colors=[POS_COLORS.get(p, "#00FF87") for p in pos_df["Position"]])
+            colors=[POS_COLORS.get(p, theme.fill("mint")) for p in pos_df["Position"]])
         for item in opt["series"][0]["data"]:
             item["label"] = {"show": True, "position": "top", "formatter": "{c}",
-                             "color": "rgba(255,255,255,0.7)", "fontSize": 10}
+                             "color": "var(--ff-muted)", "fontSize": 10}
         opt["title"] = {"text": "RMSE by Position", "textStyle": {
-            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+            "color": "var(--ff-text)", "fontSize": 12, "fontWeight": "bold"}}
         opt["grid"]["top"] = 40
         opt["yAxis"]["max"] = round(float(pos_df["RMSE"].max()) * 1.3, 1)
         charts.render(opt, height="260px", key="pred_rmse_pos")
@@ -270,9 +280,9 @@ with col_b:
         vals = [round(float(v), 4) for v in imp_df["Importance"]]
         opt = charts.bar_option(
             x=list(imp_df["Feature"]), y=vals, horizontal=True,
-            colors=charts.color_ramp(vals, "#16213e", "#00FF87"))
+            colors=charts.color_ramp(vals, "#16213e", theme.fill("mint")))
         opt["title"] = {"text": "What drives the model", "textStyle": {
-            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+            "color": "var(--ff-text)", "fontSize": 12, "fontWeight": "bold"}}
         opt["grid"]["top"] = 40
         opt["grid"]["left"] = 150
         opt["xAxis"]["axisLabel"] = {"show": False}
@@ -298,10 +308,10 @@ with col_c:
             for d in s["data"]:
                 d["itemStyle"]["opacity"] = 0.4
         opt["title"] = {"text": "Predicted vs Actual (test set)", "textStyle": {
-            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+            "color": "var(--ff-text)", "fontSize": 12, "fontWeight": "bold"}}
         max_val = max(float(sample["total_points"].max()),
                       float(sample["predicted"].max()))
-        charts.with_diagonal(opt, max_val, color="rgba(255,255,255,0.2)")
+        charts.with_diagonal(opt, max_val, color=theme.fill("line"))
         charts.render(opt, height="260px", key="pred_vs_actual")
 
 st.markdown("---")
@@ -365,7 +375,7 @@ if not preds_filtered.empty:
         opt = charts.bar_option(
             x=list(top15["web_name"]),
             y=[round(float(v), 1) for v in top15["predicted_pts"]],
-            colors=[POS_COLORS.get(p, "#00FF87") for p in top15["position"]],
+            colors=[POS_COLORS.get(p, theme.fill("mint")) for p in top15["position"]],
             horizontal=True)
         for item, (_, r) in zip(opt["series"][0]["data"], top15.iterrows()):
             lo = r["predicted_pts"] * 0.65
@@ -379,7 +389,7 @@ if not preds_filtered.empty:
         charts.with_image_labels(
             opt, [_ppu(_code_by_name.get(n)) for n in top15["web_name"]], size=20)
         opt["title"] = {"text": f"Top 15 Predicted · GW{captain_gw}", "textStyle": {
-            "color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"}}
+            "color": "var(--ff-text)", "fontSize": 12, "fontWeight": "bold"}}
         opt["grid"]["top"] = 40
         opt["grid"]["left"] = 128
         charts.render(opt, height="460px", key="pred_top15")
@@ -494,7 +504,7 @@ else:
         charts.with_image_labels(
             opt, [_ppu2(_code_by_name2.get(n)) for n in dc_chart["web_name"]], size=20)
         opt["title"] = {"text": "Defcon Monster Score (reliability × consistency)",
-                        "textStyle": {"color": "#eef1f5", "fontSize": 12,
+                        "textStyle": {"color": "var(--ff-text)", "fontSize": 12,
                                       "fontWeight": "bold"}}
         opt["grid"]["top"] = 40
         opt["grid"]["left"] = 128

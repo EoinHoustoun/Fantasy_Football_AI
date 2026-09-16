@@ -23,6 +23,7 @@ from typing import Optional, Tuple
 
 import pandas as pd
 import streamlit as st
+from ui import theme
 
 from components.loading import LINES_SQUAD, fpl_loader
 
@@ -44,27 +45,27 @@ def _gaffers_briefing_ai(facts_key: Tuple[Tuple[str, object], ...]) -> Optional[
 def _briefing_card_html(text: str, ai_live: bool) -> str:
     badge = (
         '<span style="font-size:9px;font-weight:800;letter-spacing:0.12em;'
-        'text-transform:uppercase;color:#00FF87;background:rgba(0,255,135,0.10);'
+        'text-transform:uppercase;color:var(--ff-mint);background:rgba(0,255,135,0.10);'
         'border:1px solid rgba(0,255,135,0.35);border-radius:999px;padding:2px 8px;">'
         '✨ AI</span>'
         if ai_live else
         '<span style="font-size:9px;font-weight:800;letter-spacing:0.12em;'
-        'text-transform:uppercase;color:rgba(255,255,255,0.45);'
-        'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);'
+        'text-transform:uppercase;color:var(--ff-muted2);'
+        'background:var(--ff-row-alt);border:1px solid var(--ff-line);'
         'border-radius:999px;padding:2px 8px;">Auto</span>'
     )
     return f"""
 <div class="fplh-card-hover fplh-animate-in" style="
     margin-top:16px;background:rgba(22,26,34,0.85);
-    border:1px solid rgba(255,255,255,0.08);border-left:3px solid #FFD700;
+    border:1px solid var(--ff-row-alt);border-left:3px solid var(--ff-gold);
     border-radius:14px;padding:16px 20px;font-family:'Inter',sans-serif;">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
     <span style="font-size:15px;">🎙️</span>
-    <span style="font-size:11px;letter-spacing:0.2em;color:rgba(255,255,255,0.5);
+    <span style="font-size:11px;letter-spacing:0.2em;color:var(--ff-muted2);
          text-transform:uppercase;font-weight:800;">Gaffer's Briefing</span>
     {badge}
   </div>
-  <div style="font-size:14px;line-height:1.6;color:#eef1f5;">{text}</div>
+  <div style="font-size:14px;line-height:1.6;color:var(--ff-text);">{text}</div>
 </div>"""
 
 
@@ -129,19 +130,19 @@ def _format_countdown(dt: datetime) -> Tuple[str, str]:
     now = datetime.now(timezone.utc)
     delta = dt - now
     if delta.total_seconds() <= 0:
-        return "Deadline passed", "#FF4B4B"
+        return "Deadline passed", "var(--ff-red)"
     days = delta.days
     hours, rem = divmod(delta.seconds, 3600)
     minutes = rem // 60
     if days > 0:
-        return f"{days}d {hours}h to deadline", "#00FF87" if days > 1 else "#FFA500"
+        return f"{days}d {hours}h to deadline", "var(--ff-mint)" if days > 1 else "var(--ff-orange)"
     if hours > 0:
-        return f"{hours}h {minutes}m to deadline", "#FFA500" if hours > 6 else "#FF4B4B"
-    return f"{minutes}m to deadline", "#FF4B4B"
+        return f"{hours}h {minutes}m to deadline", "var(--ff-orange)" if hours > 6 else "var(--ff-red)"
+    return f"{minutes}m to deadline", "var(--ff-red)"
 
 
 deadline = _next_deadline(bs)
-deadline_text, deadline_color = ("", "#00FF87")
+deadline_text, deadline_color = ("", theme.fill("mint"))
 if deadline:
     deadline_text, deadline_color = _format_countdown(deadline)
 
@@ -159,7 +160,7 @@ _hero_bg_css = ", ".join([l for l in _hero_background_layers if l])
 _deadline_pill = ""
 if deadline_text:
     _deadline_pill = (
-        f'<div style="background:rgba(0,0,0,0.35);border:1px solid {deadline_color}66;'
+        f'<div style="background:var(--ff-card);border:1px solid {deadline_color}66;'
         f'border-radius:999px;padding:9px 18px;display:inline-flex;align-items:center;'
         f'gap:8px;backdrop-filter:blur(8px);">'
         f'<span style="font-size:14px;">🕒</span>'
@@ -172,19 +173,19 @@ st.markdown(
 <div class="fplh-animate-in" style="
     position:relative;padding:42px 40px;margin-bottom:22px;border-radius:20px;
     min-height:180px;background: {_hero_bg_css};
-    border:1px solid rgba(255,255,255,0.08);
+    border:1px solid var(--ff-row-alt);
     font-family:'Inter','SF Pro Display',sans-serif;overflow:hidden;
     box-shadow:0 10px 40px rgba(0,0,0,0.35);">
   <div style="position:relative;z-index:1;max-width:60%;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
       <span style="display:inline-block;width:6px;height:6px;border-radius:50%;
-             background:#00FF87;box-shadow:0 0 10px #00FF87;"></span>
-      <span style="font-size:11px;letter-spacing:0.24em;color:rgba(255,255,255,0.55);
+             background:var(--ff-mint);box-shadow:0 0 10px var(--ff-mint);"></span>
+      <span style="font-size:11px;letter-spacing:0.24em;color:var(--ff-muted2);
              text-transform:uppercase;font-weight:800;">FPL Analytics Hub</span>
     </div>
-    <div style="font-size:48px;font-weight:900;color:#fff;letter-spacing:-1.3px;
+    <div style="font-size:48px;font-weight:900;color:var(--ff-text);letter-spacing:-1.3px;
          line-height:1;margin-bottom:14px;">
-      Gameweek <span style="color:#00FF87;">{current_gw if current_gw is not None else "-"}</span>
+      Gameweek <span style="color:var(--ff-mint);">{current_gw if current_gw is not None else "-"}</span>
     </div>
     {_deadline_pill}
   </div>
@@ -201,13 +202,13 @@ if _sim:
     st.markdown(
         f"""
 <div class="fplh-animate-in" style="display:flex;align-items:center;gap:12px;
-     background:rgba(4,245,255,0.06);border:1px solid #04f5ff55;border-left:3px solid #04f5ff;
+     background:rgba(4,245,255,0.06);border:1px solid #04f5ff55;border-left:3px solid var(--ff-cyan);
      border-radius:12px;padding:12px 16px;margin-bottom:20px;font-family:'Inter',sans-serif;">
   <span style="font-size:20px;flex-shrink:0;">🧪</span>
   <div>
-    <div style="font-size:12px;font-weight:800;letter-spacing:0.04em;color:#04f5ff;text-transform:uppercase;">
+    <div style="font-size:12px;font-weight:800;letter-spacing:0.04em;color:var(--ff-cyan);text-transform:uppercase;">
       Simulating Gameweek {_sim}</div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.62);margin-top:2px;line-height:1.4;">
+    <div style="font-size:12px;color:var(--ff-muted);margin-top:2px;line-height:1.4;">
       Off-season sandbox · GW1's fixtures are replayed as a synthetic next gameweek so every fixture &amp;
       form tool (transfers, free hit, pick team) works for the future. Toggle off in the sidebar once the real season launches.</div>
   </div>
@@ -215,18 +216,18 @@ if _sim:
         unsafe_allow_html=True,
     )
 elif _phase != "inseason":
-    _pc = "#FFA500" if _phase == "offseason" else "#00FF87" if _phase == "preseason" else "#04f5ff"
+    _pc = "var(--ff-orange)" if _phase == "offseason" else "var(--ff-mint)" if _phase == "preseason" else "var(--ff-cyan)"
     _icon = {"offseason": "🏁", "preseason": "🌱"}.get(_phase, "ℹ️")
     st.markdown(
         f"""
 <div class="fplh-animate-in" style="display:flex;align-items:center;gap:12px;
-     background:rgba(255,255,255,0.03);border:1px solid {_pc}55;border-left:3px solid {_pc};
+     background:var(--ff-row-alt);border:1px solid {_pc}55;border-left:3px solid {_pc};
      border-radius:12px;padding:12px 16px;margin-bottom:20px;font-family:'Inter',sans-serif;">
   <span style="font-size:20px;flex-shrink:0;">{_icon}</span>
   <div>
     <div style="font-size:12px;font-weight:800;letter-spacing:0.04em;color:{_pc};
          text-transform:uppercase;">{season_phase.get("title", "")}</div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.62);margin-top:2px;line-height:1.4;">
+    <div style="font-size:12px;color:var(--ff-muted);margin-top:2px;line-height:1.4;">
       {season_phase.get("note", "")}</div>
   </div>
 </div>""",
@@ -238,9 +239,9 @@ elif _phase != "inseason":
 def _section_header(title: str) -> None:
     st.markdown(
         f"""<div style="margin:6px 0 12px;display:flex;align-items:center;gap:14px;">
-          <div style="font-size:11px;letter-spacing:0.22em;color:rgba(255,255,255,0.45);
+          <div style="font-size:11px;letter-spacing:0.22em;color:var(--ff-muted2);
                text-transform:uppercase;font-weight:800;">{title}</div>
-          <div style="flex:1;height:1px;background:rgba(255,255,255,0.07);"></div>
+          <div style="flex:1;height:1px;background:var(--ff-row-alt);"></div>
         </div>""",
         unsafe_allow_html=True,
     )
@@ -259,7 +260,7 @@ st.session_state.squad_team_id = int(team_id)
 _is_demo = int(team_id) == (int(FPL_TEAM_ID) if FPL_TEAM_ID else 38148)
 with hint_col:
     st.markdown(
-        f"<div style='padding-top:30px;font-size:12px;color:rgba(255,255,255,0.5);'>"
+        f"<div style='padding-top:30px;font-size:12px;color:var(--ff-muted2);'>"
         f"{'👋 Showing a <b>demo team</b> · enter your own ID above to personalise every page.' if _is_demo else 'Your team is set across every page.'}"
         f"</div>",
         unsafe_allow_html=True,
@@ -285,16 +286,16 @@ def _command_card(kicker: str, headline: str, sub: str, accent: str,
     return f"""
 <div class="fplh-card-hover fplh-animate-in" style="
     position:relative;background:rgba(22,26,34,0.85);
-    border:1px solid rgba(255,255,255,0.08);border-top:3px solid {accent};
+    border:1px solid var(--ff-row-alt);border-top:3px solid {accent};
     border-radius:14px;padding:18px 18px 14px;min-height:132px;
     font-family:'Inter',sans-serif;">
   {crest}
   <div style="font-size:10px;letter-spacing:0.16em;text-transform:uppercase;
        font-weight:800;color:{accent};margin-bottom:10px;">{kicker}</div>
-  <div style="font-size:22px;font-weight:900;color:#fff;line-height:1.05;
+  <div style="font-size:22px;font-weight:900;color:var(--ff-text);line-height:1.05;
        letter-spacing:-0.4px;margin-bottom:6px;max-width:88%;overflow:hidden;
        text-overflow:ellipsis;white-space:nowrap;">{headline}</div>
-  <div style="font-size:12px;color:rgba(255,255,255,0.55);line-height:1.35;">{sub}</div>
+  <div style="font-size:12px;color:var(--ff-muted2);line-height:1.35;">{sub}</div>
 </div>
 """
 
@@ -347,11 +348,11 @@ else:
             st.markdown(_command_card(
                 "Captain pick", str(cap["web_name"]),
                 f"{float(cap.get('ep_next') or 0):.1f} xP · {cap.get('team_short','')}",
-                "#FFD700", cap.get("team_short"),
+                "var(--ff-gold)", cap.get("team_short"),
                 player_code=cap.get("code"), team_code=cap.get("team_code"),
             ), unsafe_allow_html=True)
         else:
-            st.markdown(_command_card("Captain pick", "-", "No squad data", "#FFD700"),
+            st.markdown(_command_card("Captain pick", "-", "No squad data", "var(--ff-gold)"),
                         unsafe_allow_html=True)
         st.page_link("views/06_captain_picker.py", label="Full captain analysis →")
 
@@ -360,11 +361,11 @@ else:
             st.markdown(_command_card(
                 "Best transfer in", str(top_in.get("web_name", "-")),
                 f"{float(top_in.get('ep_next') or 0):.1f} xP · {top_in.get('team_short','')} · {top_in.get('position','')}",
-                "#00FF87", top_in.get("team_short"),
+                "var(--ff-mint)", top_in.get("team_short"),
                 player_code=top_in.get("code"), team_code=top_in.get("team_code"),
             ), unsafe_allow_html=True)
         else:
-            st.markdown(_command_card("Best transfer in", "-", "No target found", "#00FF87"),
+            st.markdown(_command_card("Best transfer in", "-", "No target found", "var(--ff-mint)"),
                         unsafe_allow_html=True)
         st.page_link("views/02_transfer_suggestions.py", label="Transfer suggestions →")
 
@@ -372,12 +373,12 @@ else:
         if dgw_gws:
             st.markdown(_command_card(
                 "Chip window", f"GW{dgw_gws[0]} double",
-                "Strong Bench Boost / Triple Captain timing", "#04f5ff",
+                "Strong Bench Boost / Triple Captain timing", "var(--ff-cyan)",
             ), unsafe_allow_html=True)
         else:
             st.markdown(_command_card(
                 "Chip window", "Hold chips",
-                "No double gameweek in your squad yet", "#04f5ff",
+                "No double gameweek in your squad yet", "var(--ff-cyan)",
             ), unsafe_allow_html=True)
         st.page_link("views/14_chip_planner.py", label="Plan your chips →")
 
@@ -389,10 +390,10 @@ else:
             st.markdown(_command_card(
                 "Squad risks", f"{n_flag} flagged",
                 f"{worst['web_name']} · {_labels.get(str(worst['status']), 'check')}",
-                "#FF4B4B", worst.get("team_short"),
+                "var(--ff-red)", worst.get("team_short"),
             ), unsafe_allow_html=True)
         else:
-            st.markdown(_command_card("Squad risks", "All fit", "No injuries or doubts", "#00FF87"),
+            st.markdown(_command_card("Squad risks", "All fit", "No injuries or doubts", "var(--ff-mint)"),
                         unsafe_allow_html=True)
         st.page_link("views/08_injuries.py", label="Injury news →")
 
@@ -456,16 +457,16 @@ st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
 def _pulse_tile(emoji: str, label: str, primary: str, secondary: str, accent: str) -> str:
     return f"""
 <div class="fplh-card-hover fplh-animate-in" style="
-    background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);
+    background:rgba(22,26,34,0.85);border:1px solid var(--ff-row-alt);
     border-left:3px solid {accent};border-radius:12px;padding:14px 16px;
     font-family:'Inter',sans-serif;">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
     <span style="font-size:16px;">{emoji}</span>
-    <span style="font-size:10px;color:rgba(255,255,255,0.45);
+    <span style="font-size:10px;color:var(--ff-muted2);
            letter-spacing:0.15em;font-weight:700;text-transform:uppercase;">{label}</span>
   </div>
-  <div style="font-size:18px;font-weight:900;color:#fff;line-height:1.1;">{primary}</div>
-  <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;">{secondary}</div>
+  <div style="font-size:18px;font-weight:900;color:var(--ff-text);line-height:1.1;">{primary}</div>
+  <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">{secondary}</div>
 </div>
 """
 
@@ -485,21 +486,21 @@ n_doubtful = int((players_df["status"] == "d").sum())
 pulse_cols = st.columns(4)
 with pulse_cols[0]:
     st.markdown(_pulse_tile("⚡", "Best form", f"{top_form['web_name']}",
-        f"{float(top_form['form']):.1f} pts/game · {top_form['team']}", "#00FF87"),
+        f"{float(top_form['form']):.1f} pts/game · {top_form['team']}", "var(--ff-mint)"),
         unsafe_allow_html=True)
 with pulse_cols[1]:
     _in_n = int(top_in['transfers_in_event'])
     st.markdown(_pulse_tile("📈", "Most transferred in",
         f"{top_in['web_name']}" if _in_n else "Market closed",
-        f"+{_in_n:,} this GW" if _in_n else "moves return at launch", "#04f5ff"),
+        f"+{_in_n:,} this GW" if _in_n else "moves return at launch", "var(--ff-cyan)"),
         unsafe_allow_html=True)
 with pulse_cols[2]:
     _out_n = int(top_out['transfers_out_event'])
     st.markdown(_pulse_tile("📤", "Most transferred out",
         f"{top_out['web_name']}" if _out_n else "Market closed",
-        f"-{_out_n:,} this GW" if _out_n else "moves return at launch", "#FF4B4B"),
+        f"-{_out_n:,} this GW" if _out_n else "moves return at launch", "var(--ff-red)"),
         unsafe_allow_html=True)
 with pulse_cols[3]:
     st.markdown(_pulse_tile("🚑", "Unavailable", f"{n_injured} injured",
-        f"{n_doubtful} doubtful", "#FFA500"),
+        f"{n_doubtful} doubtful", "var(--ff-orange)"),
         unsafe_allow_html=True)

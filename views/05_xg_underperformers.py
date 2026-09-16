@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from ui import charts
+from ui import charts, theme
 
 from components.animations import inject_global_animations
 from components.team_identity import shirt_html, team_color
@@ -21,8 +21,8 @@ from components.team_identity import shirt_html, team_color
 inject_global_animations()
 
 # ── Design tokens (kept local for now · will move to shared module later) ─────
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#FF7B00"}
-FDR_COLORS = {1: "#00FF87", 2: "#00FF87", 3: "#FFD60A", 4: "#FF8C42", 5: "#FF4B4B"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "var(--ff-orange-v)"}
+FDR_COLORS = {1: "var(--ff-mint)", 2: "var(--ff-mint)", 3: "#FFD60A", 4: "var(--ff-orange-v)", 5: "var(--ff-red)"}
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 
 
@@ -55,7 +55,7 @@ def _position_chip(pos: str) -> str:
 
 def _fixture_pills(fixtures, n: int = 5) -> str:
     if not isinstance(fixtures, list) or not fixtures:
-        return '<span style="color:rgba(255,255,255,0.35);font-size:11px;">-</span>'
+        return '<span style="color:var(--ff-muted2);font-size:11px;">-</span>'
     pills = []
     for f in fixtures[:n]:
         opp = str(f.get("opp_short") or f.get("opponent", "?"))[:3].upper()
@@ -75,12 +75,12 @@ def _fixture_pills(fixtures, n: int = 5) -> str:
 st.markdown(
     """
 <div style="padding:18px 0 8px;font-family:'Inter',sans-serif;">
-  <div style="font-size:30px;font-weight:900;color:#fff;letter-spacing:-0.5px;">
+  <div style="font-size:30px;font-weight:900;color:var(--ff-text);letter-spacing:-0.5px;">
     📈 xG Underperformers
   </div>
-  <div style="font-size:14px;color:rgba(255,255,255,0.55);margin-top:4px;line-height:1.5;">
+  <div style="font-size:14px;color:var(--ff-muted2);margin-top:4px;line-height:1.5;">
     Players creating chances faster than they're finishing · statistically due a goal.
-    <span style="color:rgba(255,255,255,0.4);">xG gap = xG accumulated − actual goals.</span>
+    <span style="color:var(--ff-muted2);">xG gap = xG accumulated − actual goals.</span>
   </div>
 </div>
 """,
@@ -169,32 +169,32 @@ if not underperformers.empty:
     with c1:
         st.markdown(f"""<div style="background:rgba(0,255,135,0.08);
             border:1px solid rgba(0,255,135,0.3);border-radius:12px;padding:14px 18px;">
-            <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">FLAGGED</div>
-            <div style="font-size:28px;font-weight:900;color:#00FF87;">{len(underperformers)}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.45);">players due a goal</div>
+            <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">FLAGGED</div>
+            <div style="font-size:28px;font-weight:900;color:var(--ff-mint);">{len(underperformers)}</div>
+            <div style="font-size:11px;color:var(--ff-muted2);">players due a goal</div>
             </div>""", unsafe_allow_html=True)
     with c2:
-        st.markdown(f"""<div style="background:rgba(255,255,255,0.03);
-            border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
-            <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">TOP CANDIDATE</div>
-            <div style="font-size:18px;font-weight:800;color:#fff;">{top['web_name']}</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.55);">+{_safe(top.get('xg_gap')):.2f} xG owed</div>
+        st.markdown(f"""<div style="background:var(--ff-row-alt);
+            border:1px solid var(--ff-row-alt);border-radius:12px;padding:14px 18px;">
+            <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">TOP CANDIDATE</div>
+            <div style="font-size:18px;font-weight:800;color:var(--ff-text);">{top['web_name']}</div>
+            <div style="font-size:12px;color:var(--ff-muted2);">+{_safe(top.get('xg_gap')):.2f} xG owed</div>
             </div>""", unsafe_allow_html=True)
     with c3:
         total_gap = float(underperformers["xg_gap"].sum()) if "xg_gap" in underperformers.columns else 0
-        st.markdown(f"""<div style="background:rgba(255,255,255,0.03);
-            border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
-            <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">TOTAL OWED</div>
-            <div style="font-size:28px;font-weight:900;color:#FFD700;">{total_gap:.1f}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.45);">goals across list</div>
+        st.markdown(f"""<div style="background:var(--ff-row-alt);
+            border:1px solid var(--ff-row-alt);border-radius:12px;padding:14px 18px;">
+            <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">TOTAL OWED</div>
+            <div style="font-size:28px;font-weight:900;color:var(--ff-gold);">{total_gap:.1f}</div>
+            <div style="font-size:11px;color:var(--ff-muted2);">goals across list</div>
             </div>""", unsafe_allow_html=True)
     with c4:
         avg_own = float(underperformers["ownership"].mean()) if "ownership" in underperformers.columns else 0
-        st.markdown(f"""<div style="background:rgba(255,255,255,0.03);
-            border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
-            <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">AVG OWNERSHIP</div>
-            <div style="font-size:28px;font-weight:900;color:#04f5ff;">{avg_own:.1f}%</div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.45);">differential potential</div>
+        st.markdown(f"""<div style="background:var(--ff-row-alt);
+            border:1px solid var(--ff-row-alt);border-radius:12px;padding:14px 18px;">
+            <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">AVG OWNERSHIP</div>
+            <div style="font-size:28px;font-weight:900;color:var(--ff-cyan);">{avg_own:.1f}%</div>
+            <div style="font-size:11px;color:var(--ff-muted2);">differential potential</div>
             </div>""", unsafe_allow_html=True)
 else:
     st.info("No players match your filters. Try lowering the xG gap threshold or widening positions.")
@@ -203,7 +203,7 @@ else:
 # ── Card grid ─────────────────────────────────────────────────────────────────
 if not underperformers.empty:
     st.markdown(
-        '<div style="margin:24px 0 12px;font-size:20px;font-weight:800;color:#fff;">'
+        '<div style="margin:24px 0 12px;font-size:20px;font-weight:800;color:var(--ff-text);">'
         '🎯 Players Due a Goal</div>',
         unsafe_allow_html=True,
     )
@@ -231,7 +231,7 @@ if not underperformers.empty:
         cards.append(f"""
 <div class="fplh-card-hover" style="
     background:rgba(22,26,34,0.85);
-    border:1px solid rgba(255,255,255,0.08);
+    border:1px solid var(--ff-row-alt);
     border-left:3px solid {tcol};
     border-radius:12px;padding:16px;
     font-family:'Inter',sans-serif;
@@ -239,37 +239,37 @@ if not underperformers.empty:
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
     <div style="flex-shrink:0;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));">{shirt_html(code, pos == "GKP", width=50)}</div>
     <div style="flex:1;min-width:0;">
-      <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;
+      <div style="font-size:15px;font-weight:800;color:var(--ff-text);white-space:nowrap;
                   overflow:hidden;text-overflow:ellipsis;">{name}</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;">
+      <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
         {_position_chip(pos)} <span style="margin-left:6px;">{team}</span>
       </div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:16px;font-weight:800;color:#fff;">£{price:.2f}m</div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.4);">{own:.1f}% own</div>
+      <div style="font-size:16px;font-weight:800;color:var(--ff-text);">£{price:.2f}m</div>
+      <div style="font-size:10px;color:var(--ff-muted2);">{own:.1f}% own</div>
     </div>
   </div>
 
   <div style="display:flex;gap:12px;margin-bottom:10px;">
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#fff;">{xg:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">SEASON xG</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#fff;">{goals:.0f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">GOALS</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#00FF87;">+{gap:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">OWED</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{xg:.2f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">SEASON xG</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{goals:.0f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">GOALS</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-mint);">+{gap:.2f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">OWED</div></div>
     <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:{_fdr_color(fdr6)};">{fdr6:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">FDR6</div></div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">FDR6</div></div>
   </div>
 
-  <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:4px;overflow:hidden;margin-bottom:10px;">
-    <div style="background:linear-gradient(90deg,#FFD700,#00FF87);height:100%;width:{bar_pct:.0f}%;"></div>
+  <div style="background:var(--ff-row-alt);border-radius:4px;height:4px;overflow:hidden;margin-bottom:10px;">
+    <div style="background:linear-gradient(90deg,var(--ff-gold),var(--ff-mint));height:100%;width:{bar_pct:.0f}%;"></div>
   </div>
 
   <div style="display:flex;justify-content:space-between;align-items:center;">
     <div>{fix}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.4);">
-      Form <span style="color:#fff;font-weight:700;">{form:.1f}</span>
+    <div style="font-size:11px;color:var(--ff-muted2);">
+      Form <span style="color:var(--ff-text);font-weight:700;">{form:.1f}</span>
     </div>
   </div>
 </div>
@@ -284,9 +284,9 @@ if not underperformers.empty:
 
 # ── Scatter chart ─────────────────────────────────────────────────────────────
     st.markdown(
-        '<div style="margin:28px 0 10px;font-size:18px;font-weight:800;color:#fff;">'
+        '<div style="margin:28px 0 10px;font-size:18px;font-weight:800;color:var(--ff-text);">'
         '📊 xG vs Actual Goals</div>'
-        '<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:14px;">'
+        '<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:14px;">'
         'Players above the line are underperforming (haul candidates). Below the line = overperforming.'
         '</div>',
         unsafe_allow_html=True,
@@ -305,7 +305,7 @@ if not underperformers.empty:
         )
         sizes = charts.scale_sizes(list(chart_df["xg"]), lo=6.0, hi=22.0)
         groups = []
-        for cat, col in [("Underperforming (buy?)", "#00FF87"),
+        for cat, col in [("Underperforming (buy?)", "var(--ff-mint)"),
                          ("On track", "#555a66")]:
             sub = chart_df[chart_df["category"] == cat]
             pts = []
@@ -329,9 +329,9 @@ if not underperformers.empty:
 
 # ── Finishing luck: both tails, and does it even out? ─────────────────────────
 st.markdown(
-    '<div style="margin:30px 0 10px;font-size:20px;font-weight:800;color:#fff;">'
+    '<div style="margin:30px 0 10px;font-size:20px;font-weight:800;color:var(--ff-text);">'
     '🎲 Finishing Luck · Both Tails</div>'
-    '<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:14px;">'
+    '<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:14px;">'
     'Every player who took the pitch this season. Green = scoring more than their '
     'chances deserve, red = less. The histogram answers "does it even out": most '
     'players cluster near zero · the tails are luck plus elite/poor finishing.</div>',
@@ -345,7 +345,7 @@ if not luck_df.empty:
     luck_df["xg_diff"] = luck_df["goals_scored"].fillna(0) - luck_df["xg"]
 
     point_colors = charts.diverging_colors(list(luck_df["xg_diff"]),
-                                           "#FF4B4B", "#555a66", "#00FF87")
+                                           "var(--ff-red)", "#555a66", "var(--ff-mint)")
     sizes = charts.scale_sizes(list(luck_df["xg_diff"].abs() + 0.6), lo=6.0, hi=20.0)
     extremes = set(pd.concat([luck_df.nlargest(5, "xg_diff"),
                               luck_df.nsmallest(5, "xg_diff")]).index)
@@ -358,7 +358,7 @@ if not luck_df.empty:
                     f"{r['xg']:.2f} xG → {int(r['goals_scored'])} goals "
                     f"({r['xg_diff']:+.2f})<br/>£{r['price']:.2f}m"),
             "label": ix in extremes,
-            "label_color": "#00FF87" if r["xg_diff"] > 0 else "#FF4B4B",
+            "label_color": "var(--ff-mint)" if r["xg_diff"] > 0 else "var(--ff-red)",
         })
     opt = charts.scatter_option(pts, x_name="Expected goals (xG)",
                                 y_name="Actual goals")
@@ -372,12 +372,12 @@ if not luck_df.empty:
         centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(counts))]
         mean_gap = float(luck_df["xg_diff"].mean())
         opt = charts.bar_option(x=[f"{c:.2f}" for c in centers],
-                                y=[int(c) for c in counts], color="#04f5ff")
+                                y=[int(c) for c in counts], color=theme.fill("cyan"))
         zero_i = min(range(len(centers)), key=lambda i: abs(centers[i]))
         mean_i = min(range(len(centers)), key=lambda i: abs(centers[i] - mean_gap))
         charts.with_vertical_marks(
             opt, [(zero_i, "0"), (mean_i, f"mean {mean_gap:+.2f}")],
-            color="rgba(255,255,255,0.5)", label_color="#FFD700")
+            color=theme.fill("muted2"), label_color=theme.fill("gold"))
         opt["xAxis"]["axisLabel"]["interval"] = 7
         opt["tooltip"]["formatter"] = "G − xG ≈ {b}: {c} players"
         charts.render(opt, height="300px", key="xg_luck_hist")
@@ -385,23 +385,23 @@ if not luck_df.empty:
         within_1 = float((luck_df["xg_diff"].abs() <= 1.0).mean())
         st.markdown(
             f'<div style="background:rgba(22,26,34,0.85);border:1px solid '
-            f'rgba(255,255,255,0.08);border-radius:12px;padding:16px 18px;margin-top:8px;">'
+            f'var(--ff-row-alt);border-radius:12px;padding:16px 18px;margin-top:8px;">'
             f'<div style="font-size:10px;font-weight:800;letter-spacing:0.14em;'
-            f'color:rgba(255,255,255,0.5);text-transform:uppercase;">Does it even out?</div>'
-            f'<div style="font-size:26px;font-weight:900;color:#00FF87;margin:4px 0;">'
+            f'color:var(--ff-muted2);text-transform:uppercase;">Does it even out?</div>'
+            f'<div style="font-size:26px;font-weight:900;color:var(--ff-mint);margin:4px 0;">'
             f'{within_1:.0%}</div>'
-            f'<div style="font-size:12px;color:rgba(255,255,255,0.55);line-height:1.5;">'
+            f'<div style="font-size:12px;color:var(--ff-muted2);line-height:1.5;">'
             f'of players finish within ±1 goal of their xG. Mean gap '
-            f'<span style="color:#FFD700;font-weight:800;">{mean_gap:+.2f}</span> · '
+            f'<span style="color:var(--ff-gold);font-weight:800;">{mean_gap:+.2f}</span> · '
             f'mostly, yes. Bet on the chances, not the streak.</div></div>',
             unsafe_allow_html=True)
 
 # ── Overperformers section ────────────────────────────────────────────────────
 if show_overperformers:
     st.markdown(
-        '<div style="margin:28px 0 10px;font-size:20px;font-weight:800;color:#fff;">'
+        '<div style="margin:28px 0 10px;font-size:20px;font-weight:800;color:var(--ff-text);">'
         '⚠️ Overperformers · Regression Risk</div>'
-        '<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:14px;">'
+        '<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:14px;">'
         'Scoring well above their xG · finishing luck may run out.'
         '</div>',
         unsafe_allow_html=True,

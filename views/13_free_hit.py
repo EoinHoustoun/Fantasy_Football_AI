@@ -6,14 +6,14 @@ using ML predictions, then compares it position-by-position to your current team
 import streamlit as st
 
 from components.loading import LINES_MODEL, LINES_SQUAD, fpl_loader
-from ui import charts
+from ui import charts, theme
 import pandas as pd
 import numpy as np
 
 # set_page_config is owned by the app.py router (st.navigation)
 
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "#ff6900"}
 POS_ORDER  = ["GKP", "DEF", "MID", "FWD"]
 
 
@@ -73,7 +73,7 @@ def _shirt_url(team_code: int, is_gkp: bool) -> str:
 def _squad_grid_html(squad: pd.DataFrame, players_df: pd.DataFrame, title: str, accent: str) -> str:
     """Render a squad as a position-grouped grid of shirt cards."""
     if squad.empty:
-        return f"<p style='color:rgba(255,255,255,0.4);'>{title}: no data</p>"
+        return f"<p style='color:var(--ff-muted2);'>{title}: no data</p>"
 
     # Merge team_code
     if "team_code" not in squad.columns:
@@ -102,10 +102,10 @@ def _squad_grid_html(squad: pd.DataFrame, players_df: pd.DataFrame, title: str, 
             cards.append(
                 f'<div style="text-align:center;width:72px;">'
                 f'<img src="{shirt}" width="42" onerror="this.src=\'{fallback}\'"/>'
-                f'<div style="font-size:10px;color:#fff;font-weight:700;margin-top:3px;'
+                f'<div style="font-size:10px;color:var(--ff-text);font-weight:700;margin-top:3px;'
                 f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</div>'
-                f'<div style="font-size:10px;color:#00FF87;font-weight:700;">{pts:.1f}pt</div>'
-                f'<div style="font-size:9px;color:rgba(255,255,255,0.35);">£{price:.1f}m</div>'
+                f'<div style="font-size:10px;color:var(--ff-mint);font-weight:700;">{pts:.1f}pt</div>'
+                f'<div style="font-size:9px;color:var(--ff-muted2);">£{price:.1f}m</div>'
                 f'</div>'
             )
         html_parts.append(
@@ -117,8 +117,8 @@ def _squad_grid_html(squad: pd.DataFrame, players_df: pd.DataFrame, title: str, 
         )
 
     return (
-        f'<div style="font-family:sans-serif;background:rgba(255,255,255,0.03);'
-        f'border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:18px;">'
+        f'<div style="font-family:sans-serif;background:var(--ff-row-alt);'
+        f'border:1px solid var(--ff-row-alt);border-radius:12px;padding:18px;">'
         + "".join(html_parts) + "</div>"
     )
 
@@ -128,17 +128,17 @@ def _comparison_chart(breakdown: pd.DataFrame, optimal_total: float, your_total:
     opt = charts.grouped_bars_option(
         x=breakdown["position"].tolist(),
         series=[
-            ("Your Team", [round(float(v), 1) for v in breakdown["your_pts"]], "#04f5ff"),
-            ("Optimal Free Hit", [round(float(v), 1) for v in breakdown["optimal_pts"]], "#00FF87"),
+            ("Your Team", [round(float(v), 1) for v in breakdown["your_pts"]], "var(--ff-cyan)"),
+            ("Optimal Free Hit", [round(float(v), 1) for v in breakdown["optimal_pts"]], "var(--ff-mint)"),
         ],
     )
     for s in opt["series"]:
         s["label"] = {"show": True, "position": "top", "formatter": "{c}",
-                      "color": "rgba(255,255,255,0.7)", "fontSize": 9}
+                      "color": "var(--ff-muted)", "fontSize": 9}
     opt["title"] = {
         "text": (f"Position-by-Position Comparison  |  Your XI: {your_total:.1f}pts"
                  f"  vs  Optimal XI: {optimal_total:.1f}pts"),
-        "textStyle": {"color": "#eef1f5", "fontSize": 12, "fontWeight": "bold"},
+        "textStyle": {"color": "var(--ff-text)", "fontSize": 12, "fontWeight": "bold"},
     }
     opt["grid"]["top"] = 46
     opt["legend"]["top"] = 24
@@ -154,18 +154,18 @@ def _delta_cards_html(breakdown: pd.DataFrame) -> str:
         opt   = float(row["optimal_pts"])
         yours = float(row["your_pts"])
         pc    = POS_COLORS.get(pos, "#888")
-        diff_color = "#00FF87" if diff > 0.5 else "#FF4B4B" if diff < -0.5 else "#aaa"
+        diff_color = theme.fill("mint") if diff > 0.5 else theme.fill("red") if diff < -0.5 else "#aaa"
         sign = "+" if diff >= 0 else ""
         verb = "better" if diff > 0 else "worse" if diff < 0 else "same"
         cards.append(
-            f'<div style="flex:1;background:rgba(255,255,255,0.03);'
-            f'border:1px solid rgba(255,255,255,0.08);border-top:3px solid {pc};'
+            f'<div style="flex:1;background:var(--ff-row-alt);'
+            f'border:1px solid var(--ff-row-alt);border-top:3px solid {pc};'
             f'border-radius:10px;padding:16px;text-align:center;font-family:sans-serif;">'
             f'<div style="font-size:11px;font-weight:700;color:{pc};letter-spacing:2px;margin-bottom:6px;">{pos}</div>'
             f'<div style="font-size:28px;font-weight:900;color:{diff_color};line-height:1;">{sign}{diff:.1f}</div>'
-            f'<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;">'
+            f'<div style="font-size:11px;color:var(--ff-muted2);margin-top:4px;">'
             f'pts {verb}</div>'
-            f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:6px;">'
+            f'<div style="font-size:10px;color:var(--ff-muted2);margin-top:6px;">'
             f'{yours:.1f} → {opt:.1f}</div>'
             f'</div>'
         )
@@ -202,8 +202,9 @@ target_gw  = get_next_gw(bs, current_gw)
 
 st.caption(f"Optimised for **Gameweek {target_gw}** · Budget: **£{budget:.1f}m**")
 
-from ui.preseason import stop_if_preseason
-stop_if_preseason("The Free Hit optimizer")
+from analytics.points_model import MIN_TRAIN_GWS
+from ui.preseason import stop_if_too_few_gameweeks
+stop_if_too_few_gameweeks("The Free Hit optimizer", MIN_TRAIN_GWS)
 
 with fpl_loader("Building the optimal squad", LINES_MODEL):
     predictions, metrics, players_df = run_model(current_gw, target_gw)
@@ -265,7 +266,7 @@ if team_id and team_id > 0:
 m1, m2, m3, m4 = st.columns(4)
 m1.metric(f"Optimal XI predicted pts", f"{opt_total:.1f}")
 m2.metric("Squad cost",               f"£{total_cost:.1f}m")
-m3.metric("Model MAE",                f"±{mae:.1f} pts",
+m3.metric("Model MAE",                ("n/a" if mae != mae else f"±{mae:.1f} pts"),
           help="Typical error per player prediction")
 if comparison:
     gain = comparison["gain"]
@@ -304,7 +305,7 @@ if comparison:
         sign = "+" if overall >= 0 else ""
         st.markdown(
             f"<div style='padding:14px 18px;background:rgba(0,255,135,0.06);"
-            f"border-left:3px solid #00FF87;border-radius:8px;font-size:13px;'>"
+            f"border-left:3px solid var(--ff-mint);border-radius:8px;font-size:13px;'>"
             f"<b>Summary:</b> {' · '.join(narrative_parts)}. "
             f"Overall the optimal Free Hit XI scores <b>{sign}{overall:.1f} pts</b> "
             f"{'more' if overall >= 0 else 'fewer'} than your current team.</div>",
@@ -318,12 +319,12 @@ if comparison:
     with col_yours:
         your_xi = comparison["your_xi"]
         st.markdown(
-            _squad_grid_html(your_xi, players_df, f"Your Current XI · {comparison['your_total']:.1f} pts", "#04f5ff"),
+            _squad_grid_html(your_xi, players_df, f"Your Current XI · {comparison['your_total']:.1f} pts", "var(--ff-cyan)"),
             unsafe_allow_html=True,
         )
     with col_opt:
         st.markdown(
-            _squad_grid_html(comparison["optimal_xi"], players_df, f"Optimal Free Hit XI · {comparison['optimal_total']:.1f} pts", "#00FF87"),
+            _squad_grid_html(comparison["optimal_xi"], players_df, f"Optimal Free Hit XI · {comparison['optimal_total']:.1f} pts", "var(--ff-mint)"),
             unsafe_allow_html=True,
         )
 
@@ -346,13 +347,13 @@ if comparison:
                 pts = float(row.get("predicted_pts", 0))
                 st.markdown(
                     f"<div style='padding:8px 14px;background:rgba(0,255,135,0.07);"
-                    f"border-left:3px solid #00FF87;border-radius:6px;margin-bottom:6px;"
+                    f"border-left:3px solid var(--ff-mint);border-radius:6px;margin-bottom:6px;"
                     f"font-family:sans-serif;font-size:13px;'>"
                     f"<span style='background:{pc};color:#000;border-radius:3px;"
                     f"padding:0 5px;font-weight:700;font-size:10px;margin-right:8px;'>{pos}</span>"
                     f"<b>{row.get('web_name','?')}</b> ({row.get('team','')}) "
                     f"· £{float(row.get('price',0)):.1f}m "
-                    f"· <span style='color:#00FF87;font-weight:700;'>{pts:.1f} pts</span></div>",
+                    f"· <span style='color:var(--ff-mint);font-weight:700;'>{pts:.1f} pts</span></div>",
                     unsafe_allow_html=True,
                 )
         with sw2:
@@ -363,13 +364,13 @@ if comparison:
                 pts = float(row.get("predicted_pts", 0))
                 st.markdown(
                     f"<div style='padding:8px 14px;background:rgba(255,75,75,0.07);"
-                    f"border-left:3px solid #FF4B4B;border-radius:6px;margin-bottom:6px;"
+                    f"border-left:3px solid var(--ff-red);border-radius:6px;margin-bottom:6px;"
                     f"font-family:sans-serif;font-size:13px;'>"
                     f"<span style='background:{pc};color:#000;border-radius:3px;"
                     f"padding:0 5px;font-weight:700;font-size:10px;margin-right:8px;'>{pos}</span>"
                     f"<b>{row.get('web_name','?')}</b> ({row.get('team','')}) "
                     f"· £{float(row.get('price',0)):.1f}m "
-                    f"· <span style='color:#FF4B4B;font-weight:700;'>{pts:.1f} pts</span></div>",
+                    f"· <span style='color:var(--ff-red);font-weight:700;'>{pts:.1f} pts</span></div>",
                     unsafe_allow_html=True,
                 )
     st.markdown("---")
@@ -385,7 +386,7 @@ col_grid, col_table = st.columns([1, 1])
 
 with col_grid:
     st.markdown(
-        _squad_grid_html(optimal_xi, players_df, f"Starting XI · {opt_total:.1f} predicted pts", "#00FF87"),
+        _squad_grid_html(optimal_xi, players_df, f"Starting XI · {opt_total:.1f} predicted pts", "var(--ff-mint)"),
         unsafe_allow_html=True,
     )
     # Bench
@@ -393,7 +394,7 @@ with col_grid:
     if not bench.empty:
         bench_total = float(bench["predicted_pts"].sum())
         st.markdown(
-            _squad_grid_html(bench, players_df, f"Bench · {bench_total:.1f} predicted pts", "rgba(255,255,255,0.3)"),
+            _squad_grid_html(bench, players_df, f"Bench · {bench_total:.1f} predicted pts", "var(--ff-muted2)"),
             unsafe_allow_html=True,
         )
 

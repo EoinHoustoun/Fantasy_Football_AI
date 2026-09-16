@@ -24,16 +24,16 @@ from components.team_identity import shirt_html, team_color
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
 
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#FF7B00"}
-FDR_COLORS = {1: "#00FF87", 2: "#00FF87", 3: "#FFD60A", 4: "#FF8C42", 5: "#FF4B4B"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "var(--ff-orange-v)"}
+FDR_COLORS = {1: "var(--ff-mint)", 2: "var(--ff-mint)", 3: "#FFD60A", 4: "var(--ff-orange-v)", 5: "var(--ff-red)"}
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 
 TAG_COLOR = {
-    "Template Breaker":   "#FFD700",
-    "Hot Run":            "#FF4B4B",
-    "Nailed-On Starter":  "#00FF87",
+    "Template Breaker":   "var(--ff-gold)",
+    "Hot Run":            "var(--ff-red)",
+    "Nailed-On Starter":  "var(--ff-mint)",
     "Set-Piece Threat":   "#f5c518",
-    "Underlying Burst":   "#04f5ff",
+    "Underlying Burst":   "var(--ff-cyan)",
     "Dream Fixtures":     "#a3e635",
     "Rising":             "#f472b6",
 }
@@ -82,7 +82,7 @@ def _tag_pills(tags) -> str:
 
 def _fixture_pills(fixtures, n: int = 5) -> str:
     if not isinstance(fixtures, list) or not fixtures:
-        return '<span style="color:rgba(255,255,255,0.35);font-size:11px;">-</span>'
+        return '<span style="color:var(--ff-muted2);font-size:11px;">-</span>'
     pills = []
     for f in fixtures[:n]:
         opp = str(f.get("opp_short") or f.get("opponent", "?"))[:3].upper()
@@ -102,12 +102,12 @@ def _fixture_pills(fixtures, n: int = 5) -> str:
 st.markdown(
     """
 <div style="padding:18px 0 8px;font-family:'Inter',sans-serif;">
-  <div style="font-size:30px;font-weight:900;color:#fff;letter-spacing:-0.5px;">
+  <div style="font-size:30px;font-weight:900;color:var(--ff-text);letter-spacing:-0.5px;">
     🎯 Differentials Spotter
   </div>
-  <div style="font-size:14px;color:rgba(255,255,255,0.55);margin-top:4px;line-height:1.5;">
+  <div style="font-size:14px;color:var(--ff-muted2);margin-top:4px;line-height:1.5;">
     Low-owned picks with real upside · scored on ceiling × momentum × minutes × rank upside.
-    <span style="color:rgba(255,255,255,0.4);">Tags explain <em>why</em> each pick is interesting.</span>
+    <span style="color:var(--ff-muted2);">Tags explain <em>why</em> each pick is interesting.</span>
   </div>
 </div>
 """,
@@ -180,37 +180,37 @@ c1, c2, c3, c4 = st.columns(4)
 with c1:
     st.markdown(f"""<div style="background:rgba(255,215,0,0.06);
         border:1px solid rgba(255,215,0,0.35);border-radius:12px;padding:14px 18px;">
-        <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">TOP DIFFERENTIAL</div>
-        <div style="font-size:18px;font-weight:800;color:#fff;">{top['web_name']}</div>
-        <div style="font-size:12px;color:rgba(255,255,255,0.55);">{_safe(top['ownership']):.1f}% owned</div>
+        <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">TOP DIFFERENTIAL</div>
+        <div style="font-size:18px;font-weight:800;color:var(--ff-text);">{top['web_name']}</div>
+        <div style="font-size:12px;color:var(--ff-muted2);">{_safe(top['ownership']):.1f}% owned</div>
         </div>""", unsafe_allow_html=True)
 with c2:
-    st.markdown(f"""<div style="background:rgba(255,255,255,0.03);
-        border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
-        <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">TOP SCORE</div>
-        <div style="font-size:28px;font-weight:900;color:#00FF87;">{_safe(top['differential_score']):.2f}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.45);">out of 10</div>
+    st.markdown(f"""<div style="background:var(--ff-row-alt);
+        border:1px solid var(--ff-row-alt);border-radius:12px;padding:14px 18px;">
+        <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">TOP SCORE</div>
+        <div style="font-size:28px;font-weight:900;color:var(--ff-mint);">{_safe(top['differential_score']):.2f}</div>
+        <div style="font-size:11px;color:var(--ff-muted2);">out of 10</div>
         </div>""", unsafe_allow_html=True)
 with c3:
-    st.markdown(f"""<div style="background:rgba(255,255,255,0.03);
-        border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
-        <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">PLAYERS FOUND</div>
-        <div style="font-size:28px;font-weight:900;color:#fff;">{len(diffs)}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.45);">matching filters</div>
+    st.markdown(f"""<div style="background:var(--ff-row-alt);
+        border:1px solid var(--ff-row-alt);border-radius:12px;padding:14px 18px;">
+        <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">PLAYERS FOUND</div>
+        <div style="font-size:28px;font-weight:900;color:var(--ff-text);">{len(diffs)}</div>
+        <div style="font-size:11px;color:var(--ff-muted2);">matching filters</div>
         </div>""", unsafe_allow_html=True)
 with c4:
     avg_own = float(diffs["ownership"].mean()) if "ownership" in diffs.columns else 0
-    st.markdown(f"""<div style="background:rgba(255,255,255,0.03);
-        border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;">
-        <div style="font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;">AVG OWNERSHIP</div>
-        <div style="font-size:28px;font-weight:900;color:#04f5ff;">{avg_own:.1f}%</div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.45);">template gap</div>
+    st.markdown(f"""<div style="background:var(--ff-row-alt);
+        border:1px solid var(--ff-row-alt);border-radius:12px;padding:14px 18px;">
+        <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.1em;">AVG OWNERSHIP</div>
+        <div style="font-size:28px;font-weight:900;color:var(--ff-cyan);">{avg_own:.1f}%</div>
+        <div style="font-size:11px;color:var(--ff-muted2);">template gap</div>
         </div>""", unsafe_allow_html=True)
 
 
 # ── Card grid ─────────────────────────────────────────────────────────────────
 st.markdown(
-    '<div style="margin:24px 0 12px;font-size:20px;font-weight:800;color:#fff;">'
+    '<div style="margin:24px 0 12px;font-size:20px;font-weight:800;color:var(--ff-text);">'
     'Ranked Differentials</div>',
     unsafe_allow_html=True,
 )
@@ -239,7 +239,7 @@ for _, p in diffs.iterrows():
     cards.append(f"""
 <div class="fplh-card-hover" style="
     background:rgba(22,26,34,0.85);
-    border:1px solid rgba(255,255,255,0.08);
+    border:1px solid var(--ff-row-alt);
     border-left:3px solid {tcol};
     border-radius:12px;padding:16px;
     font-family:'Inter',sans-serif;
@@ -247,40 +247,40 @@ for _, p in diffs.iterrows():
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
     <div style="flex-shrink:0;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));">{shirt_html(code, pos == "GKP", width=50)}</div>
     <div style="flex:1;min-width:0;">
-      <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;
+      <div style="font-size:15px;font-weight:800;color:var(--ff-text);white-space:nowrap;
                   overflow:hidden;text-overflow:ellipsis;">{name}</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;">
+      <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
         {_position_chip(pos)} <span style="margin-left:6px;">{team}</span>
       </div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:16px;font-weight:800;color:#fff;">£{price:.2f}m</div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.4);">{own:.1f}% own</div>
+      <div style="font-size:16px;font-weight:800;color:var(--ff-text);">£{price:.2f}m</div>
+      <div style="font-size:10px;color:var(--ff-muted2);">{own:.1f}% own</div>
     </div>
   </div>
 
   <div style="margin-bottom:10px;min-height:22px;">{tags}</div>
 
   <div style="display:flex;gap:12px;margin-bottom:10px;">
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#00FF87;">{score:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">DIFF SCORE</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#fff;">{form:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">FORM</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#fff;">{total:.0f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">SEASON</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-mint);">{score:.2f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">DIFF SCORE</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{form:.2f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">FORM</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{total:.0f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">SEASON</div></div>
     <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:{_fdr_color(fdr6)};">{fdr6:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">FDR6</div></div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">FDR6</div></div>
   </div>
 
-  <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:4px;overflow:hidden;margin-bottom:10px;">
-    <div style="background:linear-gradient(90deg,#FFD700,#00FF87);height:100%;width:{bar_pct:.0f}%;"></div>
+  <div style="background:var(--ff-row-alt);border-radius:4px;height:4px;overflow:hidden;margin-bottom:10px;">
+    <div style="background:linear-gradient(90deg,var(--ff-gold),var(--ff-mint));height:100%;width:{bar_pct:.0f}%;"></div>
   </div>
 
   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
     <div>{fix}</div>
-    <div style="font-size:10px;color:rgba(255,255,255,0.35);white-space:nowrap;">
-      mins <span style="color:#fff;font-weight:700;">{int(mins_f*90)}'</span> ·
-      ceil <span style="color:#fff;font-weight:700;">{ceiling:.2f}</span>
+    <div style="font-size:10px;color:var(--ff-muted2);white-space:nowrap;">
+      mins <span style="color:var(--ff-text);font-weight:700;">{int(mins_f*90)}'</span> ·
+      ceil <span style="color:var(--ff-text);font-weight:700;">{ceiling:.2f}</span>
     </div>
   </div>
 </div>
@@ -296,9 +296,9 @@ st.markdown(
 
 # ── Ownership vs Form scatter ─────────────────────────────────────────────────
 st.markdown(
-    '<div style="margin:28px 0 10px;font-size:18px;font-weight:800;color:#fff;">'
+    '<div style="margin:28px 0 10px;font-size:18px;font-weight:800;color:var(--ff-text);">'
     'Ownership vs Form</div>'
-    '<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:14px;">'
+    '<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:14px;">'
     'Bottom-left + large bubble = ideal differential. '
     '</div>',
     unsafe_allow_html=True,

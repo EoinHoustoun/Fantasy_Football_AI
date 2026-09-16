@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 
 import pandas as pd
-from ui import charts
+from ui import charts, theme
 import streamlit as st
 
 from analytics import freshness as _freshness
@@ -88,7 +88,7 @@ def _answers(v: int = 5):
 A = _answers()
 
 
-def _question(num: int, q: str, rule: str, accent: str = "#00FF87") -> None:
+def _question(num: int, q: str, rule: str, accent: str = "var(--ff-mint)") -> None:
     st.markdown(
         f'<div class="fplh-animate-in" style="margin:34px 0 12px;">'
         f'<div style="display:flex;align-items:center;gap:12px;">'
@@ -120,7 +120,7 @@ st.markdown(
 st.markdown(
     f'<div style="display:flex;align-items:center;gap:14px;margin:26px 0 12px;">'
     f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
-    f'color:#FFD700;white-space:nowrap;">🚀 Season Start Kit · day one of 2026-27</div>'
+    f'color:var(--ff-gold);white-space:nowrap;">🚀 Season Start Kit · day one of 2026-27</div>'
     f'<div style="flex:1;height:1px;background:rgba(255,215,0,0.25);"></div></div>'
     f'<div style="font-size:12px;color:{V("muted")};margin-bottom:12px;">'
     f'The whole playbook compressed into what to do at the deadline. '
@@ -128,28 +128,28 @@ st.markdown(
     unsafe_allow_html=True)
 
 kit = [
-    ("💷", "Budget blueprint", "#FFD700",
+    ("💷", "Budget blueprint", "var(--ff-gold)",
      "Hindsight's optimal GW1 split: <b>GKP £10.0 · DEF £26.5 · MID £35.5 · FWD £27.5</b>. "
      "Two playing keepers from solid defences, budget CB core, midfield is where the money goes, "
      "one premium forward · no £14m+ luxury unless he's projected top-3 overall."),
-    ("⏱️", "Minutes first, always", "#00FF87",
+    ("⏱️", "Minutes first, always", "var(--ff-mint)",
      "Minutes ↔ points: ρ = <b>0.98</b>. Nailed (2700+ min) players average <b>3.6 ppg and "
      "23.9 pts/£m</b> vs 1.5 ppg / 3.0 for rotation players. Every pick must answer "
      "'does he play 90 every week?' before any other question. Pre-season: watch friendlies "
      "for role locks, avoid anyone in a positional battle."),
-    ("🛡️", "Defender shopping list", "#04f5ff",
+    ("🛡️", "Defender shopping list", "var(--ff-cyan)",
      "3 starting CBs at £4.5–5.5 from top/mid defensive units · prioritise set-piece targets "
      "(DEFCON floor ~14–22 pts + header goals). Full-backs only if elite-team assist machines. "
      "Promoted-team defenders: cheap but check the CBIT profile once data lands."),
-    ("⚽", "Midfield & forward criteria", "#e90052",
+    ("⚽", "Midfield & forward criteria", "var(--ff-mag)",
      "Mids: nailed + xGI per 90 ≥ 0.5 + ideally on pens (tiebreaker, don't pay premium for it). "
      "Mid-priced (£6.5–8.5) is where last season's 200-pt breakouts lived (Semenyo, Gibbs-White). "
      "One forward who starts every week beats two who rotate."),
-    ("🚩", "Red flags", "#FF4B4B",
+    ("🚩", "Red flags", "var(--ff-red)",
      "New signing 'competition for places' · back from long injury · European-competition rotation "
      "risk at big clubs · great pre-season hype on a bench player · paying for last season's "
      "overperformance (check the Finishing Luck scatter · G−xG > +3 regresses)."),
-    ("🗓️", "First 5 GWs", "#FF8C42",
+    ("🗓️", "First 5 GWs", "var(--ff-orange-v)",
      "Judge opening fixture runs over 5–6 GWs, not 1–2. Bank transfers early while watching "
      "minutes settle. <b>Default to zero hits</b> · a hit is only worth +2.4 pts even with "
      "perfect foresight; save them for forced moves or chip set-up. First wildcard: "
@@ -162,7 +162,7 @@ st.markdown(
         f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid {acc};">'
         f'<div style="font-size:20px;">{emoji}</div>'
         f'<div style="font-size:13px;font-weight:800;color:{V("text")};margin:4px 0;">{title}</div>'
-        f'<div style="font-size:12px;color:rgba(255,255,255,0.62);line-height:1.6;">{body}</div></div>'
+        f'<div style="font-size:12px;color:var(--ff-muted);line-height:1.6;">{body}</div></div>'
         for emoji, title, acc, body in kit)
     + "</div>",
     unsafe_allow_html=True)
@@ -175,7 +175,7 @@ except Exception:
 st.markdown(
     f'<div style="display:flex;align-items:center;gap:14px;margin:30px 0 4px;">'
     f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
-    f'color:#00FF87;white-space:nowrap;">💷 {NEXT_SEASON} value read · live launch prices</div>'
+    f'color:var(--ff-mint);white-space:nowrap;">💷 {NEXT_SEASON} value read · live launch prices</div>'
     f'<div style="flex:1;height:1px;background:rgba(0,255,135,0.22);"></div></div>'
     f'<div style="font-size:12px;color:{V("muted")};margin-bottom:12px;">'
     f'The rules above, applied to the prices that actually shipped. Full board + scout '
@@ -193,7 +193,7 @@ if _vb is not None and not _vb.empty:
     def _mini(df: pd.DataFrame, title: str, accent: str, stat_fn) -> str:
         rows = "".join(
             f'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;'
-            f'border-bottom:1px solid rgba(255,255,255,0.05);">'
+            f'border-bottom:1px solid var(--ff-row-alt);">'
             f'{team_dot(r.get("team_short"), size=11)}'
             f'<div style="flex:1;min-width:0;font-size:12px;font-weight:700;color:{V("text")};'
             f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["web_name"]}</div>'
@@ -212,11 +212,11 @@ if _vb is not None and not _vb.empty:
     st.markdown(
         '<div class="fplh-stagger" style="display:grid;'
         'grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">'
-        + _mini(_nec, "🥇 Necessity · build around", "#FFD700",
+        + _mini(_nec, "🥇 Necessity · build around", "var(--ff-gold)",
                 lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
-        + _mini(_val, "🟢 Value · came in under price", "#00FF87",
+        + _mini(_val, "🟢 Value · came in under price", "var(--ff-mint)",
                 lambda r: f'£{r["actual_price"]:.1f} · {r["value_score"]:.1f}/£m')
-        + _mini(_over, "🔴 Overpriced · swerve", "#FF4B4B",
+        + _mini(_over, "🔴 Overpriced · swerve", "var(--ff-red)",
                 lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
         + "</div>",
         unsafe_allow_html=True)
@@ -252,14 +252,14 @@ with _pb_tabs[0]:
         f"<i>cheap points</i>, not <i>ceiling points</i> · hauls still come from midfield. "
         f"Build: 3-4 playing defenders for the floor, 5 midfielders for the ceiling, "
         f"one elite forward. 5-4-1 topped the week exactly once all season.",
-        "#00FF87")
+        "var(--ff-mint)")
     per_gw = f["per_gw"]
     counts = pd.Series(f["best_xi_formations"]).sort_values(ascending=True)
     c1, c2 = st.columns([1, 1])
     with c1:
         counts = counts.sort_values(ascending=False)
         opt = charts.bar_option(x=list(counts.index), y=[int(v) for v in counts.values],
-                                color="#00FF87", horizontal=True)
+                                color=theme.fill("mint"), horizontal=True)
         opt["title"] = {"text": "Weeks each formation was the best XI",
                         "textStyle": CHART_TITLE}
         opt["grid"]["top"] = 36
@@ -268,7 +268,7 @@ with _pb_tabs[0]:
         if "perfect_season_formations" in f:
             pcounts = pd.Series(f["perfect_season_formations"]).sort_values(ascending=False)
             opt = charts.bar_option(x=list(pcounts.index), y=[int(v) for v in pcounts.values],
-                                    color="#FFD700", horizontal=True)
+                                    color=theme.fill("gold"), horizontal=True)
             opt["title"] = {"text": "Formations the Perfect Season actually fielded",
                             "textStyle": CHART_TITLE}
             opt["grid"]["top"] = 36
@@ -287,7 +287,7 @@ with _pb_tabs[0]:
         f"get better; cheap ones did. Optimal structure: <b>budget defence (3 starters at "
         f"4.5–5.5 from top defensive units), heavy midfield spend</b>. Don't pay £6m+ for a "
         f"defender unless he's an attacking FB on a top team.",
-        "#04f5ff")
+        "var(--ff-cyan)")
     _seasons = sorted(share["season"].unique())
     _series = []
     for pos, col in POS_COLORS.items():
@@ -316,11 +316,11 @@ with _pb_tabs[0]:
         f"sub, fodder behind him</b>, and spend everything else on the eleven who "
         f"score every week. DEFCON quietly strengthened this: the best cheap "
         f"defenders now carry a real floor, so your first sub is decent by default.",
-        "#04f5ff")
+        "var(--ff-cyan)")
     opt = charts.grouped_bars_option(
         x=[t["tier"] for t in bn["tiers"]],
-        series=[("Autosub points / season", [t["autosub_pts"] for t in bn["tiers"]], "#04f5ff"),
-                ("Extra cost (£m ×10)", [t["extra_cost"] * 10 for t in bn["tiers"]], "#FF8C42")])
+        series=[("Autosub points / season", [t["autosub_pts"] for t in bn["tiers"]], "var(--ff-cyan)"),
+                ("Extra cost (£m ×10)", [t["extra_cost"] * 10 for t in bn["tiers"]], "var(--ff-orange-v)")])
     opt["title"] = {"text": "Bench tiers · what upgrades actually return",
                     "textStyle": CHART_TITLE}
     opt["grid"]["top"] = 46
@@ -345,7 +345,7 @@ with _pb_tabs[1]:
         "attacking FBs justify themselves (110 pts), and the set-piece-threat CB beats them "
         "anyway. Rule: <b>buy CBs who head set pieces from top/mid defences; treat "
         "full-backs as luxury picks needing assist upside</b>.",
-        "#e90052")
+        "var(--ff-mag)")
     grid = d["grid"].rename(columns={
         "archetype": "Archetype", "team_tier": "Team (CS tier)", "n": "N",
         "avg_pts": "Avg pts", "avg_ppm": "Pts/£m", "avg_defcon": "DEFCON pts",
@@ -370,13 +370,13 @@ with _pb_tabs[1]:
         "actually <i>lower</i> (14.6 vs 17.5). Rule: a pen taker is a <b>tiebreaker "
         "between similar players</b>, not a reason to pay up. The exception: a "
         "cheap player who just inherited pens is a genuine market edge.",
-        "#FFD700")
+        "var(--ff-gold)")
     if pens is not None:
         p = pens.copy()
         p["pen_taker"] = p["pen_taker"].map({True: "Taker", False: "Not taker"})
         _pos_order = [x for x in ["GKP", "DEF", "MID", "FWD"] if x in set(p["position"])]
         _series = []
-        for grp, col in [("Taker", "#FFD700"), ("Not taker", "#555a66")]:
+        for grp, col in [("Taker", "var(--ff-gold)"), ("Not taker", "#555a66")]:
             sub = p[p["pen_taker"] == grp].set_index("position")
             _series.append((grp, [round(float(sub["med_pts"].get(x, 0) or 0), 1)
                                   for x in _pos_order], col))
@@ -404,16 +404,16 @@ with _pb_tabs[1]:
         f"60–70-minute player needs clearly elite per-90 numbers to justify a slot; "
         f"when in doubt, take the locked-in 90-minute man. (Season-level confound for "
         f"context: minutes ↔ points ρ = {mi['spearman']:.2f}.)",
-        "#00FF87")
+        "var(--ff-mint)")
     opt = charts.bar_option(x=[str(b) for b in ov["band"]],
                             y=[round(float(v), 1) for v in ov["pts_per_match"]],
-                            color="#00FF87", name="Points per match")
+                            color=theme.fill("mint"), name="Points per match")
     opt["series"].append({
         "name": "Points per 90 (efficiency)", "type": "line",
         "data": [round(float(v), 1) for v in ov["pts_per_90"]],
         "symbol": "circle", "symbolSize": 7,
-        "lineStyle": {"color": "#FF8C42", "width": 3, "type": "dotted"},
-        "itemStyle": {"color": "#FF8C42"},
+        "lineStyle": {"color": theme.fill("orange-v"), "width": 3, "type": "dotted"},
+        "itemStyle": {"color": theme.fill("orange-v")},
     })
     opt["legend"] = {"top": 0, "right": 0,
                      "textStyle": {"color": "rgba(236,241,245,0.55)", "fontSize": 10},
@@ -453,7 +453,7 @@ with _pb_tabs[1]:
         f"<i>Honest caveat: a £9m player scoring like Fernandes did is rare · but "
         f"the ten-season base rate below says betting AGAINST the crown price is "
         f"the percentage play, even when you can't name the challenger in advance.</i>",
-        "#FFD700")
+        "var(--ff-gold)")
 
     # Ten-season base rate: the priciest player vs the best cheaper premium
     _iv = A["icon_field"]
@@ -462,7 +462,7 @@ with _pb_tabs[1]:
         st.markdown(
             f'<div style="font-size:12px;color:{V("muted")};margin:2px 0 8px;">'
             f'Across {len(_iv)} seasons, a premium at least £2m cheaper outscored the '
-            f'most expensive player in <b style="color:#00FF87;">{_beat} of {len(_iv)}</b> '
+            f'most expensive player in <b style="color:var(--ff-mint);">{_beat} of {len(_iv)}</b> '
             f'· the icon price bought the best armband only '
             f'{len(_iv) - _beat} times (picked with hindsight · read it as a base '
             f'rate on the crown price, not a guarantee you\'d find the challenger).</div>',
@@ -470,7 +470,7 @@ with _pb_tabs[1]:
         opt = charts.bar_option(
             x=[f"{r.season} · {r.challenger} vs {r.icon}" for r in _iv.itertuples()],
             y=[int(r.delta) for r in _iv.itertuples()],
-            colors=["#00FF87" if r.delta > 0 else "#FF4B4B" for r in _iv.itertuples()],
+            colors=[theme.fill("mint") if r.delta > 0 else theme.fill("red") for r in _iv.itertuples()],
             horizontal=True)
         for item, r in zip(opt["series"][0]["data"], _iv.itertuples()):
             item["tooltip"] = {"formatter": (
@@ -491,11 +491,11 @@ with _pb_tabs[1]:
         _avg_delta = float(_iv["delta"].mean())            # challenger − icon
         _avg_saved = float(_iv["saved"].mean())
         st.markdown(
-            f'<div class="fplh-card-hover" style="{CARD}border-left:3px solid #FFD700;'
+            f'<div class="fplh-card-hover" style="{CARD}border-left:3px solid var(--ff-gold);'
             f'margin-top:10px;">'
-            f'<div style="font-size:13px;font-weight:800;color:#FFD700;margin-bottom:6px;">'
+            f'<div style="font-size:13px;font-weight:800;color:var(--ff-gold);margin-bottom:6px;">'
             f'💰 Pricing the armband · what consistency is worth</div>'
-            f'<div style="font-size:12.5px;color:rgba(255,255,255,0.75);line-height:1.6;">'
+            f'<div style="font-size:12.5px;color:var(--ff-muted);line-height:1.6;">'
             f'Every £1m NOT spent on the captain buys roughly <b>{_slope:.0f} points</b> '
             f'when respent in the XI (the price-band curve above). So a pricier '
             f'"consistent" captain must out-captain the cheaper option by '
@@ -515,7 +515,7 @@ with _pb_tabs[1]:
         opt = charts.bar_option(
             x=[x["name"] for x in _saf],
             y=[x["extra"] for x in _saf],
-            colors=["#FFD700" if x["name"] == _haal["name"] else "#04f5ff"
+            colors=[theme.fill("gold") if x["name"] == _haal["name"] else theme.fill("cyan")
                     for x in _saf],
             horizontal=True)
         for item, x in zip(opt["series"][0]["data"], _saf):
@@ -534,7 +534,7 @@ with _pb_tabs[1]:
         opt = charts.grouped_bars_option(
             x=[p["pair"].replace(" + ", "\n+ ") for p in _pp],
             series=[("Perfect rotation (hindsight)", [p["perfect"] for p in _pp], "#8891A5"),
-                    ("Home-first rule (honest)", [p["home_rule"] for p in _pp], "#00FF87")])
+                    ("Home-first rule (honest)", [p["home_rule"] for p in _pp], "var(--ff-mint)")])
         opt["title"] = {"text": "Rotating pairs · hindsight vs honest rule",
                         "textStyle": CHART_TITLE}
         opt["grid"]["top"] = 46
@@ -563,11 +563,11 @@ with _pb_tabs[2]:
         f"attacking defender keeps the ceiling. Watch the curated role map "
         f"(<code>assets/defender_roles_2025_26.json</code>) · stat filters mislabel "
         f"set-piece CBs, and roles must be re-checked for 2026-27.",
-        "#00FF87")
+        "var(--ff-mint)")
     opt = charts.bar_option(
         x=[m["mix"] for m in dm["mixes"]],
         y=[m["usable_pts"] for m in dm["mixes"]],
-        colors=["#00FF87" if m["k"] == _best["k"] else "rgba(4,245,255,0.55)"
+        colors=[theme.fill("mint") if m["k"] == _best["k"] else "rgba(4,245,255,0.55)"
                 for m in dm["mixes"]],
         horizontal=True)
     for item, m in zip(opt["series"][0]["data"], dm["mixes"]):
@@ -604,12 +604,12 @@ with _pb_tabs[2]:
             f"({float(_fb['pts_per_start'].iloc[0]) if not _fb.empty else 0:.2f} vs "
             f"{float(_cb['pts_per_start'].iloc[0]) if not _cb.empty else 0:.2f} pts a start). "
             f"<b>Buy full-backs for assists if you must, never for DEFCON.</b>",
-            "#00FF87")
+            "var(--ff-mint)")
         _top = _bs.head(14).sort_values("hit_rate")
         _opt = charts.bar_option(
             x=list(_top["web_name"]),
             y=[round(float(v) * 100, 0) for v in _top["hit_rate"]],
-            colors=["#00FF87" if p == "DEF" else "#e90052" for p in _top["position"]],
+            colors=[theme.fill("mint") if p == "DEF" else theme.fill("mag") for p in _top["position"]],
             horizontal=True)
         _opt["title"] = {"text": "DEFCON hit rate · % of starts clearing the threshold",
                          "textStyle": CHART_TITLE}
@@ -662,11 +662,11 @@ with _pb_tabs[3]:
             f"{_med:.0f}-{_last_be:.0f} gameweeks. "
             f"<i>Both arms are hindsight-built and differ by one constraint, so the gap "
             f"is honest even though the levels are optimistic.</i>",
-            "#FFD700")
+            "var(--ff-gold)")
         opt = charts.grouped_bars_option(
             x=_bb["season"].tolist(),
-            series=[("XI dilution per GW", _bb["dilution_per_gw"].tolist(), "#FF4B4B"),
-                    ("Bench Boost gain (one week)", _bb["bb_gain"].tolist(), "#00FF87")])
+            series=[("XI dilution per GW", _bb["dilution_per_gw"].tolist(), "var(--ff-red)"),
+                    ("Bench Boost gain (one week)", _bb["bb_gain"].tolist(), "var(--ff-mint)")])
         opt["title"] = {"text": "Bench Boost · weekly cost against one-off gain",
                         "textStyle": CHART_TITLE}
         opt["grid"]["top"] = 46
@@ -694,7 +694,7 @@ with _pb_tabs[3]:
             f"so time the chip on your Bench Boost clock (Q13) and the fixture swing "
             f"instead. <i>Only squads whose build window closed before the scored window "
             f"count · an overlapping build has hindsight and wins meaninglessly.</i>",
-            "#04f5ff")
+            "var(--ff-cyan)")
         opt = charts.line_option(
             x=[int(a) for a in _by_age.index],
             y=[float(v) for v in _by_age.values],
@@ -720,7 +720,7 @@ with _pb_tabs[3]:
             f"persists is team quality, and fixtures explain far less of the opening than "
             f"the ticker implies. Treat the draft's opening-fixtures slider as a "
             f"tie-breaker between similar players, never as a reason to pick one.",
-            "#e90052")
+            "var(--ff-mag)")
         _df = _op["per_season"]
         opt = charts.scatter_option(
             points=[{"x": round(float(r["opp_strength"])), "y": round(float(r["opening_pts"])),
@@ -742,11 +742,11 @@ with _pb_tabs[3]:
         f"windows smooth one-off blanks. Practical rule: <b>judge runs of 5–6 fixtures</b>, "
         f"and never move for a single good fixture · one game of ease is worth almost "
         f"nothing (ρ≈0.14). The app's 6-GW lookahead default is right.",
-        "#04f5ff")
+        "var(--ff-cyan)")
     opt = charts.multi_line_option(
         [("Ease → points correlation",
           [(int(h), round(float(r), 3)) for h, r in zip(hz["horizon"], hz["spearman"])],
-          "#04f5ff")],
+          "var(--ff-cyan)")],
         x_name="Fixture horizon (GWs ahead)", y_name="Ease → points correlation")
     opt["series"][0]["symbol"] = "circle"
     opt["series"][0]["symbolSize"] = 7
@@ -771,7 +771,7 @@ with _pb_tabs[3]:
         "<b>3)</b> a projected gain over the next 5–6 GWs that clears <b>~8+ points</b> "
         "(double the cost, to survive your forecast error). Everything else: bank the "
         "transfer and wait.",
-        "#FF4B4B")
+        "var(--ff-red)")
 
     # ── The distilled plan ────────────────────────────────────────────────────────
 
@@ -790,7 +790,7 @@ with _pb_tabs[4]:
         f"Honest caveat: 'form' partly means 'plays 90 minutes every week' · minutes security "
         f"is the hidden king. So: <b>nailed minutes → recent returns → underlying xGI → "
         f"fixtures</b>, in that order. Never transfer in a bench risk for a nice fixture.",
-        "#00FF87")
+        "var(--ff-mint)")
     sig = pd.DataFrame({
         "signal": ["Form (last-4 pts)", "xGI (last-4)", "Fixture ease (next opp)"],
         "next_gw": [pr["next_gw"]["form (last-4 pts)"],
@@ -799,7 +799,7 @@ with _pb_tabs[4]:
     })
     opt = charts.bar_option(x=list(sig["signal"]),
                             y=[round(float(v), 2) for v in sig["next_gw"]],
-                            colors=["#00FF87", "#04f5ff", "#FF8C42"])
+                            colors=[theme.fill("mint"), theme.fill("cyan"), theme.fill("orange-v")])
     opt["yAxis"]["name"] = "Spearman ρ vs next-GW points"
     opt["yAxis"]["nameTextStyle"] = {"color": "rgba(236,241,245,0.55)", "fontSize": 10}
     charts.render(opt, height="300px", key="pb_signals")
@@ -817,12 +817,12 @@ with _pb_tabs[4]:
         f"<b>half</b> the rise (every £0.2 up = £0.1 sell profit). Plan for "
         f"<b>£0–1.5m of realised growth all season</b>, earned by early moves onto "
         f"form risers · never budget +£0.5m/month into your plans.",
-        "#FF8C42")
+        "var(--ff-orange-v)")
     traj = v["trajectory"]
     opt = charts.multi_line_option(
         [("GW1 template value change (£m)",
           [(int(g), round(float(v), 2)) for g, v in zip(traj["gw"], traj["growth"])],
-          "#FF8C42")],
+          "var(--ff-orange-v)")],
         x_name="Gameweek", y_name="GW1 template value change (£m)")
     opt["series"][0]["areaStyle"] = {"color": "rgba(255,140,66,0.15)"}
     opt["series"][0]["lineStyle"]["width"] = 2
@@ -849,7 +849,7 @@ with _pb_tabs[4]:
         "confidence tag is not a warning to avoid someone, it is a signal to go and "
         "get a better minutes estimate. That the two disagree almost nowhere else is "
         "the reassuring half of this result.",
-        "#FFD700")
+        "var(--ff-gold)")
 
     _scout_note = ("Save a snapshot to `data/cache/scout_projections_2026_27.csv` "
                    "to switch this on. The file stays local and gitignored.")
@@ -921,7 +921,7 @@ with _pb_tabs[4]:
         '<div class="fplh-stagger" style="display:grid;'
         'grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;">'
         + "".join(
-            f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid #00FF87;">'
+            f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid var(--ff-mint);">'
             f'<div style="font-size:20px;">{emoji}</div>'
             f'<div style="font-size:13px;font-weight:800;color:{V("text")};margin:4px 0;">{title}</div>'
             f'<div style="font-size:12px;color:{V("muted")};line-height:1.55;">{body}</div></div>'

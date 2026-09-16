@@ -14,7 +14,7 @@ from __future__ import annotations
 import streamlit as st
 
 from components.loading import LINES_MODEL, fpl_loader
-from ui import charts
+from ui import charts, theme
 import pandas as pd
 from typing import Optional, List, Dict, Any
 
@@ -28,8 +28,8 @@ inject_global_animations()
 
 
 # ── Design tokens ──────────────────────────────────────────────────────────────
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#FF7B00"}
-FDR_COLORS = {1: "#00FF87", 2: "#00FF87", 3: "#FFD60A", 4: "#FF8C42", 5: "#FF4B4B"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "var(--ff-orange-v)"}
+FDR_COLORS = {1: "var(--ff-mint)", 2: "var(--ff-mint)", 3: "#FFD60A", 4: "var(--ff-orange-v)", 5: "var(--ff-red)"}
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
 
 
@@ -62,7 +62,7 @@ def _position_chip(pos: str) -> str:
 
 def _fixture_pills(fixtures, n: int = 5) -> str:
     if not isinstance(fixtures, list) or not fixtures:
-        return '<span style="color:rgba(255,255,255,0.35);font-size:11px;">No fixtures</span>'
+        return '<span style="color:var(--ff-muted2);font-size:11px;">No fixtures</span>'
     pills = []
     for f in fixtures[:n]:
         opp = str(f.get("opp_short") or f.get("opponent", "?"))[:3].upper()
@@ -139,34 +139,34 @@ def render_hero(player: pd.Series, reasoning: str) -> None:
 
   <div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-      <span style="background:#FFD700;color:#000;padding:2px 10px;border-radius:4px;
+      <span style="background:var(--ff-gold);color:#000;padding:2px 10px;border-radius:4px;
              font-size:11px;font-weight:900;letter-spacing:0.1em;">#1 PICK</span>
       {pos_chip}
-      <span style="color:rgba(255,255,255,0.5);font-size:13px;">{team}</span>
+      <span style="color:var(--ff-muted2);font-size:13px;">{team}</span>
     </div>
-    <div style="font-size:34px;font-weight:900;color:#fff;line-height:1.05;letter-spacing:-0.5px;">
+    <div style="font-size:34px;font-weight:900;color:var(--ff-text);line-height:1.05;letter-spacing:-0.5px;">
       {name}
     </div>
-    <div style="margin-top:4px;color:rgba(255,255,255,0.55);font-size:13px;">
+    <div style="margin-top:4px;color:var(--ff-muted2);font-size:13px;">
       £{price:.2f}m &nbsp;·&nbsp; {own:.1f}% owned &nbsp;·&nbsp; Next 6 FDR {fdr6:.2f}
     </div>
     <div style="margin-top:14px;">{fix_html}</div>
   </div>
 
-  <div style="text-align:right;border-left:1px solid rgba(255,255,255,0.08);padding-left:28px;">
-    <div style="font-size:42px;font-weight:900;color:#00FF87;line-height:1;letter-spacing:-1px;">
+  <div style="text-align:right;border-left:1px solid var(--ff-row-alt);padding-left:28px;">
+    <div style="font-size:42px;font-weight:900;color:var(--ff-mint);line-height:1;letter-spacing:-1px;">
       {score:.2f}
     </div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.15em;margin-top:4px;">
+    <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.15em;margin-top:4px;">
       TRANSFER SCORE
     </div>
     <div style="margin-top:18px;display:flex;gap:20px;justify-content:flex-end;">
-      <div><div style="font-size:18px;font-weight:800;color:#fff;">{form:.2f}</div>
-           <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">FORM</div></div>
-      <div><div style="font-size:18px;font-weight:800;color:#04f5ff;">{ep_next:.2f}</div>
-           <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">xP NEXT</div></div>
-      <div><div style="font-size:18px;font-weight:800;color:#FFD700;">{ceiling:.1f}</div>
-           <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">CEILING</div></div>
+      <div><div style="font-size:18px;font-weight:800;color:var(--ff-text);">{form:.2f}</div>
+           <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
+      <div><div style="font-size:18px;font-weight:800;color:var(--ff-cyan);">{ep_next:.2f}</div>
+           <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">xP NEXT</div></div>
+      <div><div style="font-size:18px;font-weight:800;color:var(--ff-gold);">{ceiling:.1f}</div>
+           <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">CEILING</div></div>
     </div>
   </div>
 </div>
@@ -178,11 +178,11 @@ def render_hero(player: pd.Series, reasoning: str) -> None:
         f"""
 <div style="
     background:rgba(0,255,135,0.04);
-    border-left:3px solid #00FF87;
+    border-left:3px solid var(--ff-mint);
     border-radius:0 10px 10px 0;
     padding:16px 22px;
     margin-bottom:22px;
-    font-size:14px;color:rgba(255,255,255,0.88);line-height:1.6;
+    font-size:14px;color:var(--ff-text);line-height:1.6;
     font-family:'Inter',sans-serif;
 ">{reasoning}</div>
 """,
@@ -192,7 +192,7 @@ def render_hero(player: pd.Series, reasoning: str) -> None:
 
 def render_podium(close_list: List[Dict[str, Any]]) -> None:
     labels = ["#1", "#2", "#3"]
-    accents = ["#FFD700", "#C0C0C0", "#CD7F32"]
+    accents = ["var(--ff-gold)", "#C0C0C0", "#CD7F32"]
 
     cards = []
     for i, item in enumerate(close_list[:3]):
@@ -210,7 +210,7 @@ def render_podium(close_list: List[Dict[str, Any]]) -> None:
 
         cards.append(f"""
 <div class="fplh-card-hover" style="
-    background:rgba(255,255,255,0.03);
+    background:var(--ff-row-alt);
     border:1px solid {accents[i]};
     border-radius:14px;padding:20px;font-family:'Inter',sans-serif;
     box-shadow:0 6px 20px rgba(0,0,0,0.25);
@@ -223,23 +223,23 @@ def render_podium(close_list: List[Dict[str, Any]]) -> None:
   <div style="display:flex;align-items:center;gap:14px;">
     <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{face_html(p.get("code"), code, pos == "GKP", width=58)}</div>
     <div style="flex:1;min-width:0;">
-      <div style="font-size:20px;font-weight:900;color:#fff;white-space:nowrap;
+      <div style="font-size:20px;font-weight:900;color:var(--ff-text);white-space:nowrap;
                   overflow:hidden;text-overflow:ellipsis;">{name}</div>
-      <div style="font-size:12px;color:rgba(255,255,255,0.5);">{team} · £{price:.2f}m</div>
+      <div style="font-size:12px;color:var(--ff-muted2);">{team} · £{price:.2f}m</div>
     </div>
   </div>
   <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;
-              border-top:1px solid rgba(255,255,255,0.06);">
-    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:#00FF87;">{score:.2f}</div>
-         <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">SCORE</div></div>
-    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:#fff;">{form:.2f}</div>
-         <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">FORM</div></div>
-    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:#04f5ff;">{ep:.2f}</div>
-         <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">xP</div></div>
+              border-top:1px solid var(--ff-row-alt);">
+    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:var(--ff-mint);">{score:.2f}</div>
+         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">SCORE</div></div>
+    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:var(--ff-text);">{form:.2f}</div>
+         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
+    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:var(--ff-cyan);">{ep:.2f}</div>
+         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">xP</div></div>
     <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:{_fdr_color(fdr6)};">{fdr6:.1f}</div>
-         <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">FDR6</div></div>
+         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">FDR6</div></div>
   </div>
-  <div style="margin-top:12px;font-size:12px;color:rgba(255,255,255,0.75);line-height:1.5;">
+  <div style="margin-top:12px;font-size:12px;color:var(--ff-muted);line-height:1.5;">
     {item['reasoning']}
   </div>
 </div>
@@ -276,39 +276,39 @@ def render_target_grid(df: pd.DataFrame, n: int = 12) -> None:
         cards.append(f"""
 <div class="fplh-card-hover" style="
     background:rgba(22,26,34,0.85);
-    border:1px solid rgba(255,255,255,0.08);
+    border:1px solid var(--ff-row-alt);
     border-left:3px solid {tcol};
     border-radius:12px;padding:16px;
     font-family:'Inter',sans-serif;
 ">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{face_html(row.get("code"), code, pos == "GKP", width=48)}</div>
+    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{face_html(p.get("code"), code, pos == "GKP", width=48)}</div>
     <div style="flex:1;min-width:0;">
-      <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;
+      <div style="font-size:15px;font-weight:800;color:var(--ff-text);white-space:nowrap;
                   overflow:hidden;text-overflow:ellipsis;">{name}</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;">
+      <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
         {_position_chip(pos)} <span style="margin-left:6px;">{team}</span>
       </div>
     </div>
     <div style="text-align:right;">
-      <div style="font-size:16px;font-weight:800;color:#fff;">£{price:.2f}m</div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.4);">{own:.1f}% own</div>
+      <div style="font-size:16px;font-weight:800;color:var(--ff-text);">£{price:.2f}m</div>
+      <div style="font-size:10px;color:var(--ff-muted2);">{own:.1f}% own</div>
     </div>
   </div>
 
   <div style="display:flex;gap:12px;margin-bottom:10px;">
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#fff;">{form:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">FORM</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#04f5ff;">{ep:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">xP</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{form:.2f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">FORM</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-cyan);">{ep:.2f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">xP</div></div>
     <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:{_fdr_color(fdr6)};">{fdr6:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">FDR6</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:#00FF87;">{score:.2f}</div>
-         <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:0.08em;">SCORE</div></div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">FDR6</div></div>
+    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-mint);">{score:.2f}</div>
+         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">SCORE</div></div>
   </div>
 
-  <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:4px;overflow:hidden;margin-bottom:10px;">
-    <div style="background:linear-gradient(90deg,#00FF87,#04f5ff);height:100%;width:{bar_pct:.0f}%;"></div>
+  <div style="background:var(--ff-row-alt);border-radius:4px;height:4px;overflow:hidden;margin-bottom:10px;">
+    <div style="background:linear-gradient(90deg,var(--ff-mint),var(--ff-cyan));height:100%;width:{bar_pct:.0f}%;"></div>
   </div>
 
   <div style="font-size:11px;">{fix}</div>
@@ -327,10 +327,10 @@ def render_target_grid(df: pd.DataFrame, n: int = 12) -> None:
 st.markdown(
     """
 <div style="padding:18px 0 8px;font-family:'Inter',sans-serif;">
-  <div style="font-size:30px;font-weight:900;color:#fff;letter-spacing:-0.5px;">
+  <div style="font-size:30px;font-weight:900;color:var(--ff-text);letter-spacing:-0.5px;">
     🔄 Transfer Suggestions
   </div>
-  <div style="font-size:14px;color:rgba(255,255,255,0.45);margin-top:4px;">
+  <div style="font-size:14px;color:var(--ff-muted2);margin-top:4px;">
     Your #1 transfer · with reasoning, a top-targets grid, and deeper breakdowns.
   </div>
 </div>
@@ -483,9 +483,9 @@ top_reasoning = reco["close"][0]["reasoning"] if reco["close"] else ""
 
 if is_close:
     st.markdown(
-        '<div style="font-size:20px;font-weight:800;color:#fff;margin-bottom:6px;">'
+        '<div style="font-size:20px;font-weight:800;color:var(--ff-text);margin-bottom:6px;">'
         '🏆 It\'s close at the top</div>'
-        '<div style="font-size:13px;color:rgba(255,255,255,0.55);margin-bottom:16px;">'
+        '<div style="font-size:13px;color:var(--ff-muted2);margin-bottom:16px;">'
         'Scores are tight · read the reasoning and pick what fits your squad.</div>',
         unsafe_allow_html=True,
     )
@@ -521,8 +521,8 @@ with alert_cols[2]:
 # ── Top Targets grid ───────────────────────────────────────────────────────────
 st.markdown(
     f'<div style="margin:26px 0 14px;display:flex;align-items:baseline;justify-content:space-between;">'
-    f'  <div style="font-size:20px;font-weight:800;color:#fff;">🎯 Top Targets</div>'
-    f'  <div style="font-size:12px;color:rgba(255,255,255,0.45);">'
+    f'  <div style="font-size:20px;font-weight:800;color:var(--ff-text);">🎯 Top Targets</div>'
+    f'  <div style="font-size:12px;color:var(--ff-muted2);">'
     f'    Top {min(top_n, len(full_df))} ranked by transfer score'
     f'  </div>'
     f'</div>',
@@ -556,7 +556,7 @@ with tab_season:
     if not season_chart.empty:
         fdr_colors = charts.diverging_colors(
             [min(max(float(v), 1.5), 4.0) for v in season_chart["season_avg_fdr"].fillna(2.75)],
-            "#00FF87", "#FFD60A", "#FF4B4B", midpoint=2.75)
+            "var(--ff-mint)", "#FFD60A", "var(--ff-red)", midpoint=2.75)
         opt = charts.bar_option(
             x=list(season_chart["web_name"]),
             y=[round(float(v), 1) for v in season_chart["projected_season_pts"]],
@@ -607,7 +607,7 @@ with tab_ceiling:
             return "Standard"
         ceiling_chart["Tier"] = ceiling_chart.apply(_tier, axis=1)
 
-        tier_color = {"20+ Haul": ACCENT_COLOR, "15+ Haul": "#FFA500", "Standard": "#8888aa"}
+        tier_color = {"20+ Haul": ACCENT_COLOR, "15+ Haul": theme.fill("orange"), "Standard": "#8888aa"}
         opt = charts.bar_option(
             x=list(ceiling_chart["web_name"]),
             y=[round(float(v), 1) for v in ceiling_chart["ceiling_pts"]],
@@ -619,7 +619,7 @@ with tab_ceiling:
                 f"£{r['price']:.1f}m · FDR next 6: {r['avg_fdr_next_6']:.2f}")}
         charts.with_vertical_marks(opt, [
             (float(TWENTY_PLUS_THRESHOLD), "20 pts", ACCENT_COLOR),
-            (float(HAUL_THRESHOLD), "15 pts", "#FFA500"),
+            (float(HAUL_THRESHOLD), "15 pts", "var(--ff-orange)"),
         ])
         charts.render(opt, height=f"{max(380, 28 * len(ceiling_chart))}px",
                       key="ts_ceiling")
@@ -631,7 +631,7 @@ with tab_breakdown:
 
     if score_cols:
         top15 = full_df[["web_name"] + score_cols].head(15)
-        comp_colors = ["#00FF87", "#04f5ff", "#e90052", "#FFD700"]
+        comp_colors = [theme.fill("mint"), theme.fill("cyan"), theme.fill("mag"), theme.fill("gold")]
         series = [
             (col.replace("score_", "").title(),
              [round(float(v), 3) for v in top15[col].fillna(0)],
@@ -647,7 +647,7 @@ with tab_breakdown:
         top50 = full_df.head(50)
         fdr_cols = charts.diverging_colors(
             [float(v) for v in top50[fdr_col].fillna(3.0)],
-            "#00FF87", "#FFD60A", "#FF4B4B", midpoint=3.0)
+            "var(--ff-mint)", "#FFD60A", "var(--ff-red)", midpoint=3.0)
         sizes = charts.scale_sizes(list(top50["transfer_score"].fillna(0)),
                                    lo=7.0, hi=24.0)
         pts = [{
@@ -658,7 +658,7 @@ with tab_breakdown:
         } for i, (_, r) in enumerate(top50.iterrows())]
         opt = charts.scatter_option(pts, x_name="Price (£m)", y_name="Form")
         opt["title"] = {"text": "Form vs Price (bubble = score, colour = FDR)",
-                        "textStyle": {"color": "#eef1f5", "fontSize": 12,
+                        "textStyle": {"color": "var(--ff-text)", "fontSize": 12,
                                       "fontWeight": "bold"}}
         charts.render(opt, height="400px", key="ts_form_price")
 

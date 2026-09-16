@@ -13,19 +13,19 @@ from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
 import pandas as pd
 from typing import Optional, List
 
-from ui import charts
+from ui import charts, theme
 
 # set_page_config is owned by the app.py router (st.navigation)
 
 STATUS_CONFIG = {
-    "i": {"label": "Injured",    "color": "#FF4B4B", "emoji": "🚑", "bg": "rgba(255,75,75,0.08)",   "border": "rgba(255,75,75,0.4)"},
-    "s": {"label": "Suspended",  "color": "#FF4B4B", "emoji": "🚫", "bg": "rgba(255,75,75,0.08)",   "border": "rgba(255,75,75,0.4)"},
-    "d": {"label": "Doubtful",   "color": "#FFA500", "emoji": "⚠️", "bg": "rgba(255,165,0,0.08)",   "border": "rgba(255,165,0,0.4)"},
+    "i": {"label": "Injured",    "color": "var(--ff-red)", "emoji": "🚑", "bg": "rgba(255,75,75,0.08)",   "border": "rgba(255,75,75,0.4)"},
+    "s": {"label": "Suspended",  "color": "var(--ff-red)", "emoji": "🚫", "bg": "rgba(255,75,75,0.08)",   "border": "rgba(255,75,75,0.4)"},
+    "d": {"label": "Doubtful",   "color": "var(--ff-orange)", "emoji": "⚠️", "bg": "rgba(255,165,0,0.08)",   "border": "rgba(255,165,0,0.4)"},
     "u": {"label": "Unavailable","color": "#aaa",    "emoji": "❓", "bg": "rgba(180,180,180,0.06)", "border": "rgba(180,180,180,0.3)"},
 }
 
 SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
-POS_COLORS = {"GKP": "#00FF87", "DEF": "#04f5ff", "MID": "#e90052", "FWD": "#ff6900"}
+POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "#ff6900"}
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ def _player_alert_card(player: pd.Series, show_shirt: bool = True) -> str:
 
     cop_html = ""
     if cop is not None:
-        cop_color = "#00FF87" if cop >= 75 else "#FFA500" if cop >= 25 else "#FF4B4B"
+        cop_color = theme.fill("mint") if cop >= 75 else theme.fill("orange") if cop >= 25 else theme.fill("red")
         cop_html = (
             f'<div style="background:{cop_color};color:#000;border-radius:20px;'
             f'padding:2px 10px;font-size:12px;font-weight:800;display:inline-block;margin-bottom:8px;">'
@@ -104,16 +104,16 @@ def _player_alert_card(player: pd.Series, show_shirt: bool = True) -> str:
       {img_html}
       <div style="flex:1; min-width:0;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap;">
-          <span style="font-size:16px;font-weight:800;color:#fff;">{name}</span>
-          <span style="background:{cfg['color']};color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:700;">{cfg['emoji']} {cfg['label']}</span>
+          <span style="font-size:16px;font-weight:800;color:var(--ff-text);">{name}</span>
+          <span style="background:{cfg['color']};color:var(--ff-text);border-radius:4px;padding:1px 8px;font-size:11px;font-weight:700;">{cfg['emoji']} {cfg['label']}</span>
           <span style="background:{pos_col};color:#000;border-radius:3px;padding:0 6px;font-size:11px;font-weight:700;">{pos}</span>
         </div>
-        <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:6px;">
+        <div style="font-size:12px;color:var(--ff-muted2);margin-bottom:6px;">
           {team} &nbsp;·&nbsp; £{price:.1f}m &nbsp;·&nbsp; {own:.1f}% owned
           &nbsp;·&nbsp; {ppg:.1f} PPG &nbsp;·&nbsp; {form:.1f} form
         </div>
         {cop_html}
-        <div style="font-size:12px;color:rgba(255,255,255,0.65);font-style:italic;line-height:1.4;">
+        <div style="font-size:12px;color:var(--ff-muted);font-style:italic;line-height:1.4;">
           {news if news else "No further news available."}
         </div>
       </div>
@@ -226,10 +226,10 @@ else:
     counts = [int(v) for v in team_counts["flagged"]]
     opt = charts.bar_option(
         x=list(team_counts["team"]), y=counts, horizontal=True,
-        colors=charts.color_ramp(counts, "#FFA500", "#FF4B4B"),
+        colors=charts.color_ramp(counts, theme.fill("orange"), theme.fill("red")),
     )
     opt["title"] = {"text": "Players with Availability Concerns · by Team",
-                    "textStyle": {"color": "#eef1f5", "fontSize": 13,
+                    "textStyle": {"color": "var(--ff-text)", "fontSize": 13,
                                   "fontWeight": "bold"}}
     opt["grid"]["top"] = 40
     opt["tooltip"]["formatter"] = "{b}: {c} flagged"
@@ -264,6 +264,6 @@ else:
                                  for _, p in low_own.iterrows())
                 st.markdown(
                     f"<details><summary style='cursor:pointer;font-size:13px;"
-                    f"color:rgba(255,255,255,0.6);padding:4px 0;'>Lower ownership "
+                    f"color:var(--ff-muted);padding:4px 0;'>Lower ownership "
                     f"({len(low_own)} more)</summary>{_cards}</details>",
                     unsafe_allow_html=True)

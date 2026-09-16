@@ -509,14 +509,34 @@ def heatmap_option(x: List[str], y: List[str], matrix: List[List[float]],
     }
 
 
+def _rgb_triplet(color: str) -> List[int]:
+    """[r, g, b] for a hex literal OR a `var(--ff-token)` from the design system.
+
+    Pages are told to write colours as CSS variables; anything that has to
+    interpolate them (ramps, diverging scales) resolves the token here first.
+    """
+    c = str(color).strip()
+    if c.startswith("var("):
+        from ui.theme import fill
+        token = c[4:-1].strip().replace("--ff-", "")
+        c = fill(token)
+    if c.startswith("rgb"):
+        nums = c[c.index("(") + 1:c.index(")")].split(",")[:3]
+        return [int(float(n)) for n in nums]
+    c = c.lstrip("#")
+    if len(c) == 3:
+        c = "".join(ch * 2 for ch in c)
+    return [int(c[i:i + 2], 16) for i in (0, 2, 4)]
+
+
 def color_ramp(values: List[float], low: str, high: str) -> List[str]:
     """Interpolate each value between two hex colours (a mini continuous scale)."""
     if not values:
         return []
     vmin, vmax = min(values), max(values)
     span = (vmax - vmin) or 1.0
-    lo = [int(low[i:i + 2], 16) for i in (1, 3, 5)]
-    hi = [int(high[i:i + 2], 16) for i in (1, 3, 5)]
+    lo = _rgb_triplet(low)
+    hi = _rgb_triplet(high)
     out = []
     for v in values:
         t = (v - vmin) / span
@@ -535,8 +555,8 @@ def diverging_colors(values: List[float], low: str, mid: str, high: str,
     for v in values:
         t = (v - midpoint) / span   # -1 .. 1
         pair = (mid, high) if t >= 0 else (mid, low)
-        lo_c = [int(pair[0][i:i + 2], 16) for i in (1, 3, 5)]
-        hi_c = [int(pair[1][i:i + 2], 16) for i in (1, 3, 5)]
+        lo_c = _rgb_triplet(pair[0])
+        hi_c = _rgb_triplet(pair[1])
         a = abs(t)
         r, g, b = (round(l + (h - l) * a) for l, h in zip(lo_c, hi_c))
         out.append(f"rgb({r},{g},{b})")

@@ -18,7 +18,7 @@ import streamlit as st
 from components.loading import LINES_GENERIC, fpl_loader
 from typing import Dict, List
 
-from ui import charts
+from ui import charts, theme
 
 from components.animations import inject_global_animations
 from components.pitch_view import render_squad_pitch
@@ -26,8 +26,8 @@ from components.pitch_view import render_squad_pitch
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
 
-MUTED = "rgba(255,255,255,0.5)"
-CARD = ("background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);"
+MUTED = "var(--ff-muted2)"
+CARD = ("background:rgba(22,26,34,0.85);border:1px solid var(--ff-row-alt);"
         "border-radius:12px;padding:14px 18px;")
 
 SQUAD_LIMITS = {"GKP": 2, "DEF": 5, "MID": 5, "FWD": 3}
@@ -120,7 +120,7 @@ def exact_squad_for_gw(players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
 st.markdown(
     f"""
 <div class="fplh-animate-in" style="padding:18px 0 6px;font-family:'Inter',sans-serif;">
-  <div style="font-size:42px;font-weight:900;color:#fff;letter-spacing:-1.2px;">
+  <div style="font-size:42px;font-weight:900;color:var(--ff-text);letter-spacing:-1.2px;">
     🃏 Wildcard Planner</div>
   <div style="font-size:14px;color:{MUTED};margin-top:4px;">
     When to burn it, and exactly what the squad should be · solved, not guessed
@@ -140,12 +140,12 @@ scan = scan_gameweeks(players_df, fixtures_df, current_gw, budget)
 # ── Off-season state ──────────────────────────────────────────────────────────
 if scan.empty or scan["total_pts"].max() <= 0:
     st.markdown(
-        f'<div style="{CARD}border-top:3px solid #FFD700;max-width:640px;'
+        f'<div style="{CARD}border-top:3px solid var(--ff-gold);max-width:640px;'
         f'margin:30px 0;padding:28px;">'
-        f'<div style="font-size:22px;font-weight:900;color:#fff;">Season over 🌴</div>'
+        f'<div style="font-size:22px;font-weight:900;color:var(--ff-text);">Season over 🌴</div>'
         f'<div style="font-size:13px;color:{MUTED};margin-top:8px;line-height:1.6;">'
         f'No remaining gameweeks to wildcard into. Planning for next season lives in '
-        f'the <b style="color:#FFD700;">26/27 Draft</b> · predicted prices, projected '
+        f'the <b style="color:var(--ff-gold);">26/27 Draft</b> · predicted prices, projected '
         f'points and the optimal GW1 squad. This page wakes up when the 2026-27 '
         f'fixtures land.</div></div>',
         unsafe_allow_html=True)
@@ -166,13 +166,13 @@ st.markdown(
         f'<div style="font-size:10px;font-weight:800;letter-spacing:0.14em;color:{MUTED};'
         f'text-transform:uppercase;">{lab}</div>'
         f'<div style="font-size:26px;font-weight:900;color:{acc};margin:2px 0;">{val}</div>'
-        f'<div style="font-size:11px;color:rgba(255,255,255,0.45);">{sub}</div></div>'
+        f'<div style="font-size:11px;color:var(--ff-muted2);">{sub}</div></div>'
         for lab, val, sub, acc in [
             ("Best wildcard window", f"GW{best_gw}",
-             f"{best_row['total_pts']:.1f} projected squad pts", "#FFD700"),
+             f"{best_row['total_pts']:.1f} projected squad pts", "var(--ff-gold)"),
             ("DGW players available", f"{int(best_row['n_dgw'])}",
-             "in that optimal squad", "#00FF87"),
-            ("Windows analysed", f"{len(scan)}", f"GW{current_gw + 1}–38", "#04f5ff"),
+             "in that optimal squad", "var(--ff-mint)"),
+            ("Windows analysed", f"{len(scan)}", f"GW{current_gw + 1}–38", "var(--ff-cyan)"),
         ])
     + "</div>",
     unsafe_allow_html=True,
@@ -182,11 +182,11 @@ st.markdown(
     f'<div style="display:flex;align-items:center;gap:14px;margin:26px 0 10px;">'
     f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
     f'color:{MUTED};white-space:nowrap;">Opportunity by gameweek</div>'
-    f'<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div></div>',
+    f'<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div></div>',
     unsafe_allow_html=True)
 
-colors = ["#FFD700" if int(r["gw"]) == best_gw
-          else "#00FF87" if r["n_dgw"] >= 3 else "rgba(4,245,255,0.55)"
+colors = [theme.fill("gold") if int(r["gw"]) == best_gw
+          else "var(--ff-mint)" if r["n_dgw"] >= 3 else "rgba(4,245,255,0.55)"
           for _, r in scan.iterrows()]
 opt = charts.bar_option(
     x=[str(int(g)) for g in scan["gw"]],
@@ -199,8 +199,8 @@ for item, (_, r) in zip(opt["series"][0]["data"], scan.iterrows()):
         txt = f"{{dgw|{int(r['n_dgw'])}×DGW}}\n{txt}"
     item["label"] = {
         "show": True, "position": "top", "formatter": txt,
-        "color": "rgba(255,255,255,0.7)", "fontSize": 10,
-        "rich": {"dgw": {"color": "#FFD700", "fontSize": 9, "fontWeight": "bold"}},
+        "color": "var(--ff-muted)", "fontSize": 10,
+        "rich": {"dgw": {"color": "var(--ff-gold)", "fontSize": 9, "fontWeight": "bold"}},
     }
 opt["grid"]["top"] = 34
 opt["tooltip"]["formatter"] = "GW{b} · {c} pts"
@@ -211,8 +211,8 @@ st.markdown(
     f'<div style="display:flex;align-items:center;gap:14px;margin:26px 0 10px;">'
     f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
     f'color:{MUTED};white-space:nowrap;">The squad, solved exactly</div>'
-    f'<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div></div>'
-    f'<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:10px;">'
+    f'<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div></div>'
+    f'<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:10px;">'
     f'MILP-optimal 15 for the chosen week · provably the best within budget, '
     f'3-per-club and formation rules.</div>',
     unsafe_allow_html=True)
@@ -231,7 +231,7 @@ squad = res["squad"]
 st.markdown(
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">'
     + "".join(f'<span style="background:rgba(255,215,0,0.1);border:1px solid '
-              f'rgba(255,215,0,0.35);color:#FFD700;font-size:12px;font-weight:800;'
+              f'rgba(255,215,0,0.35);color:var(--ff-gold);font-size:12px;font-weight:800;'
               f'padding:4px 12px;border-radius:20px;">{b}</span>'
               for b in [f"GW{sel_gw}", f"£{res['squad_cost']:.1f}m",
                         f"{res['xi_points']:.1f} projected XI pts (incl. captain)"])
@@ -253,5 +253,5 @@ dgw_names = squad[squad["n_fixtures"] >= 2]["web_name"].tolist() \
     if "n_fixtures" in squad.columns else []
 if dgw_names:
     st.markdown(
-        f'<div style="font-size:12px;color:#00FF87;margin-top:8px;">'
+        f'<div style="font-size:12px;color:var(--ff-mint);margin-top:8px;">'
         f'DGW that week: {", ".join(dgw_names)}</div>', unsafe_allow_html=True)

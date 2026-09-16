@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
-from ui import charts
+from ui import charts, theme
 import streamlit as st
 
 from components.animations import count_up, inject_global_animations
@@ -28,8 +28,8 @@ from config import CACHE_DIR, LAST_COMPLETE_SEASON
 # set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
 
-MUTED = "rgba(255,255,255,0.5)"
-CARD = ("background:rgba(22,26,34,0.85);border:1px solid rgba(255,255,255,0.08);"
+MUTED = "var(--ff-muted2)"
+CARD = ("background:rgba(22,26,34,0.85);border:1px solid var(--ff-row-alt);"
         "border-radius:12px;padding:14px 18px;")
 
 SEASON_KEY = LAST_COMPLETE_SEASON.replace("-", "_")
@@ -37,9 +37,9 @@ ARCHIVE_DIR = CACHE_DIR / "archive"
 MY_HISTORY = ARCHIVE_DIR / f"my_entry_history_{SEASON_KEY}.json"
 
 SCENARIO_FILES = [
-    ("Unlimited hits", CACHE_DIR / f"perfect_season_{SEASON_KEY}.json", "#00FF87"),
-    ("Realistic hits (≤6)", CACHE_DIR / f"perfect_season_{SEASON_KEY}_limited.json", "#FFD700"),
-    ("No hits", CACHE_DIR / f"perfect_season_{SEASON_KEY}_nohits.json", "#04f5ff"),
+    ("Unlimited hits", CACHE_DIR / f"perfect_season_{SEASON_KEY}.json", "var(--ff-mint)"),
+    ("Realistic hits (≤6)", CACHE_DIR / f"perfect_season_{SEASON_KEY}_limited.json", "var(--ff-gold)"),
+    ("No hits", CACHE_DIR / f"perfect_season_{SEASON_KEY}_nohits.json", "var(--ff-cyan)"),
 ]
 SET_AND_FORGET = "Set & forget"
 
@@ -136,8 +136,8 @@ def _section(title: str, sub: str = "") -> None:
         f'<div style="display:flex;align-items:center;gap:14px;margin:28px 0 10px;">'
         f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;'
         f'text-transform:uppercase;color:{MUTED};white-space:nowrap;">{title}</div>'
-        f'<div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div></div>'
-        + (f'<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:10px;">{sub}</div>'
+        f'<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div></div>'
+        + (f'<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:10px;">{sub}</div>'
            if sub else ""),
         unsafe_allow_html=True,
     )
@@ -147,7 +147,7 @@ def _section(title: str, sub: str = "") -> None:
 st.markdown(
     f"""
 <div class="fplh-animate-in" style="padding:18px 0 6px;font-family:'Inter',sans-serif;">
-  <div style="font-size:42px;font-weight:900;color:#fff;letter-spacing:-1.2px;">
+  <div style="font-size:42px;font-weight:900;color:var(--ff-text);letter-spacing:-1.2px;">
     🏆 The Perfect Season</div>
   <div style="font-size:14px;color:{MUTED};margin-top:4px;">
     {LAST_COMPLETE_SEASON} with perfect hindsight · pick a hit policy and see
@@ -164,9 +164,9 @@ for label, info in scenarios.items():
     tiles.append((label, count_up(d["grand_total"]),
                   f"{d['perfect'].get('total_hits', 0)} hits taken", info["accent"]))
 tiles.append((SET_AND_FORGET, count_up(saf["total_points"]),
-              "one squad, never touched", "#e90052"))
+              "one squad, never touched", "var(--ff-mag)"))
 if my_total:
-    tiles.append(("Eoin actual", count_up(my_total), "Vicario Kart", "#FF8C42"))
+    tiles.append(("Eoin actual", count_up(my_total), "Vicario Kart", "var(--ff-orange-v)"))
 if bench_marks.get("winner_total"):
     tiles.append(("Global winner", count_up(bench_marks["winner_total"]),
                   "best human, no hindsight", "#c084fc"))
@@ -178,7 +178,7 @@ st.markdown(
         f'<div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:{MUTED};'
         f'text-transform:uppercase;">{lab}</div>'
         f'<div style="font-size:26px;font-weight:900;color:{acc};margin:2px 0;">{val}</div>'
-        f'<div style="font-size:11px;color:rgba(255,255,255,0.45);">{sub}</div></div>'
+        f'<div style="font-size:11px;color:var(--ff-muted2);">{sub}</div></div>'
         for lab, val, sub, acc in tiles)
     + "</div>",
     unsafe_allow_html=True,
@@ -204,7 +204,7 @@ if mode == SET_AND_FORGET:
     g = saf["per_gw"][gw_pick - 1]
     st.markdown(
         f'<div style="margin-bottom:10px;"><span style="background:rgba(233,0,82,0.12);'
-        f'border:1px solid rgba(233,0,82,0.4);color:#e90052;font-size:12px;font-weight:800;'
+        f'border:1px solid rgba(233,0,82,0.4);color:var(--ff-mag);font-size:12px;font-weight:800;'
         f'padding:4px 12px;border-radius:20px;">GW{g["gw"]} · {g["points"]:.0f} pts</span></div>',
         unsafe_allow_html=True)
     render_squad_pitch(
@@ -214,7 +214,7 @@ if mode == SET_AND_FORGET:
     weekly = pd.DataFrame(saf["per_gw"])
     opt = charts.bar_option(x=list(weekly["gw"]),
                             y=[round(float(v), 1) for v in weekly["points"]],
-                            color="#e90052")
+                            color=theme.fill("mag"))
     opt["tooltip"]["formatter"] = "GW{b}: {c} pts"
     charts.render(opt, height="260px", key="ps_saf_weekly")
 
@@ -234,7 +234,7 @@ else:
              accent)]
     if mine:
         race.append(("Eoin (Vicario Kart)",
-                     [(e["event"], e["total_points"]) for e in mine], "#FF8C42"))
+                     [(e["event"], e["total_points"]) for e in mine], "var(--ff-orange-v)"))
     opt = charts.multi_line_option(race, x_name="Gameweek", y_name="Total points")
     chip_marks = [(g["gw"], "+".join(g["chips"])) for g in per_gw if g["chips"]]
     if chip_marks:
@@ -251,16 +251,16 @@ else:
     _section("How this scenario played it")
     facts = [
         ("Total", f"{grand:.0f}", "incl. Free Hit gains", accent),
-        ("Transfers", f"{n_transfers}", f"{total_hits} hits ({total_hits * 4} pts paid)", "#04f5ff"),
-        ("Most held", _name(hold_counts.index[0]), f"{hold_counts.iloc[0]} of 38 GWs", "#00FF87"),
-        ("Top captain", _name(cap_counts.index[0]), f"{cap_counts.iloc[0]} armbands", "#FFD700"),
+        ("Transfers", f"{n_transfers}", f"{total_hits} hits ({total_hits * 4} pts paid)", "var(--ff-cyan)"),
+        ("Most held", _name(hold_counts.index[0]), f"{hold_counts.iloc[0]} of 38 GWs", "var(--ff-mint)"),
+        ("Top captain", _name(cap_counts.index[0]), f"{cap_counts.iloc[0]} armbands", "var(--ff-gold)"),
         ("Best GW", f"GW{best_gw['gw']}",
          f"{best_gw['net_points']:.0f} pts"
-         + (f" ({'+'.join(best_gw['chips'])})" if best_gw["chips"] else ""), "#e90052"),
+         + (f" ({'+'.join(best_gw['chips'])})" if best_gw["chips"] else ""), "var(--ff-mag)"),
     ]
     for f_ in sel.get("free_hit", []):
         facts.append((f"Free Hit H{f_['half']}", f"GW{f_['gw']}",
-                      f"+{f_['gain']:.0f} pts vs holding", "#FF8C42"))
+                      f"+{f_['gain']:.0f} pts vs holding", "var(--ff-orange-v)"))
     st.markdown(
         '<div class="fplh-stagger" style="display:flex;gap:10px;flex-wrap:wrap;">'
         + "".join(
@@ -268,7 +268,7 @@ else:
             f'<div style="font-size:10px;font-weight:800;letter-spacing:0.12em;color:{MUTED};'
             f'text-transform:uppercase;">{lab}</div>'
             f'<div style="font-size:19px;font-weight:900;color:{acc};margin:2px 0;">{val}</div>'
-            f'<div style="font-size:11px;color:rgba(255,255,255,0.45);">{sub}</div></div>'
+            f'<div style="font-size:11px;color:var(--ff-muted2);">{sub}</div></div>'
             for lab, val, sub, acc in facts)
         + "</div>",
         unsafe_allow_html=True,
@@ -288,7 +288,7 @@ else:
     st.markdown(
         '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">'
         + "".join(f'<span style="background:rgba(0,255,135,0.08);border:1px solid '
-                  f'rgba(0,255,135,0.3);color:#00FF87;font-size:12px;font-weight:800;'
+                  f'rgba(0,255,135,0.3);color:var(--ff-mint);font-size:12px;font-weight:800;'
                   f'padding:4px 12px;border-radius:20px;">{b}</span>' for b in meta_bits)
         + "</div>", unsafe_allow_html=True)
 
@@ -296,8 +296,8 @@ else:
         st.markdown(
             '<div style="margin-bottom:12px;font-size:13px;">'
             + " · ".join(
-                f'<span style="color:#FF4B4B;">{_name(o)} ➜</span> '
-                f'<span style="color:#00FF87;font-weight:800;">{_name(i)}</span>'
+                f'<span style="color:var(--ff-red);">{_name(o)} ➜</span> '
+                f'<span style="color:var(--ff-mint);font-weight:800;">{_name(i)}</span>'
                 for o, i in zip(g["transfers_out"], g["transfers_in"]))
             + "</div>", unsafe_allow_html=True)
 
@@ -312,28 +312,28 @@ else:
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(
-            f'<div style="{CARD}"><div style="font-size:13px;font-weight:800;color:#fff;'
+            f'<div style="{CARD}"><div style="font-size:13px;font-weight:800;color:var(--ff-text);'
             f'margin-bottom:8px;">🧲 Core holds · buy and forget</div>'
             + "".join(
                 f'<div style="display:flex;justify-content:space-between;padding:5px 0;'
-                f'border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px;">'
-                f'<span style="color:#fff;font-weight:700;">{n}</span>'
-                f'<span style="color:#00FF87;font-weight:800;">{c}/38 GWs</span></div>'
+                f'border-bottom:1px solid var(--ff-row-alt);font-size:12px;">'
+                f'<span style="color:var(--ff-text);font-weight:700;">{n}</span>'
+                f'<span style="color:var(--ff-mint);font-weight:800;">{c}/38 GWs</span></div>'
                 for n, c in top_holds)
             + "</div>", unsafe_allow_html=True)
     with col2:
         st.markdown(
-            f'<div style="{CARD}"><div style="font-size:13px;font-weight:800;color:#fff;'
+            f'<div style="{CARD}"><div style="font-size:13px;font-weight:800;color:var(--ff-text);'
             f'margin-bottom:8px;">🎯 Armband distribution</div>'
             + "".join(
                 f'<div style="display:flex;justify-content:space-between;padding:5px 0;'
-                f'border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px;">'
-                f'<span style="color:#fff;font-weight:700;">{n}</span>'
-                f'<span style="color:#FFD700;font-weight:800;">{c} GWs</span></div>'
+                f'border-bottom:1px solid var(--ff-row-alt);font-size:12px;">'
+                f'<span style="color:var(--ff-text);font-weight:700;">{n}</span>'
+                f'<span style="color:var(--ff-gold);font-weight:800;">{c} GWs</span></div>'
                 for n, c in cap_spread)
             + "</div>", unsafe_allow_html=True)
 
 st.markdown(
-    '<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:18px;">'
+    '<div style="font-size:11px;color:var(--ff-muted2);margin-top:18px;">'
     + " · ".join(base.get("notes", [])) + "</div>",
     unsafe_allow_html=True)

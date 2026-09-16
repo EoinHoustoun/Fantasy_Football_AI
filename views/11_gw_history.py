@@ -11,7 +11,7 @@ Shows:
 import streamlit as st
 
 from components.loading import LINES_GENERIC, fpl_loader
-from ui import charts
+from ui import charts, theme
 import pandas as pd
 import numpy as np
 import requests
@@ -67,8 +67,8 @@ def _fill_between_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> None:
     avgs  = [round(float(v), 1) for v in merged["global_avg"]]
 
     opt = charts.category_lines_option(gws, [
-        ("Global Average", avgs, "rgba(255,255,255,0.35)"),
-        ("Your Score", yours, "#00FF87"),
+        ("Global Average", avgs, "var(--ff-muted2)"),
+        ("Your Score", yours, "var(--ff-mint)"),
     ])
     opt["series"][0]["lineStyle"].update({"width": 1.5, "type": "dotted"})
 
@@ -78,14 +78,14 @@ def _fill_between_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> None:
     worst_i = int(merged["diff"].idxmin())
     points = []
     for i, (y, a) in enumerate(zip(yours, avgs)):
-        item = {"value": y, "itemStyle": {"color": "#00FF87" if y >= a else "#FF4B4B"}}
+        item = {"value": y, "itemStyle": {"color": theme.fill("mint") if y >= a else theme.fill("red")}}
         if i == best_i:
             item["label"] = {"show": True, "position": "top", "fontSize": 11,
-                             "color": "#00FF87",
+                             "color": "var(--ff-mint)",
                              "formatter": f"Best: +{merged['diff'].iloc[i]:.0f}"}
         elif i == worst_i:
             item["label"] = {"show": True, "position": "bottom", "fontSize": 11,
-                             "color": "#FF4B4B",
+                             "color": "var(--ff-red)",
                              "formatter": f"Worst: {merged['diff'].iloc[i]:.0f}"}
         points.append(item)
     opt["series"][1]["data"] = points
@@ -98,7 +98,7 @@ def _fill_between_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> None:
     opt["series"].extend(charts.band_fill_series(base, above, below))
 
     opt["title"] = {"text": "Your GW Score vs Global Average", "textStyle": {
-        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+        "color": "var(--ff-text)", "fontSize": 13, "fontWeight": "bold"}}
     opt["legend"]["top"] = 22
     opt["grid"]["top"] = 56
     charts.render(opt, height="380px", key="gwh_vs_avg")
@@ -113,11 +113,11 @@ def _rank_chart(hist_df: pd.DataFrame) -> None:
         item = {"value": r}
         if i == best_i:
             item["label"] = {"show": True, "position": "top", "fontSize": 10,
-                             "color": "#00FF87", "formatter": f"Best: {r:,}"}
+                             "color": "var(--ff-mint)", "formatter": f"Best: {r:,}"}
         points.append(item)
 
     opt = charts.category_lines_option(hist_df["gw"].tolist(),
-                                       [("Overall Rank", [], "#04f5ff")])
+                                       [("Overall Rank", [], "var(--ff-cyan)")])
     s = opt["series"][0]
     s["data"] = points
     s["symbol"] = "circle"
@@ -125,7 +125,7 @@ def _rank_chart(hist_df: pd.DataFrame) -> None:
     s["areaStyle"] = {"color": "rgba(4,245,255,0.06)"}
     opt["yAxis"]["inverse"] = True   # lower rank number = better = top of chart
     opt["title"] = {"text": "Overall Rank Progression", "textStyle": {
-        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+        "color": "var(--ff-text)", "fontSize": 13, "fontWeight": "bold"}}
     opt["legend"] = {"show": False}
     opt["grid"]["top"] = 40
     opt["grid"]["left"] = 76
@@ -143,21 +143,21 @@ def _cumulative_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> None:
     avgs  = [round(float(v), 0) for v in merged["cumulative_avg"]]
 
     final_diff = int(yours[-1] - avgs[-1])
-    diff_color = "#00FF87" if final_diff >= 0 else "#FF4B4B"
+    diff_color = theme.fill("mint") if final_diff >= 0 else theme.fill("red")
     points = [{"value": v} for v in yours]
     points[-1]["label"] = {
         "show": True, "position": "left", "fontSize": 12, "color": diff_color,
         "formatter": f"{'+' if final_diff >= 0 else ''}{final_diff} vs avg"}
 
     opt = charts.category_lines_option(merged["gw"].tolist(), [
-        ("Cumulative Average", avgs, "rgba(255,255,255,0.35)"),
-        ("Your Cumulative", [], "#00FF87"),
+        ("Cumulative Average", avgs, "var(--ff-muted2)"),
+        ("Your Cumulative", [], "var(--ff-mint)"),
     ])
     opt["series"][0]["lineStyle"].update({"width": 1.5, "type": "dotted"})
     opt["series"][1]["data"] = points
     opt["series"][1]["areaStyle"] = {"color": "rgba(0,255,135,0.08)"}
     opt["title"] = {"text": "Cumulative Points vs Average", "textStyle": {
-        "color": "#eef1f5", "fontSize": 13, "fontWeight": "bold"}}
+        "color": "var(--ff-text)", "fontSize": 13, "fontWeight": "bold"}}
     opt["legend"]["top"] = 22
     opt["grid"]["top"] = 56
     charts.render(opt, height="300px", key="gwh_cumulative")
@@ -241,16 +241,16 @@ st.markdown("---")
 _fill_between_chart(hist_df, gw_avgs)
 
 # ── Above vs below summary banner ─────────────────────────────────────────────
-delta_color  = "#00FF87" if total_vs_avg >= 0 else "#FF4B4B"
+delta_color  = theme.fill("mint") if total_vs_avg >= 0 else theme.fill("red")
 delta_sign   = "+" if total_vs_avg >= 0 else ""
 st.markdown(
     f"<div style='display:flex;gap:32px;padding:14px 20px;"
-    f"background:rgba(255,255,255,0.03);border-radius:10px;font-family:sans-serif;'>"
-    f"<div><span style='color:rgba(255,255,255,0.4);font-size:12px;'>GWs above average</span>"
-    f"<div style='font-size:20px;font-weight:800;color:#00FF87;'>{gws_above}</div></div>"
-    f"<div><span style='color:rgba(255,255,255,0.4);font-size:12px;'>GWs below average</span>"
-    f"<div style='font-size:20px;font-weight:800;color:#FF4B4B;'>{gws_below}</div></div>"
-    f"<div><span style='color:rgba(255,255,255,0.4);font-size:12px;'>Total vs average</span>"
+    f"background:var(--ff-row-alt);border-radius:10px;font-family:sans-serif;'>"
+    f"<div><span style='color:var(--ff-muted2);font-size:12px;'>GWs above average</span>"
+    f"<div style='font-size:20px;font-weight:800;color:var(--ff-mint);'>{gws_above}</div></div>"
+    f"<div><span style='color:var(--ff-muted2);font-size:12px;'>GWs below average</span>"
+    f"<div style='font-size:20px;font-weight:800;color:var(--ff-red);'>{gws_below}</div></div>"
+    f"<div><span style='color:var(--ff-muted2);font-size:12px;'>Total vs average</span>"
     f"<div style='font-size:20px;font-weight:800;color:{delta_color};'>"
     f"{delta_sign}{total_vs_avg:.0f} pts</div></div>"
     f"</div>",
