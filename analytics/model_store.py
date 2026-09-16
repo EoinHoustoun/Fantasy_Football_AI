@@ -76,13 +76,37 @@ def _lock_active() -> bool:
 
 
 def train_and_store(players_df, current_gw: int,
-                    fdr_map: Optional[Dict[int, float]] = None) -> Dict[str, Any]:
-    """Run the full pipeline and persist the bundle. Returns the fresh bundle."""
+                    fdr_map: Optional[Dict[int, float]] = None,
+                    fixtures_df=None) -> Dict[str, Any]:
+    """Run the full pipeline and persist the bundle. Returns the fresh bundle.
+
+    Which pipeline depends on `config.COMPONENT_MODEL["enabled"]`. The component
+    model is off by default and stays that way until its walk-forward benchmark
+    beats the incumbent and Eoin approves the swap · see
+    `scripts/benchmark_points_models.py`. If it raises, the incumbent runs
+    instead: an experiment must not be able to take the page down.
+    """
+    from config import COMPONENT_MODEL
     from analytics.points_model import run_pipeline
+
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     LOCK_PATH.touch()
     try:
-        predictions, metrics = run_pipeline(players_df, current_gw, fdr_map=fdr_map)
+        predictions, metrics = None, None
+        if COMPONENT_MODEL.get("enabled"):
+            try:
+                from analytics import component_model
+                logger.info("FF_COMPONENT_MODEL=1 · using the component model")
+                predictions, metrics = component_model.run_pipeline(
+                    players_df, current_gw, fixtures_df=fixtures_df,
+                    min_career_games=int(COMPONENT_MODEL.get("min_career_games", 3)))
+            except Exception:  # noqa: BLE001 · fall back, never fail the page
+                logger.exception("component model failed · falling back to the "
+                                 "incumbent points model")
+                predictions = None
+        if predictions is None:
+            predictions, metrics = run_pipeline(players_df, current_gw,
+                                                fdr_map=fdr_map)
         save_bundle(predictions, metrics, current_gw)
     finally:
         try:
@@ -114,6 +138,13 @@ def _warm() -> None:
         if get_season_phase(bs).get("phase") == "preseason":
             logger.info("Preseason · skipping points-model pre-warm (no played GWs).")
             return
+        from analytics.points_model import MIN_TRAIN_GWS
+        from data.fetchers.fpl_history import finished_gameweeks
+        played = len(finished_gameweeks(bs))
+        if played < MIN_TRAIN_GWS:
+            logger.info("Only %d finished GW(s) · points model needs %d, skipping pre-warm.",
+                        played, MIN_TRAIN_GWS)
+            return
         if load_bundle(current_gw) is not None or _lock_active():
             return
         players_df = build_player_universe(
@@ -127,7 +158,8 @@ def _warm() -> None:
             fdr_map[int(row["home_team_id"])] = float(row["home_fdr"])
             fdr_map[int(row["away_team_id"])] = float(row["away_fdr"])
         logger.info("Pre-warming points model (GW%s)…", current_gw)
-        train_and_store(players_df, current_gw, fdr_map=fdr_map)
+        train_and_store(players_df, current_gw, fdr_map=fdr_map,
+                        fixtures_df=fixtures_df)
         logger.info("Points model bundle warm.")
     except Exception:  # noqa: BLE001 · warm-up is best-effort by design
         logger.exception("Model pre-warm failed · pages will train on demand")
