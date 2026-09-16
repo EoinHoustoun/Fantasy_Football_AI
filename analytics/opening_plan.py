@@ -193,14 +193,21 @@ def best_boost_week(board: pd.DataFrame, proj, gws: Sequence[int],
 
 
 def _per_week(squad: pd.DataFrame, proj, gws: Sequence[int],
-              boost_gw: Optional[int]) -> List[Dict]:
-    """What the plan scores each week, and whether the Boost is on."""
+              boost_gw: Optional[int],
+              captain_codes: Optional[Sequence[int]] = None) -> List[Dict]:
+    """What the plan scores each week, and whether the Boost is on.
+
+    `captain_codes` limits who may wear the armband · without it this scores a
+    free captaincy the squad is not allowed to use, which reads high.
+    """
     from analytics.gw_projection import best_xi
     codes = [int(c) for c in squad["code"]]
+    ok = {int(c) for c in captain_codes} if captain_codes else None
     out = []
     for g in gws:
         xi = best_xi(squad, proj, g)
-        cap = max(xi, key=lambda c: proj.points(c, g)) if xi else None
+        pool = [c for c in xi if ok is None or int(c) in ok]
+        cap = max(pool, key=lambda c: proj.points(c, g)) if pool else None
         starters = sum(proj.points(c, g) for c in codes if c in xi)
         bench = sum(proj.points(c, g) for c in codes if c not in xi)
         boosted = boost_gw is not None and int(g) == int(boost_gw)
@@ -215,6 +222,8 @@ def _per_week(squad: pd.DataFrame, proj, gws: Sequence[int],
 
 
 def plan_total(squad: pd.DataFrame, proj, gws: Sequence[int],
-               boost_gw: Optional[int]) -> float:
+               boost_gw: Optional[int],
+               captain_codes: Optional[Sequence[int]] = None) -> float:
     """What this fifteen scores over the window with this chip plan."""
-    return float(sum(w["total"] for w in _per_week(squad, proj, gws, boost_gw)))
+    return float(sum(w["total"] for w in
+                     _per_week(squad, proj, gws, boost_gw, captain_codes)))

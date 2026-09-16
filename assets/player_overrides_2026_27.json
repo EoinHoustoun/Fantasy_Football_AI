@@ -156,8 +156,7 @@
  },
  "465247": {
   "name": "Lammens",
-  "gw_pts_mult": 1.174,
-  "note": "Carrick correction · 4.00 pts/90 under Carrick (GW22-38, 1530 mins) vs 3.41 across the whole season. The projection is fitted over both managers, so it understates him by 17%."
+  "note": "Carrick multiplier REMOVED 2026-08-16 · it multiplied the blended per-GW cell, double-counting two models that already price current Man Utd, and a keeper pts/90 split over 17 starts is clean-sheet noise. Raw consensus (11.6 over GW1-3) already makes him the best keeper in the pool at £5.0."
  },
  "106760": {
   "name": "Shaw",

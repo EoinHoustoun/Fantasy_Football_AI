@@ -559,12 +559,27 @@ def simulate_drafts(entries: List[Dict], proj, board: pd.DataFrame,
         out.append({
             "name": e["name"],
             "weekly_mean": weekly.mean(axis=0).round(2).tolist(),
+            # Per-WEEK spread, not just the cumulative band. A squad can have a
+            # healthy total and still own a week that falls in on itself, and
+            # the cumulative band hides that because a bad week averages out
+            # against the good ones either side of it.
+            "weekly_lo": np.percentile(weekly, 10, axis=0).round(2).tolist(),
+            "weekly_hi": np.percentile(weekly, 90, axis=0).round(2).tolist(),
+            # The 5/50/95 cut is the decision view: floor a week can really
+            # post, the honest middle, and the ceiling worth dreaming about.
+            # 10/90 stays for the existing band charts.
+            "weekly_p5": np.percentile(weekly, 5, axis=0).round(2).tolist(),
+            "weekly_p50": np.percentile(weekly, 50, axis=0).round(2).tolist(),
+            "weekly_p95": np.percentile(weekly, 95, axis=0).round(2).tolist(),
             "cum_mean": cum.mean(axis=0).round(1).tolist(),
             "cum_lo": np.percentile(cum, 10, axis=0).round(1).tolist(),
             "cum_hi": np.percentile(cum, 90, axis=0).round(1).tolist(),
             "total_mean": float(cum[:, -1].mean().round(1)),
             "total_lo": float(np.percentile(cum[:, -1], 10).round(1)),
             "total_hi": float(np.percentile(cum[:, -1], 90).round(1)),
+            "total_p5": float(np.percentile(cum[:, -1], 5).round(1)),
+            "total_p50": float(np.percentile(cum[:, -1], 50).round(1)),
+            "total_p95": float(np.percentile(cum[:, -1], 95).round(1)),
             "_totals": cum[:, -1],
         })
 

@@ -164,3 +164,24 @@ def test_the_boundaries_land_on_the_documented_side():
     assert significance(a, b)["call"] == "lean"
     a, b = _pair(0.80)
     assert significance(a, b)["call"] == "clear"
+
+
+# ── per-week spread ──────────────────────────────────────────────────────────
+
+def test_simulation_reports_a_per_week_floor_and_ceiling():
+    """A cumulative band hides a single bad week · the weekly one does not."""
+    b = _board()
+    d = _run(b, [_entry("A", b, range(1, 16))])["drafts"][0]
+    n = len(d["weekly_mean"])
+    assert len(d["weekly_lo"]) == len(d["weekly_hi"]) == n
+    for lo, mean, hi in zip(d["weekly_lo"], d["weekly_mean"], d["weekly_hi"]):
+        assert lo <= mean <= hi
+
+
+def test_weekly_floors_are_tighter_than_the_window_floor():
+    """Summing per-week 10th percentiles is pessimistic · every week is assumed
+    to land badly at once, which the whole-window 10th percentile does not."""
+    b = _board()
+    d = _run(b, [_entry("A", b, range(1, 16))])["drafts"][0]
+    assert sum(d["weekly_lo"]) < d["total_lo"]
+    assert sum(d["weekly_hi"]) > d["total_hi"]
