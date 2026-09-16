@@ -275,7 +275,7 @@ def estimate_season_points(players_df: pd.DataFrame) -> pd.DataFrame:
     Fixture ease: FDR 1 = 1.3x, FDR 3 = 1.0x, FDR 5 = 0.7x
     """
     df = players_df.copy()
-    ppg = df["points_per_game"].fillna(0)
+    ppg = _shrunk_ppg(df)
 
     remaining = df["remaining_fixtures"] if "remaining_fixtures" in df.columns \
         else pd.Series(8, index=df.index)
@@ -477,6 +477,27 @@ def _normalise(series: pd.Series) -> pd.Series:
     if mx == mn:
         return pd.Series(0.5, index=series.index)
     return (series - mn) / (mx - mn)
+
+
+PPG_PRIOR_GAMES = 6   # a player's own rate carries full weight only after ~6 games
+
+
+def _shrunk_ppg(df: pd.DataFrame) -> pd.Series:
+    """Points-per-game shrunk toward the positional mean early in the season.
+
+    Raw ppg after one gameweek is a single match, and multiplying it by 37
+    produced "projects ~372 pts" for a defender who scored once. Weight each
+    player's rate by games played against a positional prior worth
+    PPG_PRIOR_GAMES games · after GW1 the prior dominates, by mid-season it
+    barely registers.
+    """
+    ppg = df["points_per_game"].fillna(0).astype(float)
+    if "minutes" not in df.columns:
+        return ppg
+    games = (df["minutes"].fillna(0) / 90.0).clip(lower=0)
+    pos = df["position"] if "position" in df.columns else pd.Series("ALL", index=df.index)
+    prior = ppg.groupby(pos).transform("mean").fillna(ppg.mean())
+    return (ppg * games + prior * PPG_PRIOR_GAMES) / (games + PPG_PRIOR_GAMES)
 
 
 def _estimate_gws_played(df: pd.DataFrame) -> int:

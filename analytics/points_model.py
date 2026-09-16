@@ -42,6 +42,9 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 ROLL_WINDOW      = 4
 TRAIN_SPLIT      = 0.70
 MIN_GWS_PLAYED   = 3
+# A player only yields a training row once `gw_count` (0-based) reaches
+# MIN_GWS_PLAYED, so the model has nothing at all until this many GWs are final.
+MIN_TRAIN_GWS    = MIN_GWS_PLAYED + 1
 TOTAL_MANAGERS   = 11_000_000
 OPTUNA_TRIALS    = 50
 TUNE_CACHE_TTL   = 24 * 3600          # retune after 24h
@@ -232,10 +235,17 @@ def train_and_evaluate(
     )
     model.fit(X_train, y_train)
 
-    y_pred = np.clip(model.predict(X_test), 0, None)
-    rmse   = float(np.sqrt(mean_squared_error(y_test, y_pred)))
-    mae    = float(mean_absolute_error(y_test, y_pred))
-    r2     = float(r2_score(y_test, y_pred))
+    # With a single played gameweek the temporal split has nothing to hold
+    # out. Train on everything and report the holdout as absent (NaN) rather
+    # than hand sklearn a zero-length array.
+    if len(test) == 0:
+        y_pred = np.empty(0)
+        rmse = mae = r2 = float("nan")
+    else:
+        y_pred = np.clip(model.predict(X_test), 0, None)
+        rmse   = float(np.sqrt(mean_squared_error(y_test, y_pred)))
+        mae    = float(mean_absolute_error(y_test, y_pred))
+        r2     = float(r2_score(y_test, y_pred))
 
     # Per-position RMSE
     test_copy = test.copy()

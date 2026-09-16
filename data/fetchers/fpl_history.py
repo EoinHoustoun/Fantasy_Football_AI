@@ -211,3 +211,124 @@ def harvest_season(season: str = "2025-26", force: bool = False) -> Optional[pd.
         partial_path.unlink()
     logger.info(f"Harvest complete: {len(df)} rows → {final_path}")
     return df
+
+
+# ── In-season history from the live endpoint ──────────────────────────────────
+#
+# Vaastav's merged_gw.csv for a season appears weeks after kickoff and went
+# stale at GW29 in 2025-26. For the CURRENT season the app builds the same
+# schema itself: one row per (player, finished gameweek) from
+# `event/{gw}/live`, joined to the bootstrap for name / position / club /
+# price and to the fixture list for venue and opponent. Columns that vaastav
+# records per gameweek but the live feed does not (value, selected, xP) are
+# the CURRENT bootstrap values, which is what an in-season model wants anyway.
+
+_LIVE_STAT_COLS = [
+    "minutes", "total_points", "goals_scored", "assists", "clean_sheets",
+    "goals_conceded", "own_goals", "penalties_saved", "penalties_missed",
+    "yellow_cards", "red_cards", "saves", "bonus", "bps", "starts",
+    "influence", "creativity", "threat", "ict_index",
+    "expected_goals", "expected_assists", "expected_goal_involvements",
+    "expected_goals_conceded", "clearances_blocks_interceptions", "tackles",
+    "recoveries", "defensive_contribution",
+]
+
+_EMPTY_COLS = ["name", "position", "team", "xP", "element", "fixture",
+               "kickoff_time", "opponent_team", "round", "selected", "value",
+               "was_home", "GW"] + _LIVE_STAT_COLS
+
+
+def finished_gameweeks(bootstrap: dict) -> List[int]:
+    """Gameweeks whose points are final (finished AND data_checked)."""
+    return sorted(
+        int(e["id"]) for e in bootstrap.get("events", [])
+        if e.get("finished") and e.get("data_checked")
+    )
+
+
+def build_live_gw_history(bootstrap: dict, fixtures: List[dict],
+                          live_for_gw) -> pd.DataFrame:
+    """Assemble vaastav-shaped GW history for every finished gameweek.
+
+    `live_for_gw(gw)` returns the `event/{gw}/live` payload; injected so the
+    builder is testable without the network.
+    """
+    gws = finished_gameweeks(bootstrap)
+    if not gws:
+        return pd.DataFrame(columns=_EMPTY_COLS)
+
+    teams = {t["id"]: t["name"] for t in bootstrap.get("teams", [])}
+    total_players = _num(bootstrap.get("total_players")) or 11_000_000.0
+    meta = {}
+    for p in bootstrap.get("elements", []):
+        meta[p["id"]] = {
+            "name":     f"{p.get('first_name', '')} {p.get('second_name', '')}".strip(),
+            "position": POSITIONS.get(p.get("element_type"), "UNK"),
+            "team":     teams.get(p.get("team"), str(p.get("team"))),
+            "value":    p.get("now_cost"),
+            "selected": _pct_to_count(p.get("selected_by_percent"), total_players),
+            "xP":       _num(p.get("ep_this")),
+            "_club_id": p.get("team"),
+        }
+    fx_by_id = {f["id"]: f for f in fixtures}
+
+    rows = []
+    for gw in gws:
+        payload = live_for_gw(gw) or {}
+        for el in payload.get("elements", []):
+            pid = el.get("id")
+            if pid not in meta:
+                continue
+            stats = el.get("stats", {}) or {}
+            explain = el.get("explain") or []
+            fx = fx_by_id.get(explain[0].get("fixture")) if explain else None
+            row = dict(meta[pid])
+            club_id = row.pop("_club_id")
+            row.update({
+                "element": pid, "GW": gw, "round": gw,
+                "fixture": fx["id"] if fx else None,
+                "kickoff_time": fx.get("kickoff_time") if fx else None,
+            })
+            # venue: bootstrap `team` is the club id, so compare to team_h
+            if fx is not None and club_id is not None:
+                home = fx["team_h"] == club_id
+                row["was_home"] = home
+                row["opponent_team"] = fx["team_a"] if home else fx["team_h"]
+            else:
+                row["was_home"] = None
+                row["opponent_team"] = None
+            for c in _LIVE_STAT_COLS:
+                row[c] = _num(stats.get(c))
+            rows.append(row)
+
+    df = pd.DataFrame(rows, columns=_EMPTY_COLS)
+    return df
+
+
+def _num(v):
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pct_to_count(pct, total_players: float) -> Optional[float]:
+    """selected_by_percent → an absolute count on vaastav's `selected` scale."""
+    p = _num(pct)
+    return None if p is None else p / 100.0 * total_players
+
+
+def fetch_current_season_gw_history() -> Optional[pd.DataFrame]:
+    """Live GW history for the running season, built from the FPL API."""
+    from data.fetchers.fpl_api import fetch_bootstrap, fetch_fixtures, fetch_live_gw
+    try:
+        bs = fetch_bootstrap()
+        fx = fetch_fixtures()
+    except Exception as exc:   # pragma: no cover · network
+        logger.warning(f"Live GW history unavailable: {exc}")
+        return None
+    df = build_live_gw_history(bs, fx, fetch_live_gw)
+    logger.info(f"Live GW history: {len(df)} rows over GW{finished_gameweeks(bs) or [0]}")
+    return df

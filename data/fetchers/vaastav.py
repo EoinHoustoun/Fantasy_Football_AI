@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 VAASTAV_BASE   = "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-League/master"
 CACHE_TTL      = 48 * 3600   # 48 hours
-CURRENT_SEASON = "2025-26"   # ← update each season
+CURRENT_SEASON = "2026-27"   # ← update each season · served by the FPL API, not vaastav
 
 # All seasons available in the vaastav repo, oldest first.
 SEASONS = [
@@ -94,6 +94,12 @@ def fetch_gw_history(season: str = CURRENT_SEASON) -> Optional[pd.DataFrame]:
     Useful for form analysis, price change tracking, and ownership trends.
     Returns long-format DataFrame: one row per (player, gameweek).
     """
+    if season == CURRENT_SEASON:
+        # Vaastav lags the live season by weeks and stalled at GW29 last year.
+        # The running season is assembled from the FPL API instead.
+        from data.fetchers.fpl_history import fetch_current_season_gw_history
+        return fetch_current_season_gw_history()
+
     key = f"gw_history_{season.replace('-', '_')}"
     if _is_fresh(key, season):
         return pd.read_parquet(_cache_path(key))
@@ -278,6 +284,11 @@ def fetch_defcon_stats(
 
     # Use only recent games for form stats
     recent = df[df["GW"] >= current_gw - last_n_gws + 1].copy()
+    if recent.empty:
+        # Early season: nobody has the qualifying games yet. Say so rather than
+        # hand pandas an empty groupby (its reset_index raises on `name`).
+        logger.info(f"DEFCON: no player has {min_gws}+ games yet (GW{current_gw})")
+        return None
 
     def _stats(group: pd.DataFrame) -> pd.Series:
         g   = group.sort_values("GW")
