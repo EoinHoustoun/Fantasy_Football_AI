@@ -335,7 +335,8 @@ def score_breakdown_chart(top5: pd.DataFrame, title: str, key: str) -> None:
 
 # ── Main layout ────────────────────────────────────────────────────────────────
 
-st.title("🏆 Captain Picker")
+from ui.page import header as _header
+_header("Captain", "Who wears the armband this gameweek, ranked on the engine's expected points, with where those points come from.", kicker="This week", icon="military_tech")
 
 with fpl_loader("Weighing up the armband", LINES_GENERIC):
     players_df, bootstrap = load_universe()

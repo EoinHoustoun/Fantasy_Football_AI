@@ -165,8 +165,8 @@ def _cumulative_chart(hist_df: pd.DataFrame, gw_avgs: pd.DataFrame) -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-st.title("📅 GW History")
-st.caption("Your season performance vs the global average, gameweek by gameweek.")
+from ui.page import header as _header
+_header("GW History", "Your season against the global average, gameweek by gameweek.", kicker="History", icon="history")
 
 bootstrap, current_gw = load_bootstrap()
 

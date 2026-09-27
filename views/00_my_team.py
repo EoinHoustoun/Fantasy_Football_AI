@@ -725,7 +725,7 @@ link_cols = st.columns(3)
 with link_cols[0]:
     st.page_link("views/06_captain_picker.py", label="Full captain breakdown →")
 with link_cols[1]:
-    st.page_link("views/07_buy_sell.py",       label="Full sell analysis →")
+    st.page_link("views/02_transfer_suggestions.py", label="Best replacements →")
 with link_cols[2]:
     st.page_link("views/02_transfer_suggestions.py", label="All transfer targets →")
 

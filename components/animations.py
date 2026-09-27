@@ -129,6 +129,32 @@ _GLOBAL_CSS = """
   counter-reset: fplh-n calc(var(--fplh-n)) fplh-d calc(var(--fplh-d));
 }
 .fplh-countup.fplh-countup-dec::after { content: counter(fplh-n) "." counter(fplh-d); }
+
+/* ────── Floodlit motion (2026-09-27) · six moves, all explain a change ────── */
+@keyframes ff-rise  { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes ff-grow  { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ff-growy { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes ff-sweep { from { background-position: -420px 0; } to { background-position: 1600px 0; } }
+@keyframes ff-out   { 0% { transform: none; opacity: 1; } 100% { transform: translate(40px,-22px) scale(.7); opacity: 0; } }
+@keyframes ff-in    { 0% { transform: translate(-40px,22px) scale(.7); opacity: 0; } 100% { transform: none; opacity: 1; } }
+.ff-rise   { animation: ff-rise .6s cubic-bezier(.2,.8,.2,1) both; }
+.ff-rise-2 { animation: ff-rise .6s .08s cubic-bezier(.2,.8,.2,1) both; }
+.ff-rise-3 { animation: ff-rise .6s .16s cubic-bezier(.2,.8,.2,1) both; }
+.ff-rise-4 { animation: ff-rise .6s .24s cubic-bezier(.2,.8,.2,1) both; }
+.ff-grow   { transform-origin: left;   animation: ff-grow .9s .25s cubic-bezier(.2,.8,.2,1) both; }
+.ff-growy  { transform-origin: bottom; animation: ff-growy .8s .2s cubic-bezier(.2,.8,.2,1) both; }
+.ff-sweep  { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 0, rgba(0,255,135,.10) 40%, transparent 60%);
+  background-size: 420px 100%; background-repeat: no-repeat;
+  animation: ff-sweep 7s linear infinite; }
+.ff-sweep.ff-hot { animation-duration: 2.6s;
+  background-image: linear-gradient(100deg, transparent 0, rgba(255,75,75,.14) 40%, transparent 60%); }
+.ff-swap-out { animation: ff-out .7s cubic-bezier(.6,0,.2,1) both; }
+.ff-swap-in  { animation: ff-in .7s .35s cubic-bezier(.2,.8,.2,1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .ff-rise, .ff-rise-2, .ff-rise-3, .ff-rise-4, .ff-grow, .ff-growy, .ff-sweep,
+  .ff-swap-out, .ff-swap-in, .fplh-captain-pulse, .fplh-countup { animation: none !important; }
+}
 </style>
 """
 

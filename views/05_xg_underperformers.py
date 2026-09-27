@@ -71,21 +71,9 @@ def _fixture_pills(fixtures, n: int = 5) -> str:
     return "".join(pills)
 
 
-# ── Page header ────────────────────────────────────────────────────────────────
-st.markdown(
-    """
-<div style="padding:18px 0 8px;font-family:'Inter',sans-serif;">
-  <div style="font-size:30px;font-weight:900;color:var(--ff-text);letter-spacing:-0.5px;">
-    📈 xG Underperformers
-  </div>
-  <div style="font-size:14px;color:var(--ff-muted2);margin-top:4px;line-height:1.5;">
-    Players creating chances faster than they're finishing · statistically due a goal.
-    <span style="color:var(--ff-muted2);">xG gap = xG accumulated − actual goals.</span>
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
+# ── Page header ─
+from ui.page import header as _header
+_header("xG Tracker", "Players creating chances faster than they finish, and the ones running hot. xG gap = expected goals minus actual goals.", kicker="Research", icon="bolt")
 
 
 # ── Data ──────────────────────────────────────────────────────────────────────

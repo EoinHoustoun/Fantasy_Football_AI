@@ -146,8 +146,8 @@ def _sparkline_chart(
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-st.title("📈 Ownership Trend")
-st.caption("Who's been bought and sold across the season · visualised.")
+from ui.page import header as _header
+_header("Ownership", "Who the crowd has bought and sold across the season.", kicker="Research", icon="trending_up")
 
 with fpl_loader("Tracking the transfer market", LINES_GENERIC):
     players_df, current_gw = load_universe()

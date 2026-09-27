@@ -144,18 +144,8 @@ def _section(title: str, sub: str = "") -> None:
 
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
-st.markdown(
-    f"""
-<div class="fplh-animate-in" style="padding:18px 0 6px;font-family:'Inter',sans-serif;">
-  <div style="font-size:42px;font-weight:900;color:var(--ff-text);letter-spacing:-1.2px;">
-    🏆 The Perfect Season</div>
-  <div style="font-size:14px;color:{MUTED};margin-top:4px;">
-    {LAST_COMPLETE_SEASON} with perfect hindsight · pick a hit policy and see
-    the ceiling
-  </div>
-</div>""",
-    unsafe_allow_html=True,
-)
+from ui.page import header as _header
+_header("The Perfect Season", f"{LAST_COMPLETE_SEASON} with perfect hindsight. Pick a hit policy and see the ceiling.", kicker='History', icon='emoji_events')
 
 # scoreboard across every computed scenario
 tiles = []

@@ -60,16 +60,8 @@ played = summary[summary["minutes"] >= 900].copy()
 # ── Hero ──────────────────────────────────────────────────────────────────────
 best_value = played.loc[played["pts_per_million"].idxmax()]
 n_seasons = summary["season"].nunique()
-st.markdown(
-    f"""
-<div class="fplh-animate-in" style="padding:18px 0 6px;font-family:'Inter',sans-serif;">
-  <div style="font-size:42px;font-weight:900;color:var(--ff-text);letter-spacing:-1.2px;">🔬 Value Lab</div>
-  <div style="font-size:14px;color:{MUTED};margin-top:4px;">
-    {n_seasons} seasons · {len(summary):,} player-seasons · where FPL value actually lives
-  </div>
-</div>""",
-    unsafe_allow_html=True,
-)
+from ui.page import header as _header
+_header("Value Lab", f"{n_seasons} seasons · {len(summary):,} player-seasons · where FPL value actually lives.", kicker="Research", icon="science")
 
 st.markdown(
     '<div class="fplh-stagger" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 6px;">'

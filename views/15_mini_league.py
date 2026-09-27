@@ -196,14 +196,8 @@ def _standings_cards(df: pd.DataFrame, current_gw: int) -> None:
 
 # ── Page ────────────────────────────────────────────────────────────────────────
 
-st.markdown(
-    "<div style='padding:20px 0 4px;'>"
-    "<div style='font-size:30px;font-weight:900;color:var(--ff-cyan);'>🏅 Mini-League Tracker</div>"
-    "<div style='font-size:14px;color:var(--ff-muted2);margin-top:4px;'>"
-    "See every manager's season journey · cumulative points, rank progression &amp; head-to-head."
-    "</div></div>",
-    unsafe_allow_html=True,
-)
+from ui.page import header as _header
+_header("Mini-League", "Every manager's season: cumulative points, rank progression and head to head.", kicker="History", icon="leaderboard")
 
 # Sidebar
 with st.sidebar:

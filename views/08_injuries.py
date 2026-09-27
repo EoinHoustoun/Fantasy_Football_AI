@@ -123,8 +123,8 @@ def _player_alert_card(player: pd.Series, show_shirt: bool = True) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-st.title("🚑 Injury & Availability Tracker")
-st.caption("Live status from the FPL API. Updated every 15 minutes.")
+from ui.page import header as _header
+_header("Injuries", "Live availability from FPL, refreshed every 15 minutes. Your fifteen first, then the whole league.", kicker="This week", icon="medical_services")
 
 with fpl_loader("Checking the treatment room", LINES_GENERIC):
     players_df, bootstrap = load_universe()

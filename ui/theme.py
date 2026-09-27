@@ -71,10 +71,12 @@ def _write_pref(theme: str) -> None:
 
 # ── Palettes ──────────────────────────────────────────────────────────────────
 DARK: Dict[str, str] = {
-    "bg": "#10141F", "bg2": "#161B28",
-    "s1": "#1B2131", "s2": "#232B3E", "s3": "#2E374E",
-    "card": "rgba(30,37,54,0.88)",
-    "card-solid": "#1B2131",
+    # "Floodlit" (2026-09-27): a night ground, one electric accent for gain,
+    # gold only for the captain. Surfaces step up in small, even increments.
+    "bg": "#0B0F17", "bg2": "#0F141E",
+    "s1": "#121823", "s2": "#182031", "s3": "#222B3E",
+    "card": "rgba(18,24,35,0.92)",
+    "card-solid": "#121823",
     "line": "rgba(255,255,255,0.11)",
     "line-strong": "rgba(255,255,255,0.20)",
     "text": "#EEF1F5",
@@ -92,11 +94,15 @@ DARK: Dict[str, str] = {
     "row-alt": "rgba(255,255,255,0.035)",
     "chip-bg": "rgba(255,255,255,0.10)",
     "grid": "rgba(255,255,255,0.10)",
-    # The sidebar used to be FPL purple against near-black, which was the
-    # harshest edge on the screen. A blue-slate a step lighter than the content
-    # reads as the same room rather than a different one.
-    "side": "#5EE0F2", "side2": "#12BBD6", "side-ink": "#05222B",
-    "side-line": "rgba(5,34,43,0.22)",
+    # The night rail (chosen 2026-09-27 over the glossy cyan): the same room as
+    # the content, a floodlight glow at the top, one mint rule for "you are here".
+    "side": "#0E1320", "side2": "#0B0F17", "side-ink": "#EEF1F5",
+    "side-muted": "rgba(238,241,245,0.72)",
+    "side-line": "rgba(255,255,255,0.10)",
+    "side-hover": "rgba(255,255,255,0.06)", "side-active": "rgba(0,255,135,0.12)",
+    "side-accent": "#00FF87", "side-glow": "rgba(0,255,135,0.16)",
+    "side-btn": "rgba(255,255,255,0.05)", "side-btn-hover": "rgba(255,255,255,0.10)",
+    "side-field": "#182031", "side-field-ink": "#EEF1F5",
 }
 
 LIGHT: Dict[str, str] = {
@@ -121,8 +127,13 @@ LIGHT: Dict[str, str] = {
     "row-alt": "rgba(16,24,40,0.024)",
     "chip-bg": "rgba(16,24,40,0.06)",
     "grid": "rgba(16,24,40,0.10)",
-    "side": "#5EE0F2", "side2": "#12BBD6", "side-ink": "#05222B",
-    "side-line": "rgba(5,34,43,0.22)",
+    "side": "#EEF3FA", "side2": "#E3EAF5", "side-ink": "#101828",
+    "side-muted": "rgba(16,24,40,0.72)",
+    "side-line": "rgba(16,24,40,0.12)",
+    "side-hover": "rgba(16,24,40,0.05)", "side-active": "rgba(0,135,74,0.12)",
+    "side-accent": "#00874A", "side-glow": "rgba(0,135,74,0.10)",
+    "side-btn": "rgba(16,24,40,0.04)", "side-btn-hover": "rgba(16,24,40,0.08)",
+    "side-field": "#FFFFFF", "side-field-ink": "#101828",
 }
 
 # Fixture difficulty always carries black text on a solid chip, so one scale
@@ -200,15 +211,14 @@ def _vars_block(p: Dict[str, str]) -> str:
 # ── Global CSS ────────────────────────────────────────────────────────────────
 def _css(p: Dict[str, str], light: bool) -> str:
     ink = p["text"]
-    # Constellation palette. The rail is a bright cyan in BOTH themes, so the
-    # sky is drawn in white and deep teal rather than in the usual ink tokens ·
-    # a mint star on cyan is invisible, and a dark star reads as dirt.
-    star_a = "rgba(255,255,255,0.90)"
-    star_b = "rgba(255,255,255,0.65)"
-    star_c = "rgba(5,34,43,0.30)"          # a few dark ones for depth
-    glow = "rgba(255,255,255,0.42)"
-    pitch_line = "rgba(255,255,255,0.30)"
-    pitch_line_soft = "rgba(255,255,255,0.14)"
+    # Constellation palette for the night rail: white stars and a faint mint
+    # floodlight on the dark rail, deep slate on the light one.
+    star_a = "rgba(16,24,40,0.30)" if light else "rgba(255,255,255,0.80)"
+    star_b = "rgba(16,24,40,0.18)" if light else "rgba(255,255,255,0.50)"
+    star_c = "rgba(0,135,74,0.30)" if light else "rgba(0,255,135,0.55)"
+    glow = "rgba(0,135,74,0.10)" if light else "rgba(0,255,135,0.14)"
+    pitch_line = "rgba(16,24,40,0.16)" if light else "rgba(255,255,255,0.14)"
+    pitch_line_soft = "rgba(16,24,40,0.08)" if light else "rgba(255,255,255,0.06)"
     star_opacity = "0.85" if light else "0.95"
     pitch_opacity = "0.28" if light else "0.34"
     pitch_opacity_hi = "0.40" if light else "0.48"
@@ -257,10 +267,10 @@ h1, h2, h3, h4 {{ color: {ink} !important; }}
    real selected state so the current page is obvious without a hard edge. */
 [data-testid="stSidebar"] {{
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 26%),
+    radial-gradient(320px 240px at 18% -4%, var(--ff-side-glow) 0%, transparent 70%),
     linear-gradient(180deg, var(--ff-side) 0%, var(--ff-side2) 100%) !important;
   border-right: 1px solid var(--ff-side-line) !important;
-  box-shadow: inset -1px 0 0 rgba(255,255,255,0.5),
+  box-shadow: inset -1px 0 0 var(--ff-side-line),
               4px 0 24px rgba(12,32,57,0.14) !important;
   position: relative !important;
 }}
@@ -334,22 +344,22 @@ h1, h2, h3, h4 {{ color: {ink} !important; }}
 }}
 [data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
 [data-testid="stSidebarNav"] a:hover, [data-testid="stSidebarNavLink"]:hover {{
-  background: rgba(5,34,43,0.12) !important; transform: translateX(2px);
+  background: var(--ff-side-hover) !important; transform: translateX(2px);
 }}
 [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"],
 [data-testid="stSidebarNav"] a[aria-current="page"],
 [data-testid="stSidebarNavLink"][aria-current="page"] {{
-  background: rgba(5,34,43,0.16) !important;
-  box-shadow: inset 3px 0 0 #05222B;
+  background: var(--ff-side-active) !important;
+  box-shadow: inset 3px 0 0 var(--ff-side-accent);
   font-weight: 700 !important;
 }}
-[data-testid="stSidebarNav"] a[aria-current="page"] * {{ color: #05222B !important; }}
+[data-testid="stSidebarNav"] a[aria-current="page"] * {{ color: var(--ff-side-ink) !important; }}
 /* Category headers are the point of the regrouping, so they have to be legible ·
    a hairline under each one separates the four groups without adding a box. */
 [data-testid="stNavSectionHeader"] {{
   font-size: 10px !important; font-weight: 800 !important;
   letter-spacing: 0.2em !important; text-transform: uppercase !important;
-  color: #05222B !important; opacity: 1 !important;
+  color: var(--ff-side-accent) !important; opacity: 1 !important;
   /* Streamlit sets visibility:hidden on section headers when the nav is
      collapsed. The categories ARE the navigation here, so bring them back. */
   visibility: visible !important;
@@ -588,11 +598,11 @@ button[data-baseweb="tab"][aria-selected="true"] {{
 }}
 hr {{ border-color: var(--ff-line) !important; }}
 
-/* Category buttons · the accordion headers. Open one reads as a solid dark
-   plate on the cyan; closed ones are quiet outlines. */
+/* Category buttons · the accordion headers. The open one carries the mint
+   rule; closed ones are quiet outlines on the night rail. */
 [data-testid="stSidebar"] .stButton button {{
-  background: rgba(255,255,255,0.42) !important;
-  border: 1px solid rgba(5,34,43,0.20) !important;
+  background: var(--ff-side-btn) !important;
+  border: 1px solid var(--ff-side-line) !important;
   color: var(--ff-side-ink) !important;
   font-weight: 800 !important; font-size: 12.5px !important;
   letter-spacing: 0.06em; text-transform: uppercase;
@@ -600,18 +610,18 @@ hr {{ border-color: var(--ff-line) !important; }}
   justify-content: flex-start !important;
 }}
 [data-testid="stSidebar"] .stButton button:hover {{
-  background: rgba(255,255,255,0.72) !important;
-  border-color: rgba(5,34,43,0.38) !important; color: var(--ff-side-ink) !important;
+  background: var(--ff-side-btn-hover) !important;
+  border-color: var(--ff-side-accent) !important; color: var(--ff-side-ink) !important;
 }}
 [data-testid="stSidebar"] .stButton button[kind="primary"] {{
-  background: var(--ff-side-ink) !important;
-  border-color: var(--ff-side-ink) !important;
-  color: #7FEAF8 !important;
+  background: var(--ff-side-active) !important;
+  border-color: var(--ff-side-accent) !important;
+  color: var(--ff-side-ink) !important;
 }}
 /* The label sits in a child element, which the blanket sidebar-ink rule also
    matches · without this the open category is dark text on a dark plate. */
 [data-testid="stSidebar"] .stButton button[kind="primary"] * {{
-  color: #7FEAF8 !important;
+  color: var(--ff-side-ink) !important;
 }}
 [data-testid="stSidebar"] .stButton button[kind="secondary"] * {{
   color: var(--ff-side-ink) !important;
@@ -625,9 +635,9 @@ hr {{ border-color: var(--ff-line) !important; }}
 [data-testid="stSidebar"] [data-baseweb="select"] > div,
 [data-testid="stSidebar"] [data-testid="stNumberInputContainer"],
 [data-testid="stSidebar"] input, [data-testid="stSidebar"] textarea {{
-  background: rgba(255,255,255,0.78) !important;
-  border-color: rgba(5,34,43,0.22) !important;
-  -webkit-text-fill-color: var(--ff-side-ink) !important;
+  background: var(--ff-side-field) !important;
+  border-color: var(--ff-side-line) !important;
+  -webkit-text-fill-color: var(--ff-side-field-ink) !important;
   font-weight: 700 !important;
 }}
 [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button {{
@@ -637,7 +647,7 @@ hr {{ border-color: var(--ff-line) !important; }}
   background: var(--ff-side-ink) !important;
 }}
 [data-testid="stSidebar"] [data-baseweb="tag"] * {{
-  color: #7FEAF8 !important; -webkit-text-fill-color: #7FEAF8 !important;
+  color: var(--ff-bg) !important; -webkit-text-fill-color: var(--ff-bg) !important;
 }}
 [data-testid="stSidebar"] [data-testid="stPageLink"] {{ margin: 1px 0 1px 10px; }}
 [data-testid="stSidebar"] [data-testid="stPageLink"] a {{

@@ -73,10 +73,10 @@ for _key in ("players_df", "bootstrap", "fixtures_df", "current_gw"):
 # ── Sidebar branding ───────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(
-        "<div style='text-align:center;padding:12px 0 4px;'>"
-        "<span style='font-size:28px;'>⚽</span>"
-        "<div style='font-size:17px;font-weight:800;color:var(--ff-mint);letter-spacing:-0.3px;'>FPL Analytics Hub</div>"
-        "<div style='font-size:11px;color:var(--ff-side-ink);opacity:0.7;margin-top:2px;'>Data-driven FPL</div>"
+        "<div style='padding:10px 4px 2px;'>"
+        "<div class='ff-display' style='font-size:24px;font-weight:900;letter-spacing:-0.6px;"
+        "color:var(--ff-side-ink);line-height:1;'>FPL <span style='color:var(--ff-side-accent);'>Hub</span></div>"
+        "<div style='font-size:12px;color:var(--ff-side-muted);margin-top:4px;'>One engine · every decision</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -149,10 +149,6 @@ try:
         if _TID:
             st.session_state.squad_team_id = int(_TID)
 
-    # Pre-warm the points model in the background (daemon thread, once per
-    # process) so the first click on Predictions / Free Hit is instant.
-    from analytics.model_store import prewarm_async
-    prewarm_async()
     # The shared projection engine (analytics/brain) rebuilds once per finished
     # gameweek; start it early so the first page that needs it is instant.
     from analytics import brain as _brain
@@ -162,51 +158,39 @@ except Exception as e:  # noqa: BLE001 · surface any load failure to the UI
     st.info("Check your internet connection and try **🔄 Refresh Data**.")
 
 
-# ── Grouped navigation · 5 sections, 19 pages ─────────────────────────────────
-# Slimmed 2026-07: Dashboard removed (generic stats · better versions live in
-# Transfers + Value Lab); standalone Planner removed (the My Team pitch is the
-# planner now, Buy/Sell keeps the verdict engine). Scouting = who to buy next;
-# Data Science Lab = models, hindsight engines and season retrospectives.
-# Four categories, each expanding to its own pages. The old six sections put
-# nineteen links on screen at once, which is a directory rather than navigation.
-# The grouping is by INTENT: what am I doing right now, what am I planning, what
-# am I researching, what already happened.
-# Four categories, each of which DRIPS DOWN its pages when you click it. Streamlit's
-# own sidebar nav renders every page under every header at once, which is a
-# nineteen-item directory. So the nav is hidden and the sidebar builds the
-# accordion itself with st.page_link, which gives real routing and a real
-# aria-current state without the flat list.
+# ── Navigation · four groups, fourteen pages (2026-09-27) ─────────────────────
+# Grouped by intent: this week, planning ahead, research, what already happened.
+# Merged away in the Floodlit overhaul: Buy/Sell and Differentials (Transfers'
+# best moves and target board), Wildcard and Free Hit (the Chips page solves
+# both squads on the engine), Predictions (the engine replaced its model).
+# Streamlit's own nav lists every page under every header at once, so it is
+# hidden and the rail builds an accordion with st.page_link instead.
 PAGES = {
-    "Play": [
-        st.Page("views/home.py",                   title="Home",          icon=":material/home:", default=True),
-        st.Page("views/00_my_team.py",             title="My Team",       icon=":material/groups:"),
-        st.Page("views/06_captain_picker.py",      title="Captain",       icon=":material/military_tech:"),
-        st.Page("views/08_injuries.py",            title="Injuries",      icon=":material/medical_services:"),
+    "This week": [
+        st.Page("views/home.py",                    title="Home",          icon=":material/home:", default=True),
+        st.Page("views/00_my_team.py",              title="My Team",       icon=":material/groups:"),
+        st.Page("views/06_captain_picker.py",       title="Captain",       icon=":material/military_tech:"),
+        st.Page("views/02_transfer_suggestions.py", title="Transfers",     icon=":material/swap_horiz:"),
+        st.Page("views/08_injuries.py",             title="Injuries",      icon=":material/medical_services:"),
     ],
     "Plan": [
-        st.Page("views/18_draft_2026_27.py",       title="26/27 Draft",   icon=":material/draw:"),
-        st.Page("views/02_transfer_suggestions.py", title="Transfers",    icon=":material/swap_horiz:"),
-        st.Page("views/07_buy_sell.py",            title="Buy / Sell",    icon=":material/payments:"),
-        st.Page("views/14_chip_planner.py",        title="Chip Planner",  icon=":material/casino:"),
-        st.Page("views/09_wildcard.py",            title="Wildcard",      icon=":material/style:"),
-        st.Page("views/13_free_hit.py",            title="Free Hit",      icon=":material/my_location:"),
+        st.Page("views/14_chip_planner.py",         title="Chips",         icon=":material/casino:"),
+        st.Page("views/18_draft_2026_27.py",        title="Squad Builder", icon=":material/draw:"),
     ],
-    "Stats": [
-        st.Page("views/12_predictions.py",         title="Predictions",   icon=":material/insights:"),
-        st.Page("views/04_differentials.py",       title="Differentials", icon=":material/diamond:"),
-        st.Page("views/05_xg_underperformers.py",  title="xG Tracker",    icon=":material/bolt:"),
-        st.Page("views/10_ownership_trend.py",     title="Ownership",     icon=":material/trending_up:"),
-        st.Page("views/17_value_lab.py",           title="Value Lab",     icon=":material/science:"),
-        st.Page("views/19_playbook.py",            title="Playbook",      icon=":material/menu_book:"),
+    "Research": [
+        st.Page("views/05_xg_underperformers.py",   title="xG Tracker",    icon=":material/bolt:"),
+        st.Page("views/10_ownership_trend.py",      title="Ownership",     icon=":material/trending_up:"),
+        st.Page("views/17_value_lab.py",            title="Value Lab",     icon=":material/science:"),
+        st.Page("views/19_playbook.py",             title="Playbook",      icon=":material/menu_book:"),
     ],
     "History": [
-        st.Page("views/11_gw_history.py",          title="GW History",    icon=":material/history:"),
-        st.Page("views/15_mini_league.py",         title="Mini-League",   icon=":material/leaderboard:"),
-        st.Page("views/16_perfect_season.py",      title="Perfect Season", icon=":material/emoji_events:"),
+        st.Page("views/11_gw_history.py",           title="GW History",    icon=":material/history:"),
+        st.Page("views/15_mini_league.py",          title="Mini-League",   icon=":material/leaderboard:"),
+        st.Page("views/16_perfect_season.py",       title="Perfect Season", icon=":material/emoji_events:"),
     ],
 }
-CATEGORY_ICONS = {"Play": ":material/sports_soccer:", "Plan": ":material/draw:",
-                  "Stats": ":material/insights:", "History": ":material/history:"}
+CATEGORY_ICONS = {"This week": ":material/sports_soccer:", "Plan": ":material/event_note:",
+                  "Research": ":material/insights:", "History": ":material/history:"}
 
 nav = st.navigation(PAGES, position="hidden")
 
@@ -214,7 +198,7 @@ nav = st.navigation(PAGES, position="hidden")
 # out of where you are.
 _current = getattr(nav, "title", None)
 _home_cat = next((c for c, ps in PAGES.items()
-                  if any(getattr(p, "title", None) == _current for p in ps)), "Play")
+                  if any(getattr(p, "title", None) == _current for p in ps)), "This week")
 st.session_state.setdefault("nav_cat", _home_cat)
 
 with st.sidebar:
@@ -230,5 +214,29 @@ with st.sidebar:
         if _open:
             for _pg in _pages:
                 st.page_link(_pg, icon=None)
+
+    # The deadline lives in the rail on every page · the one number that
+    # matters wherever you are.
+    try:
+        from datetime import datetime, timezone
+        _nx = next((e for e in (st.session_state.get("bootstrap") or {}).get("events", [])
+                    if e.get("is_next")), None)
+        if _nx:
+            _dl = datetime.fromisoformat(_nx["deadline_time"].replace("Z", "+00:00"))
+            _left = _dl - datetime.now(timezone.utc)
+            _d, _h = _left.days, _left.seconds // 3600
+            _txt = ("%dd %dh" % (_d, _h)) if _d >= 1 else ("%dh %dm" % (_h, (_left.seconds % 3600) // 60))
+            _hot = _d < 1
+            st.markdown(
+                f"<div style='margin:18px 2px 4px;padding:12px 14px;border-radius:12px;"
+                f"background:{'rgba(255,75,75,0.10)' if _hot else 'rgba(255,215,0,0.07)'};"
+                f"border:1px solid {'var(--ff-red)' if _hot else 'rgba(255,215,0,0.30)'};'>"
+                f"<div style='font-size:10px;font-weight:700;letter-spacing:0.16em;"
+                f"text-transform:uppercase;color:var(--ff-side-muted);'>GW{_nx['id']} deadline</div>"
+                f"<div class='ff-display ff-num' style='font-size:22px;font-weight:900;"
+                f"color:{'var(--ff-red)' if _hot else 'var(--ff-gold)'};'>{_txt}</div></div>",
+                unsafe_allow_html=True)
+    except Exception:  # noqa: BLE001 · a clock is never worth an exception
+        pass
 
 nav.run()

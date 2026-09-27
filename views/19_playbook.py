@@ -105,16 +105,8 @@ def _question(num: int, q: str, rule: str, accent: str = "var(--ff-mint)") -> No
 
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
-st.markdown(
-    f"""
-<div class="fplh-animate-in" style="padding:18px 0 6px;font-family:'Inter',sans-serif;">
-  <div style="font-size:42px;font-weight:900;color:{V('text')};letter-spacing:-1.2px;">📖 The Playbook</div>
-  <div style="font-size:14px;color:{V('muted')};margin-top:4px;">
-    Your strategy questions, answered by 253,000 player-gameweeks · not vibes
-  </div>
-</div>""",
-    unsafe_allow_html=True,
-)
+from ui.page import header as _header
+_header("The Playbook", "Your strategy questions, answered by 253,000 player-gameweeks, not vibes.", kicker='Research', icon='menu_book')
 
 # ── Season Start Kit ──────────────────────────────────────────────────────────
 st.markdown(
