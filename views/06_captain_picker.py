@@ -507,9 +507,4 @@ else:
     st.info(f"No differential captains under {diff_threshold}% ownership with a fixture this week.")
 
 
-# ── Consistent player intel across the app ────────────────────────────────────
-try:
-    from ui.player_detail import intel_lookup
-    intel_lookup(players_df, key="06_captain_picker_intel")
-except Exception:  # noqa: BLE001 · intel is an extra, never break the page
-    pass
+# (Player lookups live in the rail's search on every page; no per-page copy.)
