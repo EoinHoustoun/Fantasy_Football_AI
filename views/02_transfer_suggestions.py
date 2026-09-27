@@ -238,7 +238,11 @@ _section("Target board",
          "Everyone the engine projects, over the same window. Faces are clickable in "
          "the player card on My Team.", "table_rows")
 
-f1, f2, f3 = st.columns([2, 2, 1])
+f1, f2, f4, f3 = st.columns([2, 1.6, 1.4, 1])
+with f4:
+    max_own = st.select_slider("Owned by at most", options=[1, 3, 5, 10, 20, 50, 100], value=100,
+                               key="tb_own", format_func=lambda v: "anyone" if v == 100 else "%d%%" % v,
+                               help="Lower it to find differentials: good projections few managers hold.")
 with f1:
     pos = st.segmented_control("Position", ["All", "GKP", "DEF", "MID", "FWD"], default="All",
                                key="tb_pos", label_visibility="collapsed") or "All"
@@ -252,6 +256,8 @@ summ = brain.summary(long, wg)
 if pos != "All":
     summ = summ[summ["position"] == pos]
 summ = summ[summ["price"] <= maxp]
+if max_own < 100:
+    summ = summ[summ["ownership"].fillna(0) <= max_own]
 owned = {p["code"] for p in T_["squad"]}
 if hide_owned:
     summ = summ[~summ["code"].isin(owned)]
@@ -277,7 +283,7 @@ for _, r in summ.iterrows():
     rows.append({"code": c, "web_name": r["web_name"],
                  "sub": "%s · %s" % (r["team_short"], r["position"]),
                  "price": r["price"], "xp_next": r["xp_next"], "xp_total": r["xp_total"],
-                 "xmins": r["xmins"], "gws": _gw_cells(c),
+                 "xmins": r["xmins"], "gws": _gw_cells(c), "own": r.get("ownership"),
                  "run": [{"opp": f.split("(")[0], "home": "(H)" in f, "fdr": 3}
                          for f in service.fixtures_for(int(r["team_id"]), wg[:4])]
                  if pd.notna(r.get("team_id")) else []})
@@ -290,6 +296,7 @@ T.render(rows, [
     T.col_bar("xp_total", "GW%d-%d" % (wg[0], wg[-1]), max_value=maxx, fmt="%.1f"),
     T.col_html("gws", "Per gameweek"),
     T.col_num("xmins", "xMins", fmt="%.0f"),
+    T.col_num("own", "Owned %", fmt="%.1f"),
 ], key="target_board", max_height=520)
 
 st.caption("xP = expected FPL points from the component model (minutes, goals, assists, "

@@ -125,13 +125,8 @@ def _chip_card(name: str, gw: int, headline: str, why: str, tone: str,
 
 
 # ── Header ───────────────────────────────────────────────────────────────────
-st.markdown(_one_line(
-    f'<div style="padding:16px 0 2px;">'
-    f'<div class="ff-display" style="font-size:34px;font-weight:900;'
-    f'color:{V("text")};letter-spacing:-0.6px;">Chip Planner</div>'
-    f'<div style="font-size:13.5px;color:{V("muted")};margin-top:2px;">'
-    f'Which week to spend each chip you still hold.</div></div>'),
-    unsafe_allow_html=True)
+from ui.page import header as _header
+_header("Chips", "Which week to spend each chip you still hold, priced on the engine.", kicker="Plan", icon="casino")
 
 board, scout, _, _ = build_board(_freshness.inputs_stamp())
 if board is None:
@@ -186,6 +181,81 @@ if _played is not None:
         f'<span style="font-size:12px;color:{V("muted")};">Planning GW{CS["gw_lo"]}-{CS["gw_hi"]} '
         f'· {"first" if CS["half"] == 1 else "second"} set of chips</span></div>'),
         unsafe_allow_html=True)
+
+# ── Free Hit on the engine · what it is worth each week ──────────────────────
+# The chip you hold is priced week by week: the best fifteen the budget buys
+# for that single gameweek (it reverts afterwards) against your own best XI and
+# captain. Solved exactly, one MILP per week, on the shared engine.
+if "freehit" in CS["remaining"]:
+    from analytics import service as _svc
+    from components.team_identity import face_html as _face
+    from ui.page import section as _section
+
+    _section("Free Hit · what it is worth each week",
+             "Best fifteen for that week alone, minus what your own team scores. "
+             "It pays most in a blank or double, or when your fixtures collapse.", "my_location")
+
+    @st.cache_data(ttl=1800, show_spinner=False)
+    def _fh_by_week(team_id: int, stamp: str):
+        long = _svc.projections(allow_compute=False)
+        if long is None:
+            return []
+        out = []
+        for g in sorted(int(x) for x in long["gw"].unique()):
+            if g > CS["gw_hi"]:
+                break
+            r = _svc.chip_squad("fh", g, team_id=team_id)
+            if r.get("ok"):
+                out.append(r)
+        return out
+
+    _stamp = "%s-%s" % (_next_gw, len(_played or []))
+    with st.spinner("Solving a Free Hit squad for each week"):
+        _fh = _fh_by_week(int(_team_id), _stamp) if _team_id else []
+    if _fh:
+        _best = max(_fh, key=lambda r: r["gain"])
+        _o = charts.bar_option(
+            x=["GW%d" % r["gws"][0] for r in _fh], y=[round(r["gain"], 1) for r in _fh],
+            colors=[theme.fill("mint") if r is _best else theme.fill("muted2") for r in _fh])
+        _o["tooltip"]["formatter"] = "{b}: +{c} pts over your XI"
+        _gains = [r["gain"] for r in _fh]
+        _flat = max(_gains) - sorted(_gains)[len(_gains) // 2] < 3.0
+        _verdict = (("No standout week yet: the best (GW%d, +%.1f) is barely above a typical week "
+                     "(+%.1f). Hold it for a blank or a double.")
+                    % (_best["gws"][0], _best["gain"], sorted(_gains)[len(_gains) // 2]) if _flat else
+                    ("GW%d stands out at +%.1f against a typical +%.1f." %
+                     (_best["gws"][0], _best["gain"], sorted(_gains)[len(_gains) // 2])))
+        st.markdown(_one_line(
+            f'<div style="font-size:15px;color:{V("text")};margin:0 0 8px;">'
+            f'{theme.icon("lightbulb", 18, V("gold"))} {_verdict}</div>'), unsafe_allow_html=True)
+        _c1, _c2 = st.columns([1.3, 1])
+        with _c1:
+            charts.render(_o, height="240px", key="fh_by_week")
+        with _c2:
+            _pick = st.selectbox("Show the squad for", ["GW%d" % r["gws"][0] for r in _fh],
+                                 index=_fh.index(_best), key="fh_pick")
+            _r = next(r for r in _fh if "GW%d" % r["gws"][0] == _pick)
+            st.markdown(_one_line(
+                f'<div style="background:{V("card")};border:1px solid {V("line")};'
+                f'border-top:3px solid {V("mint")};border-radius:14px;padding:14px 16px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+                f'<div class="ff-display ff-num" style="font-size:30px;font-weight:900;color:{V("mint")};">'
+                f'+{_r["gain"]:.1f}</div><div style="font-size:12.5px;color:{V("muted")};">'
+                f'{_r["points"]:.1f} vs your {_r["current_points"]:.1f} · £{_r["cost"]:.1f}m of '
+                f'£{_r["budget"]:.1f}m</div></div>'
+                + "".join(
+                    f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+                    f'border-bottom:1px solid {V("line")};font-size:13px;'
+                    f'{"opacity:0.6;" if not p["in_xi"] else ""}">'
+                    f'<span style="width:34px;color:{V("muted")};">{p["position"]}</span>'
+                    f'<span style="flex:1;color:{V("text")};font-weight:{700 if p["captain"] else 500};">'
+                    f'{p["name"]}{" (C)" if p["captain"] else ""}{" · yours" if p["owned"] else ""}</span>'
+                    f'<span class="ff-num" style="color:{V("cyan")};">{p["xp"]:.2f}</span></div>'
+                    for p in sorted(_r["squad"], key=lambda p: (not p["in_xi"],
+                                    ["GKP", "DEF", "MID", "FWD"].index(p["position"]))))
+                + '</div>'), unsafe_allow_html=True)
+        st.caption("Within the engine's eight-week horizon. Blanks and doubles land in the "
+                   "fixture list during the season, so re-read this when one is announced.")
 
 _saved = [d for d in DR.load_drafts() if DR.has_squad(d)]
 _mine = _my_codes(_team_id, _next_gw) if _team_id else []

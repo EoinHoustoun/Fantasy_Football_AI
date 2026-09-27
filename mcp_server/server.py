@@ -136,6 +136,17 @@ def compare_players(names: List[str], horizon: int = 6) -> dict:
 
 
 @mcp.tool()
+def chip_squad(chip: str, gw: Optional[int] = None, weeks: int = 6) -> dict:
+    """Best fifteen for a chip, on the engine, within the real selling budget.
+
+    chip: "freehit" (one gameweek, the squad reverts) or "wildcard" (a window of
+    `weeks`). Returns the squad, XI, captain, points vs the current team over the
+    same weeks (`gain`), and whether the solve is proven optimal.
+    """
+    return S.chip_squad(chip, gw, weeks)
+
+
+@mcp.tool()
 def save_plan_to_app(week_moves: List[dict]) -> dict:
     """Write a plan into the My Team planner as drafts (user presses Save in the app).
 

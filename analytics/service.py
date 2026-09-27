@@ -405,3 +405,58 @@ def best_moves(team_id: Optional[int] = None, horizon: int = 6, top_n: int = 5,
     return {"ready": True, "gws": [int(g) for g in gws], "team_xp": round(base, 2),
             "moves": moves[:int(top_n)], "free_transfers": t["free_transfers"],
             "bank": t["bank"], "friction": friction}
+
+
+def chip_squad(chip: str, gw: Optional[int] = None, weeks: int = 1,
+               team_id: Optional[int] = None, per_pos: int = 40) -> Dict:
+    """Best fifteen for a Free Hit (one gameweek) or a Wildcard (a window), on the engine.
+
+    The budget is what the manager can actually spend: bank plus the SELLING
+    value of the current fifteen. The answer is judged against the current
+    squad's best XI and captain over the same weeks, so the chip's value is
+    stated, not implied. A Free Hit squad reverts afterwards, which is why it is
+    solved for its single week only.
+    """
+    from analytics.squad_milp import optimize_squad
+    long = projections()
+    t = team(team_id)
+    gws_all = sorted(int(g) for g in long["gw"].unique())
+    gw = int(gw or gws_all[0])
+    n = 1 if chip.lower() in ("fh", "freehit", "free hit") else max(1, int(weeks))
+    gws = [g for g in gws_all if gw <= g < gw + n]
+    if not gws:
+        return {"ok": False, "error": "GW%d is outside the projection horizon" % gw}
+    per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw", values="xp",
+                                                 aggfunc="sum").fillna(0.0)
+    s = brain.summary(long, gws).set_index("code")
+    s = s.join(per.rename(columns=lambda g: "gw_%d" % g), how="left").fillna(
+        {"gw_%d" % g: 0.0 for g in gws})
+    keep = set()
+    for _, grp in s.groupby("position"):
+        keep |= set(grp.nlargest(per_pos, "xp_total").index)
+    pool = s.loc[sorted(keep)].reset_index()
+    budget = round(t["bank"] + sum(p["sell_price"] for p in t["squad"]), 1)
+    cols = ["gw_%d" % g for g in gws]
+    if len(cols) == 1:
+        res = optimize_squad(pool, budget=budget, pts_col=cols[0], time_limit=60)
+    else:
+        res = optimize_squad(pool, budget=budget, gw_pts_cols=cols, time_limit=90)
+    if res is None:
+        return {"ok": False, "error": "no legal squad inside £%.1fm" % budget}
+    sq = res["squad"]
+    mine = [p["code"] for p in t["squad"]]
+    pos = s["position"].to_dict()
+    current = team_xp(mine, per, pos, bench_weight=0.0)
+    new_total = res.get("window_points", res["xi_points"])
+    players = [{"name": r["web_name"], "team": r["team_short"], "position": r["position"],
+                "price": float(r["price"]), "xp": round(float(sum(r[c] for c in cols)), 2),
+                "in_xi": bool(r["in_xi"]), "captain": bool(r["is_captain"]),
+                "code": int(r["code"]), "team_code": r.get("team_code"),
+                "owned": int(r["code"]) in mine}
+               for _, r in sq.iterrows()]
+    return {"ok": True, "chip": "Free Hit" if n == 1 else "Wildcard", "gws": gws,
+            "budget": budget, "cost": res["squad_cost"], "points": round(float(new_total), 2),
+            "current_points": round(float(current), 2),
+            "gain": round(float(new_total - current), 2),
+            "proven_optimal": bool(res.get("proven_optimal")), "squad": players,
+            "keeps": sum(1 for p in players if p["owned"])}
