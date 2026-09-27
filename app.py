@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
+_APP_T0 = time.time()
 from pathlib import Path
 
 import streamlit as st
@@ -153,6 +154,8 @@ try:
     # gameweek; start it early so the first page that needs it is instant.
     from analytics import brain as _brain
     _brain.warm_async(bs, players_df, fixtures_df)
+    from analytics import service as _service
+    _service.warm_async()
 except Exception as e:  # noqa: BLE001 · surface any load failure to the UI
     st.error(f"Failed to load data: {e}")
     st.info("Check your internet connection and try **🔄 Refresh Data**.")
@@ -246,4 +249,11 @@ with st.sidebar:
     except Exception:  # noqa: BLE001 · a clock is never worth an exception
         pass
 
+# Page render time goes to the log (not the page): the cheapest way to see
+# which page is slow on this machine. `grep "page render"` the server log.
+import logging as _logging
+_t0 = time.time()
+_logging.getLogger("ff.timing").warning("app prelude %.2fs", _t0 - _APP_T0)
 nav.run()
+_logging.getLogger("ff.timing").warning("page render %s %.2fs", getattr(nav, "title", "?"),
+                                        time.time() - _t0)

@@ -114,21 +114,29 @@ def team(team_id: Optional[int] = None) -> Dict[str, Any]:
         i = inputs()
         gwi = gameweek_info()
         nxt = int(gwi["next_gw"] or 1)
-        hist = fetch_entry_history(team_id)
-        info = fetch_team_info(team_id)
-        picks = fetch_team_picks(team_id, nxt)
+        # The three manager requests are independent: fetch them together.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_hist = ex.submit(fetch_entry_history, team_id)
+            f_info = ex.submit(fetch_team_info, team_id)
+            f_picks = ex.submit(fetch_team_picks, team_id, nxt)
+            hist, info, picks = f_hist.result(), f_info.result(), f_picks.result()
         players = i["players"].set_index("fpl_id")
         ids = [int(p["element"]) for p in picks.get("picks", [])]
-        # GW1 prices for the squad players never transferred in.
+        # GW1 prices for the squad players never transferred in. Read from the
+        # per-player history cache (one file, refreshed per finished gameweek)
+        # rather than fifteen live requests every time this memo expires.
         gw1 = {}
-        for pid in ids:
-            try:
-                from data.fetchers.fpl_history import _get, FPL_BASE
-                h = _get("%s/element-summary/%d/" % (FPL_BASE, pid)).get("history", [])
-                if h:
-                    gw1[pid] = h[0]["value"] / 10.0
-            except Exception:  # noqa: BLE001
-                pass
+        try:
+            ph = ownership_history(min_own=0.0, top_traded=0)
+            code_by_id = dict(zip(i["players"]["fpl_id"].astype(int), i["players"]["code"].astype(int)))
+            first = ph.sort_values("GW").groupby("code")["value"].first()
+            for pid in ids:
+                c = code_by_id.get(pid)
+                if c in first.index and pd.notna(first[c]):
+                    gw1[pid] = float(first[c]) / 10.0
+        except Exception:  # noqa: BLE001 · fall back to selling at the current price
+            pass
         paid = purchase_prices(team_id, ids, gw1)
         squad = []
         for p in picks.get("picks", []):
@@ -163,7 +171,7 @@ def team(team_id: Optional[int] = None) -> Dict[str, Any]:
                            "bench": r["points_on_bench"], "hits": r["event_transfers_cost"]}
                           for r in cur],
         }
-    return _memo("team:%d" % team_id, _load)
+    return _memo("team:%d" % team_id, _load, ttl=1800)
 
 
 # ── Decisions ─────────────────────────────────────────────────────────────────
@@ -747,3 +755,28 @@ def league_rivals(league_id: int, team_id: Optional[int] = None, top_n: int = 20
         m.pop("codes", None)
     return {"league": name, "gws": gws, "managers": sorted(out, key=lambda m: -m["xp_window"]),
             "threats": threats, "swords": swords, "n_rivals": n_riv}
+
+
+_WARMED = {"done": False}
+
+
+def warm_async() -> None:
+    """Fill the slow service caches in a daemon thread, once per process:
+    the price/ownership history (all players), the default team, and the best
+    single moves. Pages then open on warm caches. Never raises."""
+    if _WARMED["done"]:
+        return
+    _WARMED["done"] = True
+
+    def _run():
+        try:
+            ownership_history(min_own=0.0, top_traded=0)
+            if default_team_id():
+                team(default_team_id())
+                if projections(allow_compute=False) is not None:
+                    best_moves(default_team_id(), horizon=6, top_n=6)
+        except Exception:  # noqa: BLE001
+            logger.warning("service warm-up failed", exc_info=True)
+
+    import threading
+    threading.Thread(target=_run, daemon=True, name="service-warm").start()
