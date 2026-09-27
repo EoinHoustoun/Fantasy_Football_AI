@@ -140,7 +140,7 @@ def squad_heat_option(rows: List[Dict], gws: List[int]) -> Dict:
     opt["yAxis"]["axisLabel"] = {**opt["yAxis"]["axisLabel"], "fontSize": 11,
                                  "color": fill("text"), "width": 96, "overflow": "truncate"}
     opt["visualMap"] = {"show": False, "min": 0, "max": vmax,
-                        "inRange": {"color": ["#141C28", "#0E5E3A", fill("mint")]}}
+                        "inRange": {"color": charts.heat_ramp()}}
     opt["series"] = [{"type": "heatmap", "data": data,
                       "label": {"show": True, "color": fill("text"), "fontSize": 10,
                                 "formatter": "{@[2]}"},

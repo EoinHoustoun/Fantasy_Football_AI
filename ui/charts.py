@@ -788,6 +788,20 @@ def _resolve_tokens(o):
     return o
 
 
+def heat_ramp(diverging: bool = False) -> List[str]:
+    """Heatmap colour stops that work on the current theme's ground.
+
+    Cells carry text in the theme's ink, so the low end has to be near the
+    ground (dark in dark mode, pale in light) and the high end the accent.
+    """
+    from ui.theme import is_light, fill as _fill
+    if is_light():
+        return (["#F6D5D5", "#FBF0C8", "#CDEFDD", _fill("mint-v")] if diverging
+                else ["#EEF2F7", "#CDEFDD", _fill("mint-v")])
+    return (["#3A1418", "#3B3320", "#0E5E3A", _fill("mint")] if diverging
+            else ["#141C28", "#0E5E3A", _fill("mint")])
+
+
 def _json_safe(o):
     """Replace NaN and infinity with None, recursively.
 
