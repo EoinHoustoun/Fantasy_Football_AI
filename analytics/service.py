@@ -1,0 +1,398 @@
+"""One door to the app's decisions, shared by the Streamlit pages and the MCP server.
+
+Every function returns plain JSON-able dicts/lists, so the same answer reaches
+the Home page, the My Team planner and Claude. If two surfaces disagree, one of
+them is not calling this module.
+
+No Streamlit imports.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
+
+from analytics import brain
+from analytics.chip_state import LABEL as CHIP_LABEL, chip_state
+
+logger = logging.getLogger(__name__)
+
+_MEMO: Dict[str, Any] = {}
+_TTL = 600
+
+
+def _memo(key: str, fn, ttl: int = _TTL):
+    hit = _MEMO.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    _MEMO[key] = (time.time(), val)
+    return val
+
+
+def default_team_id() -> Optional[int]:
+    from config import FPL_TEAM_ID
+    return int(FPL_TEAM_ID) if FPL_TEAM_ID else None
+
+
+# ── Inputs ────────────────────────────────────────────────────────────────────
+
+def inputs() -> Dict[str, Any]:
+    from data.fetchers.fpl_api import (fetch_bootstrap, fetch_fixtures,
+                                       get_fixtures_df, get_players_df)
+
+    def _load():
+        bs = fetch_bootstrap()
+        return {"bootstrap": bs, "players": get_players_df(bs),
+                "fixtures": get_fixtures_df(fetch_fixtures(), bs)}
+    return _memo("inputs", _load, ttl=300)
+
+
+def projections(allow_compute: bool = True) -> Optional[pd.DataFrame]:
+    """The availability-adjusted brain, long form (one row per player per GW)."""
+    i = inputs()
+    base = brain.load(i["bootstrap"], i["players"], i["fixtures"],
+                      allow_compute=allow_compute)
+    if base is None:
+        return None
+    return brain.with_availability(base, i["players"])
+
+
+def gameweek_info() -> Dict[str, Any]:
+    bs = inputs()["bootstrap"]
+    nxt = next((e for e in bs["events"] if e.get("is_next")), None)
+    fin = [e["id"] for e in bs["events"] if e.get("finished")]
+    return {"next_gw": nxt["id"] if nxt else None,
+            "deadline": nxt["deadline_time"] if nxt else None,
+            "last_finished_gw": max(fin) if fin else 0}
+
+
+# ── The manager's team ────────────────────────────────────────────────────────
+
+def free_transfers(history: Dict, next_gw: int) -> int:
+    """Banked FTs going into `next_gw`, replayed from the public history.
+
+    1 FT after GW1, +1 a week to a cap of 5, spent FTs subtracted, hits do not
+    borrow. A Wildcard or Free Hit week keeps the FTs you had and accrues none.
+    The public API has no banked-FT field, so this is a replay, not a read.
+    """
+    chips = {c["event"]: c["name"] for c in history.get("chips", [])}
+    ft = 0
+    for row in sorted(history.get("current", []), key=lambda r: r["event"]):
+        gw = int(row["event"])
+        if gw >= next_gw:
+            break
+        if gw == 1:
+            ft = 1
+            continue
+        if chips.get(gw) in ("wildcard", "freehit"):
+            continue
+        ft = min(5, max(0, ft - int(row.get("event_transfers", 0))) + 1)
+    return max(ft, 1)
+
+
+def team(team_id: Optional[int] = None) -> Dict[str, Any]:
+    """Squad, bank, FTs, chips, selling prices, identity. Cached 10 min."""
+    team_id = int(team_id or default_team_id())
+
+    def _load():
+        from data.fetchers.fpl_api import (fetch_entry_history, fetch_team_info,
+                                           fetch_team_picks)
+        from analytics.transfer_plan import purchase_prices, selling_price
+        i = inputs()
+        gwi = gameweek_info()
+        nxt = int(gwi["next_gw"] or 1)
+        hist = fetch_entry_history(team_id)
+        info = fetch_team_info(team_id)
+        picks = fetch_team_picks(team_id, nxt)
+        players = i["players"].set_index("fpl_id")
+        ids = [int(p["element"]) for p in picks.get("picks", [])]
+        # GW1 prices for the squad players never transferred in.
+        gw1 = {}
+        for pid in ids:
+            try:
+                from data.fetchers.fpl_history import _get, FPL_BASE
+                h = _get("%s/element-summary/%d/" % (FPL_BASE, pid)).get("history", [])
+                if h:
+                    gw1[pid] = h[0]["value"] / 10.0
+            except Exception:  # noqa: BLE001
+                pass
+        paid = purchase_prices(team_id, ids, gw1)
+        squad = []
+        for p in picks.get("picks", []):
+            pid = int(p["element"])
+            r = players.loc[pid]
+            now = float(r["price"])
+            buy = paid.get(pid) or now
+            squad.append({"fpl_id": pid, "code": int(r["code"]), "name": r["web_name"],
+                          "team": r["team_short"], "position": r["position"],
+                          "price": now, "purchase_price": buy,
+                          "sell_price": selling_price(buy, now),
+                          "status": r.get("status"), "news": r.get("news") or "",
+                          "chance": r.get("chance_of_playing_next_round"),
+                          "slot": int(p.get("position", 0)),
+                          "is_captain": bool(p.get("is_captain")),
+                          "on_bench": int(p.get("position", 0)) > 11})
+        cur = sorted(hist.get("current", []), key=lambda r: r["event"])
+        last = cur[-1] if cur else {}
+        return {
+            "team_id": team_id,
+            "team_name": info.get("name"),
+            "manager": "%s %s" % (info.get("player_first_name", ""), info.get("player_last_name", "")),
+            "overall_points": info.get("summary_overall_points"),
+            "overall_rank": info.get("summary_overall_rank"),
+            "next_gw": nxt,
+            "bank": (last.get("bank") or 0) / 10.0,
+            "team_value": (last.get("value") or 0) / 10.0,
+            "free_transfers": free_transfers(hist, nxt),
+            "chips": chip_state(hist.get("chips", []), nxt),
+            "squad": squad,
+            "gw_points": [{"gw": r["event"], "points": r["points"], "rank": r["overall_rank"],
+                           "bench": r["points_on_bench"], "hits": r["event_transfers_cost"]}
+                          for r in cur],
+        }
+    return _memo("team:%d" % team_id, _load)
+
+
+# ── Decisions ─────────────────────────────────────────────────────────────────
+
+def fixtures_for(team_id: int, gws: List[int]) -> List[str]:
+    fx = inputs()["fixtures"]
+    bs = inputs()["bootstrap"]
+    short = {int(t["id"]): t["short_name"] for t in bs["teams"]}
+    out = []
+    for g in gws:
+        rows = fx[fx["gameweek"] == g]
+        labs = []
+        for _, r in rows.iterrows():
+            if int(r["home_team_id"]) == int(team_id):
+                labs.append("%s(H)" % short.get(int(r["away_team_id"]), "?"))
+            elif int(r["away_team_id"]) == int(team_id):
+                labs.append("%s(A)" % short.get(int(r["home_team_id"]), "?"))
+        out.append("+".join(labs) if labs else "BLANK")
+    return out
+
+
+def _rows(df: pd.DataFrame, gws: List[int], long: pd.DataFrame) -> List[Dict]:
+    per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw",
+                                                 values="xp", aggfunc="sum")
+    out = []
+    for _, r in df.iterrows():
+        c = int(r["code"])
+        out.append({
+            "name": r["web_name"], "team": r.get("team_short"), "position": r.get("position"),
+            "price": round(float(r.get("price", 0) or 0), 1),
+            "xp_next": round(float(r.get("xp_next", 0)), 2),
+            "xp_window": round(float(r.get("xp_total", 0)), 2),
+            "xp_by_gw": {int(g): round(float(per.at[c, g]), 2) if (c in per.index and g in per.columns) else 0.0
+                         for g in gws},
+            "xmins": round(float(r.get("xmins", 0) or 0), 0),
+            "status": r.get("status"), "news": r.get("news") or "",
+            "ownership": r.get("ownership"),
+            "fixtures": fixtures_for(int(r["team_id"]), gws) if not pd.isna(r.get("team_id")) else [],
+            "code": c,
+        })
+    return out
+
+
+def top_players(position: Optional[str] = None, max_price: Optional[float] = None,
+                horizon: int = 6, top_n: int = 20, sort: str = "xp_window") -> Dict:
+    long = projections()
+    gws = sorted(long["gw"].unique())[:int(horizon)]
+    s = brain.summary(long, gws)
+    if position:
+        s = s[s["position"] == position.upper()]
+    if max_price:
+        s = s[s["price"] <= float(max_price)]
+    key = {"xp_window": "xp_total", "xp_next": "xp_next", "value": "xp_per_m"}.get(sort, "xp_total")
+    s = s.sort_values(key, ascending=False).head(int(top_n))
+    return {"gws": [int(g) for g in gws], "players": _rows(s, gws, long)}
+
+
+def find_players(names: List[str]) -> List[int]:
+    """Names (any case, accents optional, 'Palmer (CHE)' to disambiguate) -> codes."""
+    from analytics.squad_rules import fold_accents
+    p = inputs()["players"]
+    folded = p.assign(_n=p["web_name"].map(lambda s: fold_accents(str(s)).lower()),
+                      _f=p["name"].map(lambda s: fold_accents(str(s)).lower()))
+    codes = []
+    for raw in names:
+        q = fold_accents(str(raw)).lower().strip()
+        club = None
+        if "(" in q and q.endswith(")"):
+            q, club = q[:q.index("(")].strip(), q[q.index("(") + 1:-1].strip().upper()
+        m = folded[(folded["_n"] == q)]
+        if m.empty:
+            m = folded[folded["_f"].str.contains(q, regex=False) | folded["_n"].str.contains(q, regex=False)]
+        if club:
+            m = m[m["team_short"] == club]
+        if not m.empty:
+            codes.append(int(m.sort_values("ownership", ascending=False).iloc[0]["code"]))
+    return codes
+
+
+def player_detail(names: List[str], horizon: int = 6) -> Dict:
+    long = projections()
+    gws = sorted(long["gw"].unique())[:int(horizon)]
+    codes = find_players(names)
+    s = brain.summary(long[long["code"].isin(codes)], gws)
+    rows = _rows(s, gws, long)
+    comp = long[long["code"].isin(codes) & (long["gw"] == gws[0])].set_index("code")
+    for r in rows:
+        if r["code"] in comp.index:
+            c = comp.loc[r["code"]]
+            r["next_gw_components"] = {k: round(float(c[k]), 3) for k in
+                                       ("p_play", "p60", "exp_minutes", "e_goals", "e_assists",
+                                        "e_bonus", "p_clean_sheet", "p_defcon", "avail")
+                                       if k in c.index}
+    p = inputs()["players"].set_index("code")
+    for r in rows:
+        if r["code"] in p.index:
+            q = p.loc[r["code"]]
+            r["season"] = {k: (None if pd.isna(q.get(k)) else q.get(k)) for k in
+                           ("total_points", "minutes", "goals_scored", "assists", "form",
+                            "points_per_game", "fpl_xg", "fpl_xa", "fpl_xgi_per90",
+                            "penalties_order") if k in q.index}
+    return {"gws": [int(g) for g in gws], "players": rows}
+
+
+def captaincy(team_id: Optional[int] = None, gw: Optional[int] = None, top_n: int = 5) -> Dict:
+    long = projections()
+    gw = int(gw or long["gw"].min())
+    t = team(team_id)
+    codes = [p["code"] for p in t["squad"]]
+    wk = long[(long["gw"] == gw) & long["code"].isin(codes)].sort_values("xp", ascending=False)
+    opts = [{"name": r["web_name"], "team": r["team_short"], "xp": round(float(r["xp"]), 2),
+             "p60": round(float(r["p60"]), 2), "e_goals": round(float(r["e_goals"]), 2),
+             "e_assists": round(float(r["e_assists"]), 2), "status": r.get("status"),
+             "fixture": fixtures_for(int(r["team_id"]), [gw])[0]}
+            for _, r in wk.head(int(top_n)).iterrows()]
+    gap = (opts[0]["xp"] - opts[1]["xp"]) if len(opts) > 1 else None
+    return {"gw": gw, "options": opts, "margin_over_second": None if gap is None else round(gap, 2)}
+
+
+def optimise(team_id: Optional[int] = None, horizon: int = 6,
+             free_transfers: Optional[int] = None, settings: Optional[Dict] = None,
+             lock: Optional[List[str]] = None, ban: Optional[List[str]] = None,
+             alternatives: int = 2) -> Dict:
+    from analytics import transfer_plan as tp
+    long = projections()
+    t = team(team_id)
+    owned = [p["code"] for p in t["squad"]]
+    sell = {p["code"]: p["sell_price"] for p in t["squad"]}
+    gws = sorted(long["gw"].unique())[:int(horizon)]
+    summ = brain.summary(long, gws)
+    ft = t["free_transfers"] if free_transfers is None else int(free_transfers)
+    res = tp.plan(summ, long[long["gw"].isin(gws)], owned, t["bank"], ft, sell,
+                  settings=settings, locks=find_players(lock or []),
+                  bans=find_players(ban or []), alternatives=alternatives)
+
+    def _brief(p):
+        if not p or not p.get("weeks"):
+            return p
+        return {"xp_total": p["xp_total"], "objective": p["objective"], "ft_end": p["ft_end"],
+                "weeks": [{k: w[k] for k in ("gw", "in_names", "out_names", "captain_name",
+                                             "xp", "hits", "ft_before", "bank_after")}
+                          for w in p["weeks"]]}
+    return {"team": t["team_name"], "free_transfers_used_as": ft, "bank": t["bank"],
+            "gws": [int(g) for g in gws], "gain_vs_hold": res.get("gain_vs_hold"),
+            "best": _brief(res["best"]), "hold": _brief(res["hold"]),
+            "alternatives": [_brief(a) for a in res["alternatives"]],
+            "settings": res["best"].get("settings"), "_raw": res}
+
+
+def save_plan_to_app(week_moves: List[Dict], team_id: Optional[int] = None) -> Dict:
+    """Write moves into the My Team planner as working drafts.
+
+    week_moves: [{"gw": 6, "out": ["Rogers"], "in": ["Mbeumo"], "captain": "Haaland",
+                  "chip": None}]. Drafts, not saved plans: the user still presses Save.
+    """
+    from analytics import team_plan
+    team_id = int(team_id or default_team_id())
+    done = []
+    for wk in week_moves:
+        outs, ins = find_players(wk.get("out", [])), find_players(wk.get("in", []))
+        if len(outs) != len(ins):
+            return {"ok": False, "error": "GW%s: %d out vs %d in" % (wk.get("gw"), len(outs), len(ins))}
+        cap = find_players([wk["captain"]])[0] if wk.get("captain") else None
+        chip = {"bboost": "BB", "3xc": "TC", "wildcard": "WC", "freehit": "FH"}.get(
+            (wk.get("chip") or "").lower(), wk.get("chip"))
+        entry = {"swaps": dict(zip(outs, ins)), "captain": cap, "chip": chip}
+        team_plan.save_draft(team_id, int(wk["gw"]), entry)
+        done.append({"gw": int(wk["gw"]), "swaps": len(outs), "captain": wk.get("captain")})
+    return {"ok": True, "saved_drafts": done,
+            "open": "http://localhost:8510/my_team"}
+
+
+def team_xp(codes: List[int], per_gw: pd.DataFrame, pos: Dict[int, str],
+            bench_weight: float = 0.1) -> float:
+    """Squad points over the window: best legal XI each week, captain doubled,
+    bench at `bench_weight`. Greedy is exact here: fill the formation minimums
+    (1 GKP, 3 DEF, 2 MID, 1 FWD) with the best, then the best 4 remaining outfielders.
+    """
+    total = 0.0
+    for g in per_gw.columns:
+        xs = {c: float(per_gw.at[c, g]) if c in per_gw.index else 0.0 for c in codes}
+        by = {k: sorted([c for c in codes if pos.get(c) == k], key=lambda c: -xs[c])
+              for k in ("GKP", "DEF", "MID", "FWD")}
+        xi = by["GKP"][:1] + by["DEF"][:3] + by["MID"][:2] + by["FWD"][:1]
+        rest = sorted([c for k in ("DEF", "MID", "FWD") for c in by[k] if c not in xi],
+                      key=lambda c: -xs[c])[:4]
+        xi += rest
+        bench = [c for c in codes if c not in xi]
+        pts = sum(xs[c] for c in xi) + (max(xs[c] for c in xi) if xi else 0.0)
+        total += pts + bench_weight * sum(xs[c] for c in bench)
+    return total
+
+
+def best_moves(team_id: Optional[int] = None, horizon: int = 6, top_n: int = 5,
+               friction: float = 2.0, per_out: int = 8) -> Dict:
+    """Best single transfers over the window, scored on the TEAM · fast, no solver.
+
+    Each candidate is priced by how much the squad's best-XI-plus-captain points
+    over the window change, so a bench keeper upgrade is worth what a bench
+    keeper is worth. `optimise` is the full multi-week answer; this is the quick
+    read Home shows.
+    """
+    long = projections(allow_compute=False)
+    if long is None:
+        return {"ready": False, "moves": []}
+    t = team(team_id)
+    gws = sorted(long["gw"].unique())[:int(horizon)]
+    s = brain.summary(long, gws).set_index("code")
+    per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw", values="xp",
+                                                 aggfunc="sum").fillna(0.0)
+    pos = s["position"].to_dict()
+    owned = {p["code"]: p for p in t["squad"]}
+    base = team_xp(list(owned), per, pos)
+    club_n: Dict[str, int] = {}
+    for p in t["squad"]:
+        club_n[p["team"]] = club_n.get(p["team"], 0) + 1
+    pool = s[~s.index.isin(owned.keys())]
+    moves = []
+    for code, p in owned.items():
+        budget = t["bank"] + p["sell_price"]
+        cand = pool[(pool["position"] == p["position"]) & (pool["price"] <= budget + 1e-9)]
+        cand = cand[[club_n.get(c, 0) - (1 if c == p["team"] else 0) < 3
+                     for c in cand["team_short"]]]
+        best = None
+        for c_code, c in cand.nlargest(int(per_out), "xp_total").iterrows():
+            codes = [x for x in owned if x != code] + [int(c_code)]
+            gain = team_xp(codes, per, pos) - base
+            if best is None or gain > best[0]:
+                best = (gain, int(c_code), c)
+        if best is None:
+            continue
+        gain, c_code, c = best
+        moves.append({"out": p["name"], "out_code": code, "in": c["web_name"],
+                      "in_code": c_code, "in_team": c["team_short"],
+                      "in_team_code": c.get("team_code"), "position": p["position"],
+                      "gain": round(gain, 2), "net_gain": round(gain - friction, 2),
+                      "cost_change": round(float(c["price"]) - p["sell_price"], 1)})
+    moves.sort(key=lambda m: -m["gain"])
+    return {"ready": True, "gws": [int(g) for g in gws], "team_xp": round(base, 2),
+            "moves": moves[:int(top_n)], "free_transfers": t["free_transfers"],
+            "bank": t["bank"], "friction": friction}

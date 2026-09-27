@@ -304,8 +304,8 @@ def _mini_card(player: pd.Series, rank: int) -> str:
         </div>
       </div>
       <div style="text-align:right; flex-shrink:0;">
-        <div style="font-size:14px; font-weight:800; color:var(--ff-gold);">{score:.3f}</div>
-        <div style="font-size:10px; color:var(--ff-muted2);">Score</div>
+        <div style="font-size:14px; font-weight:800; color:var(--ff-gold);">{score:.2f}</div>
+        <div style="font-size:10px; color:var(--ff-muted2);">xP GW</div>
       </div>
     </div>
     """
@@ -313,9 +313,11 @@ def _mini_card(player: pd.Series, rank: int) -> str:
 
 def score_breakdown_chart(top5: pd.DataFrame, title: str, key: str) -> None:
     """Horizontal stacked bar showing captain score components for top 5."""
-    components = ["c_form", "c_fixture", "c_xg", "c_setpiece"]
-    labels     = ["Form", "Fixture", "xGI", "Set Pieces"]
-    colors     = [theme.fill("mint"), theme.fill("cyan"), theme.fill("mag"), theme.fill("gold")]
+    from analytics.brain import POINT_PARTS
+    components = [c for c, _ in POINT_PARTS]
+    labels     = [l for _, l in POINT_PARTS]
+    colors     = [theme.fill("muted2"), theme.fill("mint"), theme.fill("cyan"),
+                  theme.fill("gold"), theme.fill("mag"), theme.fill("orange")]
 
     names = top5["web_name"].tolist()
     series = [
@@ -365,9 +367,24 @@ with st.sidebar:
         help="Differential captains: players owned by fewer than this % of managers.",
     )
 
-# Score all players for captaincy
+# Score all players for captaincy.
+# The ranking is the shared engine's expected points for this gameweek
+# (analytics/brain via analytics/service), the same number Home, My Team and
+# Claude use. The old weighted form/fixture score survives only as context
+# columns on the cards. Three pages used to name three different captains.
 scored = score_captains(players_df, fdr_map)
-scored = scored[scored["status"] == "a"].copy()  # available only
+from analytics import brain as _brain, service as _svc
+_long = _svc.projections(allow_compute=False)
+if _long is None:
+    _brain.warm_async(bootstrap, players_df, st.session_state.get("fixtures_df"))
+    st.info("Projections are rebuilding after the last gameweek (a few minutes). "
+            "Reload shortly · until then this page has nothing trustworthy to rank on.")
+    st.stop()
+_wk = _brain.point_parts(_long[_long["gw"] == int(captain_gw)])
+_keep = ["code", "xp", "p60", "e_goals", "e_assists"] + [c for c, _ in _brain.POINT_PARTS]
+scored = scored.merge(_wk[_keep], on="code", how="inner")
+scored["captain_score"] = scored["xp"]
+scored = scored[scored["status"].isin(["a", "d"])].copy()
 scored = scored.sort_values("captain_score", ascending=False)
 
 # ── Load squad if team_id provided ────────────────────────────────────────────
@@ -400,22 +417,16 @@ if squad_df is not None:
 
             # Reasoning
             fdr_v = float(top.get("next_gw_fdr", 3.0))
-            reasons = []
-            if float(top.get("form", 0)) >= 7:
-                reasons.append(f"exceptional form ({float(top['form']):.1f} pts/game)")
-            elif float(top.get("form", 0)) >= 5:
-                reasons.append(f"strong form ({float(top['form']):.1f} pts/game)")
-            if fdr_v <= 2:
-                reasons.append(f"dream fixture (FDR {fdr_v:.0f}/5)")
-            elif fdr_v <= 3:
-                reasons.append(f"good fixture (FDR {fdr_v:.0f}/5)")
+            reasons = [f"<b>{float(top['xp']):.2f} xP</b> this gameweek"]
+            if len(squad_scored) > 1:
+                _gap = float(top["xp"]) - float(squad_scored.iloc[1]["xp"])
+                reasons.append(f"{_gap:.2f} clear of {squad_scored.iloc[1]['web_name']}"
+                               + (" · close, a coin flip" if _gap < 0.5 else ""))
+            reasons.append(f"{float(top['e_goals']):.2f} expected goals, "
+                           f"{float(top['e_assists']):.2f} assists")
+            reasons.append(f"{float(top['p60']) * 100:.0f}% chance of 60+ minutes")
             if bool(top.get("has_dgw", False)):
                 reasons.append("Double Gameweek · 2 chances to score")
-            xgi = float(top.get("fpl_xgi_per90", 0) or 0)
-            if xgi >= 0.6:
-                reasons.append(f"elite xGI ({xgi:.2f}/90 · haul threat)")
-            if not reasons:
-                reasons.append("best composite score across form, fixture & xG")
 
             st.markdown(
                 f"<div style='margin-top:14px;padding:12px;background:rgba(0,255,135,0.07);"
@@ -426,7 +437,7 @@ if squad_df is not None:
 
         with col_chart:
             if len(squad_scored) > 1:
-                score_breakdown_chart(squad_scored, "Captain Score Breakdown · Your Squad",
+                score_breakdown_chart(squad_scored, "Where the expected points come from · your squad",
                                       key="cap_breakdown_squad")
 
         st.markdown("#### Top 5 Captain Options (Your Squad)")
@@ -473,7 +484,7 @@ if not diffs.empty:
 
     with col_d2:
         if len(diffs) > 1:
-            score_breakdown_chart(diffs, "Differential Captain Score Breakdown",
+            score_breakdown_chart(diffs, "Where the expected points come from · differentials",
                                   key="cap_breakdown_diff")
 
     st.markdown("#### Top 5 Differential Options")
@@ -499,7 +510,7 @@ if squad_df is None:
         with col_g1:
             st.markdown(_hero_card(global_top5.iloc[0]), unsafe_allow_html=True)
         with col_g2:
-            score_breakdown_chart(global_top5, "Captain Score Breakdown",
+            score_breakdown_chart(global_top5, "Where the expected points come from",
                                   key="cap_breakdown_global")
         cards_g = "".join(_mini_card(global_top5.iloc[i], i+1) for i in range(len(global_top5)))
         st.markdown(cards_g, unsafe_allow_html=True)

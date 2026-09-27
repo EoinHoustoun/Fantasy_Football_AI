@@ -30,7 +30,7 @@ def _facts_block(ctx: Dict[str, Any]) -> str:
     if ctx.get("captain"):
         lines.append(f"Recommended captain: {ctx['captain']} ({ctx.get('captain_xp', '?')} xP)")
     if ctx.get("transfer_in"):
-        lines.append(f"Top transfer target: {ctx['transfer_in']} ({ctx.get('transfer_xp', '?')} xP)")
+        lines.append(f"Top transfer: {ctx['transfer_in']} ({ctx.get('transfer_xp', '?')} team xP)")
     if ctx.get("chip"):
         lines.append(f"Chip note: {ctx['chip']}")
     if ctx.get("risks"):

@@ -88,7 +88,7 @@ def _cached_functions():
     """(file stem, FunctionDef) for every @st.cache_data / @st.cache_resource."""
     for path in sorted(ROOT.rglob("*.py")):
         rel = path.relative_to(ROOT)
-        if rel.parts[0] in {".venv", "tests"}:
+        if rel.parts[0] in {".venv", ".venv-mcp", "tests"}:
             continue
         try:
             tree = ast.parse(path.read_text())

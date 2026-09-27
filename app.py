@@ -153,6 +153,10 @@ try:
     # process) so the first click on Predictions / Free Hit is instant.
     from analytics.model_store import prewarm_async
     prewarm_async()
+    # The shared projection engine (analytics/brain) rebuilds once per finished
+    # gameweek; start it early so the first page that needs it is instant.
+    from analytics import brain as _brain
+    _brain.warm_async(bs, players_df, fixtures_df)
 except Exception as e:  # noqa: BLE001 · surface any load failure to the UI
     st.error(f"Failed to load data: {e}")
     st.info("Check your internet connection and try **🔄 Refresh Data**.")

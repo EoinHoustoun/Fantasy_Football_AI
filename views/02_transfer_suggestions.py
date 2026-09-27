@@ -1,689 +1,297 @@
 """
-Transfer Suggestions page · redesigned.
+Transfers · rebuilt on the shared engine (2026-09-27).
 
-Design goals
-------------
-  • Clear visual hierarchy: one hero recommendation + podium when close
-  • Replace dense tables with a scannable card grid for Top Targets
-  • Consistent typography scale, accent palette, and spacing
-  • Tight, deliberate use of charts (Season Outlook / Haul / Breakdown tabs)
+The old page ranked a hand-weighted blend of form, fixture ease, xG, value,
+transfer trend and minutes. Walk-forward, 30-day form ranks the next three
+gameweeks at Spearman ~0.25 against ~0.5 for a real projection, and it
+recommended Saka -> Groß and Haaland -> Kostoulas on a Brighton hot streak.
+
+Three sections, one engine (`analytics/service.py`, which Claude's MCP server
+also calls):
+
+1. **Best single moves** · each priced on what the TEAM scores (best XI and
+   captain every week), not on the incoming player's total, so a bench keeper
+   upgrade is worth what a bench keeper is worth.
+2. **Plan the next weeks** · the multi-week MILP: when to move, when to bank,
+   captain per week, measured against holding.
+3. **Target board** · everyone, per-gameweek xP, fixtures and minutes.
 """
 
 from __future__ import annotations
 
+from typing import Dict, List
+
+import pandas as pd
 import streamlit as st
 
-from components.loading import LINES_MODEL, fpl_loader
-from ui import charts, theme
-import pandas as pd
-from typing import Optional, List, Dict, Any
-
-from config import HAUL_THRESHOLD, TWENTY_PLUS_THRESHOLD, ACCENT_COLOR, FIXTURE_LOOKAHEAD
-from components.badges import render_badges
+from analytics import brain, service
+from components import ff_table as T
 from components.animations import inject_global_animations
-from components.team_identity import face_html, shirt_html, team_color
+from components.loading import LINES_SOLVER, fpl_loader
+from components.team_identity import face_html, player_photo_url
+from ui import theme
+from ui.theme import var as V
 
-# set_page_config is owned by the app.py router (st.navigation)
 inject_global_animations()
 
 
-# ── Design tokens ──────────────────────────────────────────────────────────────
-POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "var(--ff-orange-v)"}
-FDR_COLORS = {1: "var(--ff-mint)", 2: "var(--ff-mint)", 3: "#FFD60A", 4: "var(--ff-orange-v)", 5: "var(--ff-red)"}
-SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
+def _one(html: str) -> str:
+    return "".join(seg.strip() for seg in html.splitlines())
 
 
-def _shirt(team_code: int, is_gkp: bool) -> str:
-    suffix = "_1" if is_gkp else ""
-    return f"{SHIRT_BASE}/shirt_{team_code}{suffix}-66.png"
+def _label(txt: str, color: str = "muted") -> str:
+    return (f'<div style="font-size:10px;font-weight:700;letter-spacing:0.14em;'
+            f'text-transform:uppercase;color:{V(color)};">{txt}</div>')
 
 
-def _fdr_color(fdr: float) -> str:
-    return FDR_COLORS.get(int(round(fdr)), "#FFD60A")
+def _section(title: str, lead: str, icon: str) -> None:
+    st.markdown(_one(
+        f'<div style="display:flex;align-items:center;gap:10px;margin:26px 0 10px;">'
+        f'{theme.icon(icon, 20, V("mint"))}'
+        f'<div class="ff-display" style="font-size:19px;font-weight:800;color:{V("text")};">{title}</div>'
+        f'<div style="flex:1;height:1px;background:{V("line")};"></div></div>'
+        f'<div style="font-size:13px;color:{V("muted")};margin:-4px 0 12px;">{lead}</div>'),
+        unsafe_allow_html=True)
 
 
-def _safe(val, default=0.0) -> float:
-    try:
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            return float(default)
-        return float(val)
-    except (TypeError, ValueError):
-        return float(default)
-
-
-def _position_chip(pos: str) -> str:
-    color = POS_COLORS.get(pos, "#888")
-    return (
-        f'<span style="background:{color};color:#000;border-radius:4px;'
-        f'padding:2px 8px;font-weight:800;font-size:11px;letter-spacing:0.05em;">'
-        f'{pos}</span>'
-    )
-
-
-def _fixture_pills(fixtures, n: int = 5) -> str:
-    if not isinstance(fixtures, list) or not fixtures:
-        return '<span style="color:var(--ff-muted2);font-size:11px;">No fixtures</span>'
-    pills = []
-    for f in fixtures[:n]:
-        opp = str(f.get("opp_short") or f.get("opponent", "?"))[:3].upper()
-        home = bool(f.get("home", False))
-        fdr = _safe(f.get("fdr"), 3.0)
-        color = _fdr_color(fdr)
-        pills.append(
-            f'<span style="background:{color};color:#000;border-radius:4px;'
-            f'padding:2px 6px;font-size:10px;font-weight:800;'
-            f'margin-right:4px;display:inline-block;">'
-            f'{opp}{"·H" if home else "·A"}</span>'
-        )
-    return "".join(pills)
-
-
-def _attach_short_names(players_df: pd.DataFrame, bootstrap: dict) -> pd.DataFrame:
-    """Add opp_short to each upcoming_fixtures entry using bootstrap team names."""
-    if "upcoming_fixtures" not in players_df.columns:
-        return players_df
-    short_map = {t["name"]: t["short_name"] for t in bootstrap["teams"]}
-    df = players_df.copy()
-
-    def _attach(fixtures):
-        if not isinstance(fixtures, list):
-            return fixtures
-        out = []
-        for f in fixtures:
-            g = dict(f)
-            g["opp_short"] = short_map.get(g.get("opponent", ""), str(g.get("opponent", ""))[:3].upper())
-            out.append(g)
-        return out
-
-    df["upcoming_fixtures"] = df["upcoming_fixtures"].apply(_attach)
-    return df
-
-
-# ── Render helpers ─────────────────────────────────────────────────────────────
-def _md_bold(text: str) -> str:
-    """Reasoning strings carry markdown bold; inside raw HTML it shows as asterisks."""
-    import re
-    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(text or ""))
-
-
-def render_hero(player: pd.Series, reasoning: str) -> None:
-    pos = str(player.get("position", ""))
-    code = int(player.get("team_code", 1) or 1)
-    shirt_url = _shirt(code, pos == "GKP")
-    name = str(player.get("web_name", "?"))
-    team = str(player.get("team", ""))
-    price = _safe(player.get("price"))
-    form = _safe(player.get("form"))
-    ep_next = _safe(player.get("ep_next"))
-    own = _safe(player.get("ownership"))
-    fdr6 = _safe(player.get("avg_fdr_next_6"), 3.0)
-    season_fdr = _safe(player.get("season_avg_fdr"), 3.0)
-    score = _safe(player.get("transfer_score"))
-    ceiling = _safe(player.get("ceiling_pts"))
-    proj = _safe(player.get("projected_season_pts"))
-    fix_html = _fixture_pills(player.get("upcoming_fixtures"), n=6)
-
-    pos_chip = _position_chip(pos)
-
-    html = f"""
-<div class="fplh-animate-in" style="
-    background:linear-gradient(135deg,rgba(0,255,135,0.08) 0%,rgba(14,17,22,0.85) 55%);
-    border:1px solid rgba(0,255,135,0.35);
-    border-radius:18px;
-    padding:28px 32px;
-    display:grid;
-    grid-template-columns:120px 1fr auto;
-    gap:28px;
-    align-items:center;
-    box-shadow:0 12px 40px rgba(0,0,0,0.35),0 0 80px rgba(0,255,135,0.06);
-    font-family:'Inter','SF Pro Display',sans-serif;
-    margin-bottom:18px;
-">
-  <div style="text-align:center;filter:drop-shadow(0 6px 10px rgba(0,0,0,0.45));">
-    {face_html(player.get('code'), code, pos == "GKP", width=104)}
-  </div>
-
-  <div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-      <span style="background:var(--ff-gold);color:#000;padding:2px 10px;border-radius:4px;
-             font-size:11px;font-weight:900;letter-spacing:0.1em;">#1 PICK</span>
-      {pos_chip}
-      <span style="color:var(--ff-muted2);font-size:13px;">{team}</span>
-    </div>
-    <div style="font-size:34px;font-weight:900;color:var(--ff-text);line-height:1.05;letter-spacing:-0.5px;">
-      {name}
-    </div>
-    <div style="margin-top:4px;color:var(--ff-muted2);font-size:13px;">
-      £{price:.2f}m &nbsp;·&nbsp; {own:.1f}% owned &nbsp;·&nbsp; Next 6 FDR {fdr6:.2f}
-    </div>
-    <div style="margin-top:14px;">{fix_html}</div>
-  </div>
-
-  <div style="text-align:right;border-left:1px solid var(--ff-row-alt);padding-left:28px;">
-    <div style="font-size:42px;font-weight:900;color:var(--ff-mint);line-height:1;letter-spacing:-1px;">
-      {score:.2f}
-    </div>
-    <div style="font-size:11px;color:var(--ff-muted2);letter-spacing:0.15em;margin-top:4px;">
-      TRANSFER SCORE
-    </div>
-    <div style="margin-top:18px;display:flex;gap:20px;justify-content:flex-end;">
-      <div><div style="font-size:18px;font-weight:800;color:var(--ff-text);">{form:.2f}</div>
-           <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
-      <div><div style="font-size:18px;font-weight:800;color:var(--ff-cyan);">{ep_next:.2f}</div>
-           <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">xP NEXT</div></div>
-      <div><div style="font-size:18px;font-weight:800;color:var(--ff-gold);">{ceiling:.1f}</div>
-           <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">CEILING</div></div>
-    </div>
-  </div>
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-
-    # Reasoning panel under the hero
-    st.markdown(
-        f"""
-<div style="
-    background:rgba(0,255,135,0.04);
-    border-left:3px solid var(--ff-mint);
-    border-radius:0 10px 10px 0;
-    padding:16px 22px;
-    margin-bottom:22px;
-    font-size:14px;color:var(--ff-text);line-height:1.6;
-    font-family:'Inter',sans-serif;
-">{_md_bold(reasoning)}</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-
-def render_podium(close_list: List[Dict[str, Any]]) -> None:
-    labels = ["#1", "#2", "#3"]
-    accents = ["var(--ff-gold)", "#C0C0C0", "#CD7F32"]
-
-    cards = []
-    for i, item in enumerate(close_list[:3]):
-        p = item["player"]
-        pos = str(p.get("position", ""))
-        code = int(p.get("team_code", 1) or 1)
-        shirt_url = _shirt(code, pos == "GKP")
-        name = str(p.get("web_name", "?"))
-        team = str(p.get("team", ""))
-        price = _safe(p.get("price"))
-        form = _safe(p.get("form"))
-        ep = _safe(p.get("ep_next"))
-        score = _safe(p.get("transfer_score"))
-        fdr6 = _safe(p.get("avg_fdr_next_6"), 3.0)
-
-        cards.append(f"""
-<div class="fplh-card-hover" style="
-    background:var(--ff-row-alt);
-    border:1px solid {accents[i]};
-    border-radius:14px;padding:20px;font-family:'Inter',sans-serif;
-    box-shadow:0 6px 20px rgba(0,0,0,0.25);
-">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-    <span style="background:{accents[i]};color:#000;padding:2px 10px;border-radius:4px;
-           font-size:11px;font-weight:900;letter-spacing:0.1em;">{labels[i]}</span>
-    {_position_chip(pos)}
-  </div>
-  <div style="display:flex;align-items:center;gap:14px;">
-    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{face_html(p.get("code"), code, pos == "GKP", width=58)}</div>
-    <div style="flex:1;min-width:0;">
-      <div style="font-size:20px;font-weight:900;color:var(--ff-text);white-space:nowrap;
-                  overflow:hidden;text-overflow:ellipsis;">{name}</div>
-      <div style="font-size:12px;color:var(--ff-muted2);">{team} · £{price:.2f}m</div>
-    </div>
-  </div>
-  <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;
-              border-top:1px solid var(--ff-row-alt);">
-    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:var(--ff-mint);">{score:.2f}</div>
-         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">SCORE</div></div>
-    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:var(--ff-text);">{form:.2f}</div>
-         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
-    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:var(--ff-cyan);">{ep:.2f}</div>
-         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">xP</div></div>
-    <div style="flex:1;"><div style="font-size:17px;font-weight:800;color:{_fdr_color(fdr6)};">{fdr6:.1f}</div>
-         <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">FDR6</div></div>
-  </div>
-  <div style="margin-top:12px;font-size:12px;color:var(--ff-muted);line-height:1.5;">
-    {_md_bold(item['reasoning'])}
-  </div>
-</div>
-""")
-
-    st.markdown(
-        '<div class="fplh-stagger" style="display:grid;'
-        'grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px;">'
-        + "".join(cards) + "</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def render_target_grid(df: pd.DataFrame, n: int = 12) -> None:
-    """Card grid replacement for the all-rankings dense dataframe."""
-    cards = []
-    for _, p in df.head(n).iterrows():
-        pos = str(p.get("position", ""))
-        code = int(p.get("team_code", 1) or 1)
-        tcol = team_color(p.get("team_short"))
-        name = str(p.get("web_name", "?"))
-        team = str(p.get("team", ""))
-        price = _safe(p.get("price"))
-        form = _safe(p.get("form"))
-        ep = _safe(p.get("ep_next"))
-        own = _safe(p.get("ownership"))
-        score = _safe(p.get("transfer_score"))
-        fdr6 = _safe(p.get("avg_fdr_next_6"), 3.0)
-        fix = _fixture_pills(p.get("upcoming_fixtures"), n=5)
-
-        # Score bar (0..1 assumed; clamp)
-        bar_pct = max(0.0, min(1.0, score)) * 100
-
-        cards.append(f"""
-<div class="fplh-card-hover" style="
-    background:rgba(22,26,34,0.85);
-    border:1px solid var(--ff-row-alt);
-    border-left:3px solid {tcol};
-    border-radius:12px;padding:16px;
-    font-family:'Inter',sans-serif;
-">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-    <div style="filter:drop-shadow(0 3px 5px rgba(0,0,0,0.4));flex-shrink:0;">{face_html(p.get("code"), code, pos == "GKP", width=48)}</div>
-    <div style="flex:1;min-width:0;">
-      <div style="font-size:15px;font-weight:800;color:var(--ff-text);white-space:nowrap;
-                  overflow:hidden;text-overflow:ellipsis;">{name}</div>
-      <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
-        {_position_chip(pos)} <span style="margin-left:6px;">{team}</span>
-      </div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:16px;font-weight:800;color:var(--ff-text);">£{price:.2f}m</div>
-      <div style="font-size:10px;color:var(--ff-muted2);">{own:.1f}% own</div>
-    </div>
-  </div>
-
-  <div style="display:flex;gap:12px;margin-bottom:10px;">
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{form:.2f}</div>
-         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">FORM</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-cyan);">{ep:.2f}</div>
-         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">xP</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:{_fdr_color(fdr6)};">{fdr6:.2f}</div>
-         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">FDR6</div></div>
-    <div style="flex:1;"><div style="font-size:14px;font-weight:800;color:var(--ff-mint);">{score:.2f}</div>
-         <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.08em;">SCORE</div></div>
-  </div>
-
-  <div style="background:var(--ff-row-alt);border-radius:4px;height:4px;overflow:hidden;margin-bottom:10px;">
-    <div style="background:linear-gradient(90deg,var(--ff-mint),var(--ff-cyan));height:100%;width:{bar_pct:.0f}%;"></div>
-  </div>
-
-  <div style="font-size:11px;">{fix}</div>
-</div>
-""")
-
-    st.markdown(
-        '<div class="fplh-stagger" style="display:grid;'
-        'grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;">'
-        + "".join(cards) + "</div>",
-        unsafe_allow_html=True,
-    )
-
-
-# ── Page header ────────────────────────────────────────────────────────────────
-st.markdown(
-    """
-<div style="padding:18px 0 8px;font-family:'Inter',sans-serif;">
-  <div style="font-size:30px;font-weight:900;color:var(--ff-text);letter-spacing:-0.5px;">
-    🔄 Transfer Suggestions
-  </div>
-  <div style="font-size:14px;color:var(--ff-muted2);margin-top:4px;">
-    Your #1 transfer · with reasoning, a top-targets grid, and deeper breakdowns.
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# ── Data ───────────────────────────────────────────────────────────────────────
-def get_players():
-    if "players_df" in st.session_state and st.session_state.players_df is not None:
-        return st.session_state.players_df
-    from data.processors.player_stats import build_player_universe
-    from data.fetchers.understat import fetch_understat_players
-    return build_player_universe(understat_df=fetch_understat_players())
-
-
-players_df = get_players()
-
-from data.fetchers.fpl_api import (
-    fetch_bootstrap, get_current_gameweek, get_fixtures_df, get_team_squad,
-)
-_bs = fetch_bootstrap()
-_current_gw = get_current_gameweek(_bs)
-players_df = _attach_short_names(players_df, _bs)
-
-
-# ── Sidebar ────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### Your Team")
-    from config import FPL_TEAM_ID
-    _default_id = st.session_state.get("squad_team_id") or (int(FPL_TEAM_ID) if FPL_TEAM_ID else 0)
-    squad_team_id = st.number_input(
-        "FPL Team ID",
-        min_value=0,
-        value=_default_id,
-        step=1,
-        help="Enter your team ID to exclude players you already own from recommendations.",
-    )
-    st.caption("Recommendations will exclude players you already own.")
-
-    st.markdown("### Position & Budget")
-    position = st.selectbox("Position", ["All", "GKP", "DEF", "MID", "FWD"])
-    pos_filter = None if position == "All" else position
-    price_range = st.slider("Price range (£m)", 3.5, 15.0, (4.0, 12.0), step=0.5)
-
-    st.markdown("---")
-    st.markdown("### 🃏 Free Hit Chip")
-    playing_fh = st.toggle("I'm playing Free Hit this GW", value=False)
-    free_hit_gw = None
-    if playing_fh:
-        free_hit_gw = st.number_input(
-            "Free Hit gameweek",
-            min_value=_current_gw, max_value=38, value=_current_gw, step=1,
-        )
-
-    st.markdown("---")
-    with st.expander("⚙️ Score Weights (advanced)", expanded=False):
-        st.caption("Tune what matters most to you this GW.")
-        w_form    = st.slider("Form",            0.0, 1.0, 0.25, step=0.05)
-        w_fixture = st.slider("Fixture Ease",    0.0, 1.0, 0.25, step=0.05)
-        w_xg      = st.slider("xG Potential",    0.0, 1.0, 0.20, step=0.05)
-        w_value   = st.slider("Value (PPM)",     0.0, 1.0, 0.15, step=0.05)
-        w_trend   = st.slider("Transfer Trend",  0.0, 1.0, 0.10, step=0.05)
-        w_minutes = st.slider("Minutes Security", 0.0, 1.0, 0.05, step=0.05)
-
-    top_n = st.slider("Show top N targets", 6, 30, 12)
-
-custom_weights = {
-    "form": w_form, "fixture_ease": w_fixture, "xg_potential": w_xg,
-    "value": w_value, "ownership_trend": w_trend, "minutes_security": w_minutes,
-}
-
-
-# ── Owned players ──────────────────────────────────────────────────────────────
-@st.cache_data(ttl=1800, show_spinner=False)
-def _load_owned(team_id: int, gw: int) -> list:
-    from data.fetchers.fpl_api import fetch_bootstrap as _fb
-    bs = _fb()
-    squad, _ = get_team_squad(team_id, gw, bootstrap=bs)
-    return squad["web_name"].tolist()
-
-
-owned_names = []
-if squad_team_id and int(squad_team_id) > 0:
-    try:
-        owned_names = _load_owned(int(squad_team_id), _current_gw)
-        st.session_state.owned_names = owned_names
-        st.session_state.squad_team_id = int(squad_team_id)
-    except Exception:
-        owned_names = st.session_state.get("owned_names", [])
-else:
-    owned_names = st.session_state.get("owned_names", [])
-
-
-# ── Recommendation engine ──────────────────────────────────────────────────────
-from analytics.transfer_engine import (
-    get_top_recommendation, get_transfer_targets, score_players,
-    estimate_season_points, estimate_ceiling,
-    apply_free_hit_adjustment, get_free_hit_targets,
-)
-
-_fixtures_df = st.session_state.get("fixtures_df")
-if _fixtures_df is None:
-    _fixtures_df = get_fixtures_df(bootstrap=_bs)
-
-with fpl_loader("Scoring the transfer market", LINES_MODEL):
-    base_df = players_df
-    if free_hit_gw:
-        base_df = apply_free_hit_adjustment(players_df, _fixtures_df, _current_gw, free_hit_gw)
-
-    reco = get_top_recommendation(
-        base_df,
-        owned_names=owned_names if not free_hit_gw else None,
-        budget=price_range[1],
-        position=pos_filter,
-        weights=custom_weights,
-        free_hit_gw=free_hit_gw,
-    )
-
-    full_df = score_players(base_df, weights=custom_weights)
-    full_df = estimate_season_points(full_df)
-    full_df = estimate_ceiling(full_df)
-    full_df = full_df[full_df["status"] == "a"].copy()
-    if owned_names and not free_hit_gw:
-        full_df = full_df[~full_df["web_name"].isin(owned_names)]
-    if pos_filter:
-        full_df = full_df[full_df["position"] == pos_filter]
-    # Apply price-range filter from the sidebar
-    full_df = full_df[(full_df["price"] >= price_range[0]) & (full_df["price"] <= price_range[1])]
-    full_df = full_df.sort_values("transfer_score", ascending=False).reset_index(drop=True)
-
-
-if free_hit_gw:
-    st.info(
-        f"**Free Hit active · GW{free_hit_gw}.** "
-        f"GW{free_hit_gw} is excluded from season projections and fixture averages "
-        f"for your regular squad. See the **Season Outlook** tab for Free Hit targets."
-    )
-
-if reco["top"] is None:
-    st.warning("No players match your filters. Try widening the price range or removing the position filter.")
+# ── Data ──────────────────────────────────────────────────────────────────────
+team_id = int(st.session_state.get("squad_team_id") or service.default_team_id() or 0)
+long = service.projections(allow_compute=False)
+if long is None:
+    brain.warm_async(st.session_state.get("bootstrap") or {}, st.session_state.get("players_df"),
+                     st.session_state.get("fixtures_df"))
+    st.info("Projections are rebuilding after the last gameweek. This takes a few "
+            "minutes · reload shortly.")
     st.stop()
 
+T_ = service.team(team_id)
+GWS = sorted(long["gw"].unique())
+first = int(GWS[0])
 
-# ── Hero / podium ──────────────────────────────────────────────────────────────
-top = reco["top"]
-is_close = reco["is_close"]
-top_reasoning = reco["close"][0]["reasoning"] if reco["close"] else ""
+# ── Header ────────────────────────────────────────────────────────────────────
+chips_left = ", ".join(c for c in T_["chips"]["remaining"]) or "none"
+st.markdown(_one(
+    f'<div class="fplh-animate-in" style="padding:14px 0 4px;">'
+    f'<div class="ff-display" style="font-size:36px;font-weight:900;color:{V("text")};'
+    f'letter-spacing:-0.8px;">Transfers</div>'
+    f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+    + "".join(
+        f'<span style="padding:5px 11px;border-radius:999px;border:1px solid {V("line")};'
+        f'background:{V("card")};font-size:12.5px;color:{V("muted")};">{k} '
+        f'<b class="ff-num" style="color:{V(c)};">{v}</b></span>'
+        for k, v, c in (("Next", "GW%d" % first, "text"),
+                        ("Free transfers", T_["free_transfers"], "mint"),
+                        ("Bank", "£%.1fm" % T_["bank"], "gold"),
+                        ("Chips left", {"freehit": "Free Hit", "wildcard": "Wildcard",
+                                        "bboost": "Bench Boost", "3xc": "Triple Captain"}
+                         .get(chips_left, chips_left), "cyan")))
+    + '</div></div>'), unsafe_allow_html=True)
 
-if is_close:
-    st.markdown(
-        '<div style="font-size:20px;font-weight:800;color:var(--ff-text);margin-bottom:6px;">'
-        '🏆 It\'s close at the top</div>'
-        '<div style="font-size:13px;color:var(--ff-muted2);margin-bottom:16px;">'
-        'Scores are tight · read the reasoning and pick what fits your squad.</div>',
-        unsafe_allow_html=True,
-    )
-    render_podium(reco["close"])
+# ── 1 · Best single moves ─────────────────────────────────────────────────────
+H = 6
+bm = service.best_moves(team_id, horizon=H, top_n=6)
+_section("Best single moves",
+         "Each move priced on your team's points over GW%d-%d: best XI and captain every "
+         "week, bench at a tenth. A move has to clear about 2 points to beat the noise."
+         % (bm["gws"][0], bm["gws"][-1]), "swap_horiz")
+
+pos_by_code = dict(zip(long["code"], long["position"]))
+team_by_code = dict(zip(long["code"], long["team_code"]))
+
+
+def _move_card(m: Dict, rank: int) -> str:
+    good = m["gain"] >= 2.0
+    tone = "mint" if good else ("gold" if m["gain"] > 0 else "muted")
+    verdict = "Worth a transfer" if good else ("Marginal" if m["gain"] > 0 else "Hold")
+    cost = m["cost_change"]
+    cost_txt = ("+£%.1fm" % cost) if cost > 0 else ("£%.1fm back" % -cost if cost < 0 else "level")
+    f_out = face_html(m["out_code"], team_by_code.get(m["out_code"], 1),
+                      pos_by_code.get(m["out_code"]) == "GKP", width=46)
+    f_in = face_html(m["in_code"], m.get("in_team_code") or team_by_code.get(m["in_code"], 1),
+                     pos_by_code.get(m["in_code"]) == "GKP", width=46)
+    return _one(
+        f'<div class="fplh-card-hover" style="background:{V("card")};border:1px solid {V("line")};'
+        f'border-top:3px solid {V(tone)};border-radius:14px;padding:14px 16px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'{_label("%d · %s" % (rank, verdict), tone)}'
+        f'<div class="ff-display ff-num" style="font-size:24px;font-weight:900;color:{V(tone)};">'
+        f'{"+" if m["gain"] >= 0 else ""}{m["gain"]:.1f}</div></div>'
+        f'<div style="display:flex;align-items:center;gap:10px;margin-top:8px;">'
+        f'<div style="text-align:center;opacity:0.75;">{f_out}<div style="font-size:12px;'
+        f'color:{V("muted")};margin-top:3px;max-width:70px;overflow:hidden;text-overflow:ellipsis;'
+        f'white-space:nowrap;">{m["out"]}</div></div>'
+        f'<div style="flex:1;text-align:center;">{theme.icon("arrow_forward", 22, V(tone))}'
+        f'<div style="font-size:11.5px;color:{V("muted")};">{cost_txt}</div></div>'
+        f'<div style="text-align:center;">{f_in}<div style="font-size:12.5px;font-weight:700;'
+        f'color:{V("text")};margin-top:3px;max-width:80px;overflow:hidden;text-overflow:ellipsis;'
+        f'white-space:nowrap;">{m["in"]}</div></div></div></div>')
+
+
+if bm["moves"]:
+    cols = st.columns(3)
+    for i, m in enumerate(bm["moves"][:6]):
+        with cols[i % 3]:
+            st.markdown(_move_card(m, i + 1), unsafe_allow_html=True)
+            if st.button("Put in my planner", key="bm_%d" % i, use_container_width=True,
+                         type="secondary"):
+                r = service.save_plan_to_app([{"gw": first, "out": [m["out"]], "in": [m["in"]]}],
+                                             team_id)
+                st.toast("Drafted in My Team for GW%d" % first if r.get("ok") else r.get("error"))
 else:
-    render_hero(top, top_reasoning)
+    st.info("No affordable move improves the team over this window.")
 
-# Contextual alerts (price rise / BGW / DGW)
-_bal = int(top.get("transfer_balance", 0) or 0)
-_price_ch = _safe(top.get("price_change"))
-_bgw = top.get("bgw_gameweeks") or []
-_dgw = top.get("dgw_gameweeks") or []
-alert_cols = st.columns(3)
-with alert_cols[0]:
-    if _bal > 150_000:
-        st.warning(f"💹 Price rise likely · {_bal / 1000:.0f}k net in. Buy before deadline.")
-    elif _bal > 60_000:
-        st.info(f"📈 Rising popularity · {_bal / 1000:.0f}k net in.")
-    elif _price_ch > 0:
-        st.info(f"↑ Already rose £{_price_ch:.1f}m this GW.")
-with alert_cols[1]:
-    if isinstance(_bgw, list) and _bgw:
-        st.warning(f"⚠️ Blank GW: no fixture in GW{', GW'.join(str(g) for g in _bgw)}")
-    elif isinstance(_dgw, list) and _dgw:
-        st.success(f"⭐ Double GW: plays twice in GW{', GW'.join(str(g) for g in _dgw)}")
-with alert_cols[2]:
-    if top.get("twenty_plus"):
-        st.success("🎯 20+ point haul potential")
-    elif top.get("haul_candidate"):
-        st.info("🎯 Haul candidate (15+ ceiling)")
+# ── 2 · Multi-week plan ───────────────────────────────────────────────────────
+_section("Plan the next weeks",
+         "One optimisation over the whole window: when to move, when to bank a transfer, "
+         "who captains. Judged against holding your fifteen.", "route")
 
+c1, c2, c3, c4 = st.columns([1, 1, 1, 1.2])
+with c1:
+    horizon = st.select_slider("Weeks", options=[3, 4, 5, 6, 7, 8], value=6, key="tp_h")
+with c2:
+    friction = st.select_slider("Bar per move (pts)", options=[0.0, 1.0, 2.0, 3.0, 4.0],
+                                value=2.0, key="tp_f",
+                                help="A move must gain at least this much to be made. "
+                                     "0 lets the solver churn on noise.")
+with c3:
+    decay = st.select_slider("Trust in later weeks", options=[0.8, 0.85, 0.9, 0.95, 1.0],
+                             value=0.9, key="tp_d",
+                             help="Week k counts decay^k. Lower = care more about the near term.")
+with c4:
+    st.markdown('<div style="height:26px;"></div>', unsafe_allow_html=True)
+    run = st.button("Solve the plan", type="primary", use_container_width=True, key="tp_run")
 
-# ── Top Targets grid ───────────────────────────────────────────────────────────
-st.markdown(
-    f'<div style="margin:26px 0 14px;display:flex;align-items:baseline;justify-content:space-between;">'
-    f'  <div style="font-size:20px;font-weight:800;color:var(--ff-text);">🎯 Top Targets</div>'
-    f'  <div style="font-size:12px;color:var(--ff-muted2);">'
-    f'    Top {min(top_n, len(full_df))} ranked by transfer score'
-    f'  </div>'
-    f'</div>',
-    unsafe_allow_html=True,
-)
-render_target_grid(full_df, n=top_n)
+_pkey = "tp_result::%d::%d" % (team_id, first)
+if run:
+    with fpl_loader("Solving %d weeks of transfers" % horizon, LINES_SOLVER):
+        st.session_state[_pkey] = service.optimise(
+            team_id, horizon, None, {"friction": friction, "decay": decay}, alternatives=2)
+res = st.session_state.get(_pkey)
 
 
-# ── Tabs ───────────────────────────────────────────────────────────────────────
-st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-tab_season, tab_ceiling, tab_breakdown, tab_fixtures = st.tabs([
-    "📅 Season Outlook",
-    "🎯 Haul Potential",
-    "📊 Score Breakdown",
-    "🗓️ Fixture Ticker",
-])
+def _week_card(w: Dict) -> str:
+    moves = "".join(
+        f'<div style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin:3px 0;">'
+        f'<span style="color:{V("red")};">{o}</span>{theme.icon("arrow_forward", 14, V("muted"))}'
+        f'<span style="color:{V("mint")};font-weight:700;">{i}</span></div>'
+        for o, i in zip(w["out_names"], w["in_names"]))
+    if not moves:
+        moves = (f'<div style="font-size:12.5px;color:{V("muted")};">Bank the transfer</div>')
+    hit = (f'<span style="color:{V("red")};font-weight:700;"> · -{4 * w["hits"]}</span>'
+           if w["hits"] else "")
+    return _one(
+        f'<div style="background:{V("card")};border:1px solid {V("line")};border-radius:12px;'
+        f'padding:12px 14px;min-height:150px;">'
+        f'<div style="display:flex;justify-content:space-between;">'
+        f'<div class="ff-display" style="font-size:18px;font-weight:900;color:{V("text")};">GW{w["gw"]}</div>'
+        f'<div class="ff-num" style="font-size:13px;color:{V("cyan")};font-weight:700;">{w["xp"]:.1f} xP{hit}</div></div>'
+        f'<div style="font-size:11px;color:{V("muted")};margin-bottom:6px;">{w["ft_before"]} FT · '
+        f'£{w["bank_after"]:.1f}m after</div>{moves}'
+        f'<div style="margin-top:8px;font-size:12px;color:{V("muted")};">Captain '
+        f'<b style="color:{V("gold")};">{w["captain_name"]}</b></div></div>')
 
 
-with tab_season:
-    st.caption(
-        "Projected points from now until GW38, based on PPG × remaining fixtures × fixture ease. "
-        "Colour = season FDR (green easier)."
-    )
-    season_chart = full_df[[
-        "web_name", "team", "position", "price", "projected_season_pts",
-        "season_avg_fdr", "remaining_fixtures", "points_per_game",
-    ]].head(top_n).copy()
-    season_chart = season_chart.dropna(subset=["projected_season_pts"])
-    season_chart = season_chart.sort_values("projected_season_pts", ascending=False)
+if res and res.get("best", {}).get("weeks"):
+    best, hold = res["best"], res["hold"]
+    gain = res.get("gain_vs_hold") or 0.0
+    st.markdown(_one(
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin:6px 0 12px;">'
+        + "".join(
+            f'<div style="background:{V("card")};border:1px solid {V("line")};border-radius:12px;'
+            f'padding:10px 16px;min-width:150px;">{_label(k)}'
+            f'<div class="ff-display ff-num" style="font-size:24px;font-weight:900;color:{V(c)};">{v}</div></div>'
+            for k, v, c in (("Plan xP", "%.1f" % best["xp_total"], "mint"),
+                            ("If you hold", "%.1f" % hold["xp_total"], "muted"),
+                            ("Gain, weighted", "%+.1f" % gain, "gold" if gain >= 2 else "muted"),
+                            ("FTs left at end", best["ft_end"], "cyan")))
+        + '</div>'), unsafe_allow_html=True)
+    wk = best["weeks"]
+    cols = st.columns(len(wk))
+    for c, w in zip(cols, wk):
+        with c:
+            st.markdown(_week_card(w), unsafe_allow_html=True)
+    b1, b2 = st.columns([1, 3])
+    with b1:
+        if st.button("Send this plan to My Team", key="tp_send", use_container_width=True):
+            r = service.save_plan_to_app(
+                [{"gw": w["gw"], "out": w["out_names"], "in": w["in_names"],
+                  "captain": w["captain_name"]} for w in wk], team_id)
+            st.toast("Drafted %d weeks in My Team" % len(r.get("saved_drafts", []))
+                     if r.get("ok") else r.get("error"))
+    if res.get("alternatives"):
+        with st.expander("Other ways to play GW%d" % first):
+            for a in res["alternatives"]:
+                w0 = a["weeks"][0]
+                mv = ", ".join("%s → %s" % (o, i) for o, i in zip(w0["out_names"], w0["in_names"])) or "hold"
+                st.markdown(_one(
+                    f'<div style="display:flex;justify-content:space-between;padding:8px 2px;'
+                    f'border-bottom:1px solid {V("line")};font-size:13px;">'
+                    f'<span style="color:{V("text")};">{mv}</span>'
+                    f'<span class="ff-num" style="color:{V("muted")};">'
+                    f'{a["objective"] - best["objective"]:+.1f} vs best</span></div>'),
+                    unsafe_allow_html=True)
+elif res:
+    st.warning("The solver found no plan (%s)." % res.get("best", {}).get("status"))
 
-    if not season_chart.empty:
-        fdr_colors = charts.diverging_colors(
-            [min(max(float(v), 1.5), 4.0) for v in season_chart["season_avg_fdr"].fillna(2.75)],
-            "var(--ff-mint)", "#FFD60A", "var(--ff-red)", midpoint=2.75)
-        opt = charts.bar_option(
-            x=list(season_chart["web_name"]),
-            y=[round(float(v), 1) for v in season_chart["projected_season_pts"]],
-            colors=fdr_colors, horizontal=True)
-        for item, (_, r) in zip(opt["series"][0]["data"], season_chart.iterrows()):
-            item["tooltip"] = {"formatter": (
-                f"<b>{r['web_name']}</b> · {r['team']} {r['position']}<br/>"
-                f"{r['projected_season_pts']:.0f} projected pts · £{r['price']:.1f}m<br/>"
-                f"{int(r['remaining_fixtures'])} fixtures · FDR {r['season_avg_fdr']:.2f} "
-                f"· {r['points_per_game']:.1f} ppg")}
-        charts.render(opt, height=f"{max(380, 28 * len(season_chart))}px",
-                      key="ts_season_proj")
+# ── 3 · Target board ──────────────────────────────────────────────────────────
+_section("Target board",
+         "Everyone the engine projects, over the same window. Faces are clickable in "
+         "the player card on My Team.", "table_rows")
 
-    if free_hit_gw:
-        st.markdown("---")
-        st.markdown(f"**Free Hit Targets · GW{free_hit_gw}**")
-        fh_targets = get_free_hit_targets(players_df, _fixtures_df, free_hit_gw, top_n=top_n)
-        if not fh_targets.empty:
-            fh_display = fh_targets.rename(columns={
-                "web_name": "Player", "team": "Team", "position": "Pos",
-                "price": "Price", "form": "Form", "total_points": "Season Pts",
-                "fh_fdr": f"GW{free_hit_gw} FDR", "ownership": "Own%",
-            })
-            for c in ("Form", "Season Pts", f"GW{free_hit_gw} FDR", "Own%"):
-                if c in fh_display.columns:
-                    fh_display[c] = pd.to_numeric(fh_display[c], errors="coerce").round(2)
-            fh_display["Price"] = fh_display["Price"].apply(lambda x: f"£{x:.2f}m")
-            st.dataframe(fh_display, use_container_width=True, hide_index=True)
-        else:
-            st.info(f"No fixture data available for GW{free_hit_gw} yet.")
+f1, f2, f3 = st.columns([2, 2, 1])
+with f1:
+    pos = st.segmented_control("Position", ["All", "GKP", "DEF", "MID", "FWD"], default="All",
+                               key="tb_pos", label_visibility="collapsed") or "All"
+with f2:
+    maxp = st.slider("Max price", 3.5, 16.0, 16.0, 0.5, key="tb_max", label_visibility="collapsed")
+with f3:
+    hide_owned = st.toggle("Hide my players", value=True, key="tb_hide")
 
-
-with tab_ceiling:
-    st.caption(
-        "Ceiling = max single-game haul model (xG/xA × goal pts + CS × fixture ease). "
-        "Green = 20+ haul threshold, orange = 15+."
-    )
-    ceiling_chart = full_df[[
-        "web_name", "team", "position", "price", "ceiling_pts",
-        "haul_candidate", "twenty_plus", "avg_fdr_next_6",
-    ]].head(top_n * 2).copy()
-    ceiling_chart = ceiling_chart.sort_values("ceiling_pts", ascending=False).head(top_n)
-
-    if not ceiling_chart.empty:
-        def _tier(row):
-            if row["twenty_plus"]: return "20+ Haul"
-            if row["haul_candidate"]: return "15+ Haul"
-            return "Standard"
-        ceiling_chart["Tier"] = ceiling_chart.apply(_tier, axis=1)
-
-        tier_color = {"20+ Haul": ACCENT_COLOR, "15+ Haul": theme.fill("orange"), "Standard": "#8888aa"}
-        opt = charts.bar_option(
-            x=list(ceiling_chart["web_name"]),
-            y=[round(float(v), 1) for v in ceiling_chart["ceiling_pts"]],
-            colors=[tier_color[t] for t in ceiling_chart["Tier"]], horizontal=True)
-        for item, (_, r) in zip(opt["series"][0]["data"], ceiling_chart.iterrows()):
-            item["tooltip"] = {"formatter": (
-                f"<b>{r['web_name']}</b> · {r['team']} {r['position']}<br/>"
-                f"Ceiling {r['ceiling_pts']:.1f} pts ({r['Tier']})<br/>"
-                f"£{r['price']:.1f}m · FDR next 6: {r['avg_fdr_next_6']:.2f}")}
-        charts.with_vertical_marks(opt, [
-            (float(TWENTY_PLUS_THRESHOLD), "20 pts", ACCENT_COLOR),
-            (float(HAUL_THRESHOLD), "15 pts", "var(--ff-orange)"),
-        ])
-        charts.render(opt, height=f"{max(380, 28 * len(ceiling_chart))}px",
-                      key="ts_ceiling")
+wg = GWS[:H]
+summ = brain.summary(long, wg)
+if pos != "All":
+    summ = summ[summ["position"] == pos]
+summ = summ[summ["price"] <= maxp]
+owned = {p["code"] for p in T_["squad"]}
+if hide_owned:
+    summ = summ[~summ["code"].isin(owned)]
+summ = summ.head(40)
+per = long[long["gw"].isin(wg)].pivot_table(index="code", columns="gw", values="xp", aggfunc="sum")
 
 
-with tab_breakdown:
-    st.caption("How each component contributes to the transfer score.")
-    score_cols = [c for c in ["score_form", "score_fixture", "score_xg", "score_value"] if c in full_df.columns]
-
-    if score_cols:
-        top15 = full_df[["web_name"] + score_cols].head(15)
-        comp_colors = [theme.fill("mint"), theme.fill("cyan"), theme.fill("mag"), theme.fill("gold")]
-        series = [
-            (col.replace("score_", "").title(),
-             [round(float(v), 3) for v in top15[col].fillna(0)],
-             comp_colors[i % len(comp_colors)])
-            for i, col in enumerate(score_cols)
-        ]
-        opt = charts.stacked_bars_option(list(top15["web_name"]), series,
-                                         horizontal=True)
-        charts.render(opt, height="480px", key="ts_breakdown")
-
-    fdr_col = next((c for c in full_df.columns if c.startswith("avg_fdr_next_")), None)
-    if fdr_col and "form" in full_df.columns and "price" in full_df.columns:
-        top50 = full_df.head(50)
-        fdr_cols = charts.diverging_colors(
-            [float(v) for v in top50[fdr_col].fillna(3.0)],
-            "var(--ff-mint)", "#FFD60A", "var(--ff-red)", midpoint=3.0)
-        sizes = charts.scale_sizes(list(top50["transfer_score"].fillna(0)),
-                                   lo=7.0, hi=24.0)
-        pts = [{
-            "x": round(float(r["price"]), 1), "y": round(float(r["form"]), 2),
-            "name": str(r["web_name"]), "color": fdr_cols[i], "size": sizes[i],
-            "tip": (f"<b>{r['web_name']}</b><br/>£{r['price']:.1f}m · form {r['form']}"
-                    f"<br/>FDR {r[fdr_col]:.2f} · score {r['transfer_score']:.2f}"),
-        } for i, (_, r) in enumerate(top50.iterrows())]
-        opt = charts.scatter_option(pts, x_name="Price (£m)", y_name="Form")
-        opt["title"] = {"text": "Form vs Price (bubble = score, colour = FDR)",
-                        "textStyle": {"color": "var(--ff-text)", "fontSize": 12,
-                                      "fontWeight": "bold"}}
-        charts.render(opt, height="400px", key="ts_form_price")
+def _gw_cells(code: int) -> str:
+    cells = []
+    for g in wg:
+        v = float(per.at[code, g]) if (code in per.index and g in per.columns and pd.notna(per.at[code, g])) else 0.0
+        a = min(1.0, v / 7.0)
+        cells.append(
+            f'<span class="ff-num" style="display:inline-block;width:30px;text-align:center;'
+            f'padding:2px 0;margin-right:2px;border-radius:4px;font-size:11.5px;'
+            f'background:rgba(0,227,122,{0.08 + 0.5 * a:.2f});color:{V("text")};">{v:.1f}</span>')
+    return "".join(cells)
 
 
-with tab_fixtures:
-    if "upcoming_fixtures" in players_df.columns:
-        fixture_data = players_df[["web_name", "upcoming_fixtures"]].copy()
-        top_players = full_df.head(top_n)
-        suggestions_with_fixtures = top_players.merge(fixture_data, on="web_name", how="left", suffixes=("", "_drop"))
-        if "upcoming_fixtures_drop" in suggestions_with_fixtures.columns:
-            suggestions_with_fixtures = suggestions_with_fixtures.drop(columns=["upcoming_fixtures_drop"])
-        from components.fixture_ticker import render_fixture_ticker
-        render_fixture_ticker(suggestions_with_fixtures, top_n=min(top_n, len(suggestions_with_fixtures)))
-    else:
-        st.info("Fixture data not available.")
+rows = []
+for _, r in summ.iterrows():
+    c = int(r["code"])
+    rows.append({"code": c, "web_name": r["web_name"],
+                 "sub": "%s · %s" % (r["team_short"], r["position"]),
+                 "price": r["price"], "xp_next": r["xp_next"], "xp_total": r["xp_total"],
+                 "xmins": r["xmins"], "gws": _gw_cells(c),
+                 "run": [{"opp": f.split("(")[0], "home": "(H)" in f, "fdr": 3}
+                         for f in service.fixtures_for(int(r["team_id"]), wg[:4])]
+                 if pd.notna(r.get("team_id")) else []})
+maxx = max([x["xp_total"] for x in rows] + [1.0])
+T.render(rows, [
+    T.col_face("code", url_fn=player_photo_url),
+    T.col_player("web_name", sub="sub"),
+    T.col_num("price", "£m", fmt="%.1f"),
+    T.col_num("xp_next", "GW%d" % first, fmt="%.2f"),
+    T.col_bar("xp_total", "GW%d-%d" % (wg[0], wg[-1]), max_value=maxx, fmt="%.1f"),
+    T.col_html("gws", "Per gameweek"),
+    T.col_num("xmins", "xMins", fmt="%.0f"),
+], key="target_board", max_height=520)
 
-# ── Consistent player intel across the app ────────────────────────────────────
-try:
-    from ui.player_detail import intel_lookup
-    intel_lookup(players_df, key="02_transfer_suggestions_intel")
-except Exception:  # noqa: BLE001 · intel is an extra, never break the page
-    pass
+st.caption("xP = expected FPL points from the component model (minutes, goals, assists, "
+           "clean sheet, bonus, DEFCON), scaled by FPL's current injury news. xMins = "
+           "expected minutes per match over the window.")

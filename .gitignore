@@ -16,3 +16,4 @@ data/cache/*
 !data/cache/archive/
 !data/cache/archive/**
 !data/cache/perfect_season_*.json
+.venv-mcp/

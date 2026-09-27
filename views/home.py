@@ -322,17 +322,32 @@ else:
     owned       = players_df[players_df["fpl_id"].isin(owned_ids)].copy()
     owned_names = tuple(squad_df["web_name"].tolist())
 
-    # 1) Captain · highest expected points in the available squad
-    cap_pool = owned[owned["status"] == "a"].sort_values("ep_next", ascending=False)
-    if cap_pool.empty:
-        cap_pool = owned.sort_values("ep_next", ascending=False)
-    cap = cap_pool.iloc[0] if not cap_pool.empty else None
-
-    # 2) Best transfer in
-    try:
-        top_in = _best_transfer_in(owned_names)
-    except Exception:
-        top_in = None
+    # 1) + 2) Captain and best move come from the shared engine
+    # (`analytics/service.py`), the same numbers My Team, Captain and Claude read.
+    # Until the engine has built (a few minutes after a gameweek finishes) the
+    # card says so rather than falling back to FPL's form-driven ep_next.
+    from analytics import service as _svc
+    _long = _svc.projections(allow_compute=False)
+    cap, top_in, _mv = None, None, None
+    if _long is not None:
+        _gw0 = int(_long["gw"].min())
+        _wk = _long[(_long["gw"] == _gw0) & _long["code"].isin(owned["code"])]
+        if not _wk.empty:
+            cap = _wk.sort_values("xp", ascending=False).iloc[0]
+        try:
+            _bm = _svc.best_moves(int(team_id), horizon=6)
+            _mv = _bm["moves"][0] if _bm.get("moves") else None
+        except Exception:
+            _mv = None
+        if _mv is not None:
+            top_in = {"web_name": _mv["in"], "team_short": _mv["in_team"],
+                      "code": _mv["in_code"], "team_code": _mv["in_team_code"],
+                      "position": _mv["position"], "out": _mv["out"], "gain": _mv["gain"],
+                      "gws": _bm["gws"]}
+    else:
+        from analytics import brain as _brain
+        _brain.warm_async(st.session_state.get("bootstrap") or {}, players_df,
+                          st.session_state.get("fixtures_df"))
 
     # 3) Chip timing · nearest upcoming Double Gameweek among owned players
     dgw_gws = sorted({
@@ -349,30 +364,45 @@ else:
         if cap is not None:
             st.markdown(_command_card(
                 "Captain pick", str(cap["web_name"]),
-                f"{float(cap.get('ep_next') or 0):.1f} xP · {cap.get('team_short','')}",
+                f"{float(cap.get('xp') or 0):.1f} xP GW{int(cap['gw'])} · {cap.get('team_short','')}",
                 "var(--ff-gold)", cap.get("team_short"),
                 player_code=cap.get("code"), team_code=cap.get("team_code"),
             ), unsafe_allow_html=True)
         else:
-            st.markdown(_command_card("Captain pick", "-", "No squad data", "var(--ff-gold)"),
+            st.markdown(_command_card("Captain pick", "Building", "Projections update after each gameweek · a few minutes", "var(--ff-gold)"),
                         unsafe_allow_html=True)
         st.page_link("views/06_captain_picker.py", label="Full captain analysis →")
 
     with c2:
         if top_in is not None:
+            _g = top_in.get("gws") or [0]
             st.markdown(_command_card(
-                "Best transfer in", str(top_in.get("web_name", "-")),
-                f"{float(top_in.get('ep_next') or 0):.1f} xP · {top_in.get('team_short','')} · {top_in.get('position','')}",
+                "Best move", str(top_in.get("web_name", "-")),
+                f"for {top_in.get('out')} · +{float(top_in.get('gain') or 0):.1f} team xP GW{_g[0]}-{_g[-1]}",
                 "var(--ff-mint)", top_in.get("team_short"),
                 player_code=top_in.get("code"), team_code=top_in.get("team_code"),
             ), unsafe_allow_html=True)
         else:
-            st.markdown(_command_card("Best transfer in", "-", "No target found", "var(--ff-mint)"),
+            st.markdown(_command_card("Best move", "Building" if _long is None else "Hold",
+                                      "Projections update after each gameweek" if _long is None
+                                      else "No single move clears the bar", "var(--ff-mint)"),
                         unsafe_allow_html=True)
         st.page_link("views/02_transfer_suggestions.py", label="Transfer suggestions →")
 
+    try:
+        _cs = _svc.team(int(team_id))["chips"]
+    except Exception:
+        _cs = None
     with c3:
-        if dgw_gws:
+        if _cs is not None and not dgw_gws:
+            from analytics.chip_state import LABEL as _CL
+            _left = [_CL[c] for c in _cs["remaining"]]
+            st.markdown(_command_card(
+                "Chips left", " · ".join(_left) if _left else "None",
+                ("Until GW%d · then the second set arrives" % _cs["gw_hi"]) if _cs["half"] == 1
+                else "Second set, to GW38", "var(--ff-cyan)",
+            ), unsafe_allow_html=True)
+        elif dgw_gws:
             st.markdown(_command_card(
                 "Chip window", f"GW{dgw_gws[0]} double",
                 "Strong Bench Boost / Triple Captain timing", "var(--ff-cyan)",
@@ -417,9 +447,9 @@ else:
         "gw": current_gw,
         "deadline_text": deadline_text or "",
         "captain": (str(cap["web_name"]) if cap is not None else None),
-        "captain_xp": (f"{float(cap.get('ep_next') or 0):.1f}" if cap is not None else None),
-        "transfer_in": (str(top_in.get("web_name")) if top_in is not None else None),
-        "transfer_xp": (f"{float(top_in.get('ep_next') or 0):.1f}" if top_in is not None else None),
+        "captain_xp": (f"{float(cap.get('xp') or 0):.1f}" if cap is not None else None),
+        "transfer_in": (f"{top_in.get('web_name')} for {top_in.get('out')}" if top_in is not None else None),
+        "transfer_xp": (f"+{float(top_in.get('gain') or 0):.1f} over six weeks" if top_in is not None else None),
         "chip": _chip_text,
         "risks": _risks_text,
     }
