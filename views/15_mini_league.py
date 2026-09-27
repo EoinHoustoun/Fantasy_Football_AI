@@ -6,6 +6,7 @@ cumulative points over the season on one chart.
 """
 
 import streamlit as st
+from ui.page import section as _sec
 
 from components.loading import LINES_GENERIC, fpl_loader
 from ui import charts
@@ -307,7 +308,7 @@ hl = None if highlight == "All teams" else highlight
 st.markdown("---")
 
 # ── Current standings ──────────────────────────────────────────────────────────
-st.markdown("### Current Standings")
+_sec("Current Standings")
 _standings_cards(league_df, current_gw)
 
 st.markdown("---")
@@ -335,7 +336,7 @@ with tab_gw:
 st.markdown("---")
 
 # ── Full standings table ───────────────────────────────────────────────────────
-st.markdown("### Full Season Table")
+_sec("Full Season Table")
 latest_gw_df = league_df[league_df["GW"] == league_df["GW"].max()].copy()
 latest_gw_df = latest_gw_df.sort_values("cumulative", ascending=False).reset_index(drop=True)
 latest_gw_df.index += 1
@@ -348,7 +349,7 @@ st.dataframe(table_df, use_container_width=True)
 
 # ── Key moments ───────────────────────────────────────────────────────────────
 st.markdown("---")
-st.markdown("### Key Moments")
+_sec("Key Moments")
 st.caption("Biggest lead changes and best individual GW scores in your league.")
 
 col_a, col_b = st.columns(2)

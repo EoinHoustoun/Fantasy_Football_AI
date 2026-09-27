@@ -8,6 +8,7 @@ Shows:
 """
 
 import streamlit as st
+from ui.page import section as _sec
 
 from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
 import pandas as pd
@@ -168,7 +169,7 @@ if team_id and team_id > 0:
         st.sidebar.warning("Could not load squad.")
 
 if squad_df is not None:
-    st.markdown("### 🔴 Your Squad Alerts")
+    _sec("Your Squad Alerts")
 
     if "team_code" not in squad_df.columns:
         tc = players_df[["fpl_id", "team_code"]].drop_duplicates()
@@ -209,7 +210,7 @@ if squad_df is not None:
     st.markdown("---")
 
 # ── Section 2: Full league injury board ───────────────────────────────────────
-st.markdown("### 📋 Full Injury Board")
+_sec("Full Injury Board")
 
 all_flagged = players_df[
     (players_df["status"].isin(selected_statuses)) &

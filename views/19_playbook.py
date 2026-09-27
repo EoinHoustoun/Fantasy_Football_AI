@@ -108,112 +108,116 @@ def _question(num: int, q: str, rule: str, accent: str = "var(--ff-mint)") -> No
 from ui.page import header as _header
 _header("The Playbook", "Your strategy questions, answered by 253,000 player-gameweeks, not vibes.", kicker='Research', icon='menu_book')
 
-# ── Season Start Kit ──────────────────────────────────────────────────────────
-st.markdown(
-    f'<div style="display:flex;align-items:center;gap:14px;margin:26px 0 12px;">'
-    f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
-    f'color:var(--ff-gold);white-space:nowrap;">🚀 Season Start Kit · day one of 2026-27</div>'
-    f'<div style="flex:1;height:1px;background:rgba(255,215,0,0.25);"></div></div>'
-    f'<div style="font-size:12px;color:{V("muted")};margin-bottom:12px;">'
-    f'The whole playbook compressed into what to do at the deadline. '
-    f'The named squad lives in the 26/27 Draft page · this is the thinking behind it.</div>',
-    unsafe_allow_html=True)
+# The August material (season start kit, launch-price read) is the right front
+# page in preseason and history once the season is live, so it collapses then.
+_pre = (st.session_state.get("season_phase") or {}).get("phase") == "preseason"
+with (st.container() if _pre else st.expander("Season start kit and the launch-price read (August 2026)")):
+    # ── Season Start Kit ──────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:14px;margin:26px 0 12px;">'
+        f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
+        f'color:var(--ff-gold);white-space:nowrap;">🚀 Season Start Kit · day one of 2026-27</div>'
+        f'<div style="flex:1;height:1px;background:rgba(255,215,0,0.25);"></div></div>'
+        f'<div style="font-size:12px;color:{V("muted")};margin-bottom:12px;">'
+        f'The whole playbook compressed into what to do at the deadline. '
+        f'The named squad lives in the 26/27 Draft page · this is the thinking behind it.</div>',
+        unsafe_allow_html=True)
 
-kit = [
-    ("💷", "Budget blueprint", "var(--ff-gold)",
-     "Hindsight's optimal GW1 split: <b>GKP £10.0 · DEF £26.5 · MID £35.5 · FWD £27.5</b>. "
-     "Two playing keepers from solid defences, budget CB core, midfield is where the money goes, "
-     "one premium forward · no £14m+ luxury unless he's projected top-3 overall."),
-    ("⏱️", "Minutes first, always", "var(--ff-mint)",
-     "Minutes ↔ points: ρ = <b>0.98</b>. Nailed (2700+ min) players average <b>3.6 ppg and "
-     "23.9 pts/£m</b> vs 1.5 ppg / 3.0 for rotation players. Every pick must answer "
-     "'does he play 90 every week?' before any other question. Pre-season: watch friendlies "
-     "for role locks, avoid anyone in a positional battle."),
-    ("🛡️", "Defender shopping list", "var(--ff-cyan)",
-     "3 starting CBs at £4.5–5.5 from top/mid defensive units · prioritise set-piece targets "
-     "(DEFCON floor ~14–22 pts + header goals). Full-backs only if elite-team assist machines. "
-     "Promoted-team defenders: cheap but check the CBIT profile once data lands."),
-    ("⚽", "Midfield & forward criteria", "var(--ff-mag)",
-     "Mids: nailed + xGI per 90 ≥ 0.5 + ideally on pens (tiebreaker, don't pay premium for it). "
-     "Mid-priced (£6.5–8.5) is where last season's 200-pt breakouts lived (Semenyo, Gibbs-White). "
-     "One forward who starts every week beats two who rotate."),
-    ("🚩", "Red flags", "var(--ff-red)",
-     "New signing 'competition for places' · back from long injury · European-competition rotation "
-     "risk at big clubs · great pre-season hype on a bench player · paying for last season's "
-     "overperformance (check the Finishing Luck scatter · G−xG > +3 regresses)."),
-    ("🗓️", "First 5 GWs", "var(--ff-orange-v)",
-     "Judge opening fixture runs over 5–6 GWs, not 1–2. Bank transfers early while watching "
-     "minutes settle. <b>Default to zero hits</b> · a hit is only worth +2.4 pts even with "
-     "perfect foresight; save them for forced moves or chip set-up. First wildcard: "
-     "hold until the first international break when roles are clear."),
-]
-st.markdown(
-    '<div class="fplh-stagger" style="display:grid;'
-    'grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;">'
-    + "".join(
-        f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid {acc};">'
-        f'<div style="font-size:20px;">{emoji}</div>'
-        f'<div style="font-size:13px;font-weight:800;color:{V("text")};margin:4px 0;">{title}</div>'
-        f'<div style="font-size:12px;color:var(--ff-muted);line-height:1.6;">{body}</div></div>'
-        for emoji, title, acc, body in kit)
-    + "</div>",
-    unsafe_allow_html=True)
-try:
-    st.page_link("views/18_draft_2026_27.py", label="→ See the named optimal squad in the 26/27 Draft")
-except Exception:
-    pass
-
-# ── 2026/27 Value Read · live launch prices ────────────────────────────────────
-st.markdown(
-    f'<div style="display:flex;align-items:center;gap:14px;margin:30px 0 4px;">'
-    f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
-    f'color:var(--ff-mint);white-space:nowrap;">💷 {NEXT_SEASON} value read · live launch prices</div>'
-    f'<div style="flex:1;height:1px;background:rgba(0,255,135,0.22);"></div></div>'
-    f'<div style="font-size:12px;color:{V("muted")};margin-bottom:12px;">'
-    f'The rules above, applied to the prices that actually shipped. Full board + scout '
-    f'questions live on the 26/27 Draft page.</div>',
-    unsafe_allow_html=True)
-
-try:
-    from ui.value_board import build_board
-    from analytics.value_verdicts import VERDICTS
-    _vb, _vscout, _, _ = build_board(_freshness.inputs_stamp())
-except Exception:
-    _vb = None
-
-if _vb is not None and not _vb.empty:
-    def _mini(df: pd.DataFrame, title: str, accent: str, stat_fn) -> str:
-        rows = "".join(
-            f'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;'
-            f'border-bottom:1px solid var(--ff-row-alt);">'
-            f'{team_dot(r.get("team_short"), size=11)}'
-            f'<div style="flex:1;min-width:0;font-size:12px;font-weight:700;color:{V("text")};'
-            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["web_name"]}</div>'
-            f'<div style="font-size:11px;color:{accent};font-weight:800;white-space:nowrap;">{stat_fn(r)}</div>'
-            f'</div>'
-            for _, r in df.iterrows())
-        return (f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid {accent};">'
-                f'<div style="font-size:13px;font-weight:800;color:{V("text")};margin-bottom:8px;">{title}</div>'
-                f'{rows}</div>')
-
-    _nec = _vb[_vb["verdict"] == VERDICTS.NECESSITY].nlargest(6, "projected_points")
-    # Value sorted by projection, not raw pts/£m · surfaces the high-ceiling
-    # bargains rather than six £4.0 keepers who always win pure pts/£m.
-    _val = _vb[_vb["verdict"] == VERDICTS.VALUE].nlargest(6, "projected_points")
-    _over = _vb[_vb["verdict"] == VERDICTS.OVERPRICED].nlargest(6, "actual_price")
+    kit = [
+        ("💷", "Budget blueprint", "var(--ff-gold)",
+         "Hindsight's optimal GW1 split: <b>GKP £10.0 · DEF £26.5 · MID £35.5 · FWD £27.5</b>. "
+         "Two playing keepers from solid defences, budget CB core, midfield is where the money goes, "
+         "one premium forward · no £14m+ luxury unless he's projected top-3 overall."),
+        ("⏱️", "Minutes first, always", "var(--ff-mint)",
+         "Minutes ↔ points: ρ = <b>0.98</b>. Nailed (2700+ min) players average <b>3.6 ppg and "
+         "23.9 pts/£m</b> vs 1.5 ppg / 3.0 for rotation players. Every pick must answer "
+         "'does he play 90 every week?' before any other question. Pre-season: watch friendlies "
+         "for role locks, avoid anyone in a positional battle."),
+        ("🛡️", "Defender shopping list", "var(--ff-cyan)",
+         "3 starting CBs at £4.5–5.5 from top/mid defensive units · prioritise set-piece targets "
+         "(DEFCON floor ~14–22 pts + header goals). Full-backs only if elite-team assist machines. "
+         "Promoted-team defenders: cheap but check the CBIT profile once data lands."),
+        ("⚽", "Midfield & forward criteria", "var(--ff-mag)",
+         "Mids: nailed + xGI per 90 ≥ 0.5 + ideally on pens (tiebreaker, don't pay premium for it). "
+         "Mid-priced (£6.5–8.5) is where last season's 200-pt breakouts lived (Semenyo, Gibbs-White). "
+         "One forward who starts every week beats two who rotate."),
+        ("🚩", "Red flags", "var(--ff-red)",
+         "New signing 'competition for places' · back from long injury · European-competition rotation "
+         "risk at big clubs · great pre-season hype on a bench player · paying for last season's "
+         "overperformance (check the Finishing Luck scatter · G−xG > +3 regresses)."),
+        ("🗓️", "First 5 GWs", "var(--ff-orange-v)",
+         "Judge opening fixture runs over 5–6 GWs, not 1–2. Bank transfers early while watching "
+         "minutes settle. <b>Default to zero hits</b> · a hit is only worth +2.4 pts even with "
+         "perfect foresight; save them for forced moves or chip set-up. First wildcard: "
+         "hold until the first international break when roles are clear."),
+    ]
     st.markdown(
         '<div class="fplh-stagger" style="display:grid;'
-        'grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">'
-        + _mini(_nec, "🥇 Necessity · build around", "var(--ff-gold)",
-                lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
-        + _mini(_val, "🟢 Value · came in under price", "var(--ff-mint)",
-                lambda r: f'£{r["actual_price"]:.1f} · {r["value_score"]:.1f}/£m')
-        + _mini(_over, "🔴 Overpriced · swerve", "var(--ff-red)",
-                lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
+        'grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;">'
+        + "".join(
+            f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid {acc};">'
+            f'<div style="font-size:20px;">{emoji}</div>'
+            f'<div style="font-size:13px;font-weight:800;color:{V("text")};margin:4px 0;">{title}</div>'
+            f'<div style="font-size:12px;color:var(--ff-muted);line-height:1.6;">{body}</div></div>'
+            for emoji, title, acc, body in kit)
         + "</div>",
         unsafe_allow_html=True)
-else:
-    st.caption("Value read loads once the 26/27 board is built.")
+    try:
+        st.page_link("views/18_draft_2026_27.py", label="→ See the named optimal squad in the 26/27 Draft")
+    except Exception:
+        pass
+
+    # ── 2026/27 Value Read · live launch prices ────────────────────────────────────
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:14px;margin:30px 0 4px;">'
+        f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;'
+        f'color:var(--ff-mint);white-space:nowrap;">💷 {NEXT_SEASON} value read · live launch prices</div>'
+        f'<div style="flex:1;height:1px;background:rgba(0,255,135,0.22);"></div></div>'
+        f'<div style="font-size:12px;color:{V("muted")};margin-bottom:12px;">'
+        f'The rules above, applied to the prices that actually shipped. Full board + scout '
+        f'questions live on the 26/27 Draft page.</div>',
+        unsafe_allow_html=True)
+
+    try:
+        from ui.value_board import build_board
+        from analytics.value_verdicts import VERDICTS
+        _vb, _vscout, _, _ = build_board(_freshness.inputs_stamp())
+    except Exception:
+        _vb = None
+
+    if _vb is not None and not _vb.empty:
+        def _mini(df: pd.DataFrame, title: str, accent: str, stat_fn) -> str:
+            rows = "".join(
+                f'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;'
+                f'border-bottom:1px solid var(--ff-row-alt);">'
+                f'{team_dot(r.get("team_short"), size=11)}'
+                f'<div style="flex:1;min-width:0;font-size:12px;font-weight:700;color:{V("text")};'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["web_name"]}</div>'
+                f'<div style="font-size:11px;color:{accent};font-weight:800;white-space:nowrap;">{stat_fn(r)}</div>'
+                f'</div>'
+                for _, r in df.iterrows())
+            return (f'<div class="fplh-card-hover" style="{CARD}border-top:3px solid {accent};">'
+                    f'<div style="font-size:13px;font-weight:800;color:{V("text")};margin-bottom:8px;">{title}</div>'
+                    f'{rows}</div>')
+
+        _nec = _vb[_vb["verdict"] == VERDICTS.NECESSITY].nlargest(6, "projected_points")
+        # Value sorted by projection, not raw pts/£m · surfaces the high-ceiling
+        # bargains rather than six £4.0 keepers who always win pure pts/£m.
+        _val = _vb[_vb["verdict"] == VERDICTS.VALUE].nlargest(6, "projected_points")
+        _over = _vb[_vb["verdict"] == VERDICTS.OVERPRICED].nlargest(6, "actual_price")
+        st.markdown(
+            '<div class="fplh-stagger" style="display:grid;'
+            'grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">'
+            + _mini(_nec, "🥇 Necessity · build around", "var(--ff-gold)",
+                    lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
+            + _mini(_val, "🟢 Value · came in under price", "var(--ff-mint)",
+                    lambda r: f'£{r["actual_price"]:.1f} · {r["value_score"]:.1f}/£m')
+            + _mini(_over, "🔴 Overpriced · swerve", "var(--ff-red)",
+                    lambda r: f'£{r["actual_price"]:.1f} · {r["projected_points"]:.0f}pts')
+            + "</div>",
+            unsafe_allow_html=True)
+    else:
+        st.caption("Value read loads once the 26/27 board is built.")
 
 
 # ── The questions, grouped ────────────────────────────────────────────────────

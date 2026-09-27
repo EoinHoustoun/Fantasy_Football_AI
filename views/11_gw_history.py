@@ -9,6 +9,7 @@ Shows:
 """
 
 import streamlit as st
+from ui.page import section as _sec
 
 from components.loading import LINES_GENERIC, fpl_loader
 from ui import charts, theme
@@ -227,37 +228,25 @@ gws_above = int((merged_avg["diff"] > 0).sum())
 gws_below = int((merged_avg["diff"] <= 0).sum())
 total_vs_avg = float(merged_avg["diff"].sum())
 
-m1, m2, m3, m4, m5, m6 = st.columns(6)
-m1.metric("Total Points",   f"{net_total:,}")
-m2.metric("Avg / GW",       f"{avg_per_gw:.1f}")
-m3.metric("Best GW",        f"GW{int(best_gw_row['gw'])}",  f"{int(best_gw_row['net_points'])} pts")
-m4.metric("Worst GW",       f"GW{int(worst_gw_row['gw'])}", f"{int(worst_gw_row['net_points'])} pts", delta_color="off")
-m5.metric("Hit cost (total)", f"{total_hits} pts")
-m6.metric("Bench pts lost", f"{total_bench}")
+from components.animations import count_up as _cu
+from ui.page import tiles as _tiles
+_tiles([
+    ("Total points", _cu(net_total), "%+.0f vs the average manager" % total_vs_avg,
+     "mint" if total_vs_avg >= 0 else "red"),
+    ("Per gameweek", _cu(avg_per_gw, 1), "%d above average · %d below" % (gws_above, gws_below), "text"),
+    ("Best", "GW%d" % int(best_gw_row["gw"]), "%d pts" % int(best_gw_row["net_points"]), "mint"),
+    ("Worst", "GW%d" % int(worst_gw_row["gw"]), "%d pts" % int(worst_gw_row["net_points"]), "red"),
+    ("Hits taken", "%d" % total_hits, "points spent on extra transfers", "gold" if total_hits else "text"),
+    ("Bench points", "%d" % total_bench, "scored on your bench, not counted", "orange"),
+])
 
-st.markdown("---")
-
+_sec("Every gameweek against the average")
 # ── GW vs average ────────────────────────────────────────────────────────────
 _fill_between_chart(hist_df, gw_avgs)
 
-# ── Above vs below summary banner ─────────────────────────────────────────────
-delta_color  = theme.fill("mint") if total_vs_avg >= 0 else theme.fill("red")
-delta_sign   = "+" if total_vs_avg >= 0 else ""
-st.markdown(
-    f"<div style='display:flex;gap:32px;padding:14px 20px;"
-    f"background:var(--ff-row-alt);border-radius:10px;font-family:sans-serif;'>"
-    f"<div><span style='color:var(--ff-muted2);font-size:12px;'>GWs above average</span>"
-    f"<div style='font-size:20px;font-weight:800;color:var(--ff-mint);'>{gws_above}</div></div>"
-    f"<div><span style='color:var(--ff-muted2);font-size:12px;'>GWs below average</span>"
-    f"<div style='font-size:20px;font-weight:800;color:var(--ff-red);'>{gws_below}</div></div>"
-    f"<div><span style='color:var(--ff-muted2);font-size:12px;'>Total vs average</span>"
-    f"<div style='font-size:20px;font-weight:800;color:{delta_color};'>"
-    f"{delta_sign}{total_vs_avg:.0f} pts</div></div>"
-    f"</div>",
-    unsafe_allow_html=True,
-)
+# (The above/below-average counts live in the tiles at the top.)
 
-st.markdown("---")
+_sec("Rank and running total")
 
 # ── Bottom charts: rank + cumulative ─────────────────────────────────────────
 col_rank, col_cum = st.columns(2)
@@ -272,7 +261,7 @@ with col_cum:
 # ── Hit analysis ──────────────────────────────────────────────────────────────
 if total_hits > 0:
     st.markdown("---")
-    st.markdown("### Transfer Hit Analysis")
+    _sec("Transfer Hit Analysis")
     hits_df = hist_df[hist_df["event_transfers_cost"] > 0][
         ["gw", "points", "event_transfers_cost", "net_points"]
     ].copy()

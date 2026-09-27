@@ -83,7 +83,7 @@ with st.sidebar:
     theme_toggle(st)
     st.markdown("---")
 
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("Refresh data", icon=":material/refresh:", use_container_width=True):
         st.cache_data.clear()
         for _key in ("players_df", "bootstrap", "fixtures_df", "current_gw", "season_phase", "plan_gw", "simulating_gw"):
             st.session_state[_key] = None

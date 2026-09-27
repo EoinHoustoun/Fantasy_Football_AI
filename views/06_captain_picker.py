@@ -8,6 +8,7 @@ Shows:
 """
 
 import streamlit as st
+from ui.page import section as _sec
 
 from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
 from ui import charts, theme
@@ -407,7 +408,7 @@ if squad_df is not None:
         tc = players_df[["fpl_id", "team_code"]].drop_duplicates()
         squad_scored = squad_scored.merge(tc, on="fpl_id", how="left")
 
-    st.markdown(f"### Your Captain · GW{captain_gw}")
+    _sec(f"Your Captain · GW{captain_gw}")
 
     if not squad_scored.empty:
         top = squad_scored.iloc[0]
@@ -441,7 +442,7 @@ if squad_df is not None:
                 score_breakdown_chart(squad_scored, "Where the expected points come from · your squad",
                                       key="cap_breakdown_squad")
 
-        st.markdown("#### Top 5 Captain Options (Your Squad)")
+        _sec("Top 5 Captain Options (Your Squad)")
         cards_html = "".join(
             _mini_card(squad_scored.iloc[i], i + 1)
             for i in range(len(squad_scored))
@@ -451,7 +452,7 @@ if squad_df is not None:
     st.markdown("---")
 
 # ── Section 2: Differential Captains ─────────────────────────────────────────
-st.markdown(f"### Differential Captains · GW{captain_gw}")
+_sec(f"Differential Captains · GW{captain_gw}")
 st.caption(f"High-ceiling players owned by fewer than {diff_threshold}% · go against the template.")
 
 diffs = scored[scored["ownership"] <= diff_threshold].copy()
@@ -488,7 +489,7 @@ if not diffs.empty:
             score_breakdown_chart(diffs, "Where the expected points come from · differentials",
                                   key="cap_breakdown_diff")
 
-    st.markdown("#### Top 5 Differential Options")
+    _sec("Top 5 Differential Options")
     diff_cards = "".join(
         _mini_card(diffs.iloc[i], i + 1)
         for i in range(len(diffs))
@@ -499,7 +500,7 @@ else:
 
 # ── Section 3: If no squad loaded, show global top 5 ─────────────────────────
 if squad_df is None:
-    st.markdown(f"### Top 5 Captain Picks (All Players) · GW{captain_gw}")
+    _sec(f"Top 5 Captain Picks (All Players) · GW{captain_gw}")
     st.caption("Enter your team ID in the sidebar to see picks from your squad only.")
     global_top5 = scored.head(5)
     if "team_code" not in global_top5.columns:

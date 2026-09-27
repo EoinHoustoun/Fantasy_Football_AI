@@ -694,7 +694,7 @@ def theme_toggle(location=None) -> str:
     host = location if location is not None else st.sidebar
     st.session_state.setdefault(THEME_KEY, _read_pref() or DEFAULT_THEME)
     choice = host.radio(
-        "Appearance", ["🌙 Dark", "☀️ Light"],
+        "Appearance", ["Dark", "Light"],
         index=0 if current() == "dark" else 1,
         horizontal=True, key="_ff_theme_radio", label_visibility="collapsed")
     picked = "light" if "Light" in choice else "dark"

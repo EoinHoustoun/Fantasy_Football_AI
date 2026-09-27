@@ -9,6 +9,7 @@ Shows:
 """
 
 import streamlit as st
+from ui.page import section as _sec
 
 from components.loading import LINES_GENERIC, fpl_loader
 from ui import charts, theme
@@ -194,7 +195,7 @@ else:
 st.markdown("---")
 
 # ── Price pressure radar ──────────────────────────────────────────────────────
-st.markdown("### 💰 Price Pressure Radar")
+_sec("Price Pressure Radar")
 st.caption("Net transfers scaled by ownership · who is closest to a price move. "
            "Heuristic ordering, not FPL's secret algorithm. Buy risers before "
            "the rise; a faller banks you only half the drop.")
@@ -241,7 +242,7 @@ st.markdown("---")
 
 if has_movement:
     # ── Rising vs Falling scatter ──────────────────────────────────────────────────
-    st.markdown("### Season Ownership Movement")
+    _sec("Season Ownership Movement")
     st.caption("Each bubble is a player. Right = owned more now. Left = owned less. Size = current ownership.")
 
     scatter_df = movers.merge(
@@ -281,7 +282,7 @@ if has_movement:
     st.markdown("---")
 
     # ── Top Risers chart ───────────────────────────────────────────────────────────
-    st.markdown("### 📈 Biggest Ownership Risers")
+    _sec("Biggest Ownership Risers")
     st.caption("Players who've been bought most heavily across the season.")
 
     col_rise, col_fall = st.columns(2)
@@ -303,7 +304,7 @@ if has_movement:
             st.dataframe(riser_df, use_container_width=True, hide_index=True)
 
     with col_fall:
-        st.markdown("### 📉 Biggest Ownership Fallers")
+        _sec("Biggest Ownership Fallers")
         st.caption("Players managers have been selling all season.")
         top_fallers_10 = movers.nsmallest(10, "change")["web_name"].tolist()
         if top_fallers_10:
@@ -322,7 +323,7 @@ if has_movement:
     st.markdown("---")
 
 # ── Search any player ──────────────────────────────────────────────────────────
-st.markdown("### 🔍 Track Any Player")
+_sec("Track Any Player")
 
 all_tracked = sorted(gw_own["web_name"].dropna().unique().tolist())
 selected_players = st.multiselect(
