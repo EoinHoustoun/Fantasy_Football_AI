@@ -545,6 +545,10 @@ def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
                 "animation:fplh-swap-ready 1.1s ease-in-out infinite;")
     elif is_axed:
         edge = "border-color:#FF4B4B;border-style:dashed;"
+    elif row.get("is_new"):
+        edge = ("border-color:#00FF87;box-shadow:0 0 0 2px rgba(0,255,135,0.6),"
+                "0 0 22px rgba(0,255,135,0.45),0 6px 18px rgba(0,0,0,0.42);"
+                "animation:ff-drop-in .7s cubic-bezier(.2,.8,.2,1) both;")
     else:
         edge = ("border-color:rgba(0,255,135,0.55);"
                 "box-shadow:0 0 0 1px rgba(0,255,135,0.14),"
@@ -588,7 +592,10 @@ def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
         f'box-shadow:0 6px 18px rgba(0,0,0,0.42),'
         f'inset 0 1px 0 rgba(255,255,255,0.16);">'
         f'{corners}'
-        f'<div style="position:relative;display:inline-block;">{_shirt}{markers}</div>'
+        + ('<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);'
+           'background:#00FF87;color:#0B0F17;font-size:9px;font-weight:900;letter-spacing:0.08em;'
+           'padding:1px 7px;border-radius:999px;">NEW</span>' if row.get("is_new") and not is_axed else "")
+        + f'<div style="position:relative;display:inline-block;">{_shirt}{markers}</div>'
         f'<div style="color:#fff;font-size:{FS_NAME}px;font-weight:800;margin-top:4px;'
         f'white-space:nowrap;max-width:{W - 12}px;overflow:hidden;'
         f'text-overflow:ellipsis;text-align:center;padding-bottom:2px;'

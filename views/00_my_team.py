@@ -160,11 +160,19 @@ with st.sidebar:
         help="Find your ID in the FPL URL: fantasy.premierleague.com/entry/XXXXXX/...",
     )
     st.caption("Enter any team ID to spy on a rival ⚡")
+    # The public API has no banked-FT field, but the history replays it exactly
+    # (analytics/service.free_transfers): seed the box with that, still editable.
+    try:
+        from analytics import service as _svc_ft
+        _ft_seed = int(_svc_ft.team(int(st.session_state.get("squad_team_id")
+                                        or FPL_TEAM_ID or 0))["free_transfers"])
+    except Exception:  # noqa: BLE001
+        _ft_seed = 1
     st.number_input(
-        "Free transfers banked", min_value=1, max_value=5, value=1, step=1,
+        "Free transfers banked", min_value=1, max_value=5, value=_ft_seed, step=1,
         key="banked_fts",
-        help="FPL's public API does not publish this · tell the planner what "
-             "you are carrying into next week.",
+        help="Replayed from your transfer history (FPL does not publish it). "
+             "Change it if you know better.",
     )
 
     st.markdown("---")
@@ -1023,6 +1031,10 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
     codes_now = TP.effective_codes(start_codes, plans, drafts, view_gw,
                                    first_gw=int(plan_first))
     sq, missing = _planner_squad(codes_now)
+    # Missing from the preseason board is fine when the engine projects him
+    # (the projector is keyed by code); warn only when there is truly no number.
+    from analytics.gw_projection import SRC_MATCH as _SRC_MATCH
+    missing = [c for c in missing if PROJ is None or PROJ.source(c, view_gw) != _SRC_MATCH]
     if missing:
         st.warning("%d player(s) have no projection on the board · shown at 0."
                    % len(missing))
@@ -1097,7 +1109,8 @@ def _planner_fragment(view_gw: int, plan_first: int, bank_m_now: float) -> None:
         sub_from = None
         st.session_state[_sk("sub_from")] = None
     rows = ROWS.pitch_rows(sq, view_gw, PROJ, FIX, xi, captain, axed, sub_from,
-                           swap_targets)
+                           swap_targets,
+                           new_codes={int(c) for c in (entry.get("swaps") or {}).values()})
     click = _dedupe(render_squad_pitch(
         rows, stat_label="xP", title_right="GW%d plan" % view_gw, interactive=True,
         compact=True,
@@ -1344,7 +1357,13 @@ with tab_pitch:
         _events = {int(e["id"]): e for e in bs.get("events", [])}
         _cur = int(current_gw) if current_gw else 1
         _sim_on = bool(st.session_state.get("simulating_gw"))
-        _plan_first = _cur + 1
+        # Before a gameweek's deadline its transfers are still open, so THAT week
+        # is the first planning week (the Transfers page and Claude draft into
+        # it). Only once the deadline has passed does it become a read-only
+        # "live" week and planning start from the next one.
+        _cur_open = bool(_events.get(_cur, {}).get("is_next")) or (
+            not _events.get(_cur, {}).get("is_current") and not _events.get(_cur, {}).get("finished"))
+        _plan_first = _cur if _cur_open else _cur + 1
         _plan_last = (_cur + SIM_HORIZON) if _sim_on else min(38, _cur + SIM_HORIZON)
         _max_gw = max(_cur, _plan_last)
         if "pitch_gw" not in st.session_state:
@@ -1354,8 +1373,8 @@ with tab_pitch:
         def _nudge_gw(delta: int) -> None:
             st.session_state.pitch_gw = max(1, min(_max_gw, int(st.session_state.pitch_gw) + delta))
 
-        st.caption("◀ scrub back through the season · forward past "
-                   f"GW{_cur} to plan transfers on the pitch ▶")
+        st.caption("◀ scrub back through the season · from "
+                   f"GW{_plan_first} on, plan transfers on the pitch ▶")
         _cprev, _cmid, _cnext = st.columns([1.1, 3, 1.1])
         with _cprev:
             st.button("◀ Prev GW", key="pitch_prev", on_click=_nudge_gw, args=(-1,),
@@ -1371,7 +1390,7 @@ with tab_pitch:
         _finished = bool(_events.get(view_gw, {}).get("finished", False))
         _is_upcoming = (view_gw == _cur) and not _finished
 
-        if view_gw > _cur:
+        if view_gw >= _plan_first:
             # The forward-week planner lives at module level (see
             # FORWARD-WEEK PLANNER above) and runs as its own fragment, so
             # an axe, a signing, a bench or a chip redraws only that block.

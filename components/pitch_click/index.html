@@ -27,12 +27,19 @@
     0%, 100% { box-shadow: 0 0 10px rgba(0,255,135,0.35); }
     50%      { box-shadow: 0 0 20px rgba(0,255,135,0.70); }
   }
+  /* A player bought in this week's plan drops into his slot. */
+  @keyframes ff-drop-in {
+    0%   { opacity: 0; transform: translateY(-26px) scale(.86); }
+    60%  { opacity: 1; transform: translateY(4px) scale(1.03); }
+    100% { opacity: 1; transform: none; }
+  }
   /* Kits settle into place after a swap rather than snapping. */
   [data-ffaction="detail"] img { transition: transform .18s cubic-bezier(.2,.8,.2,1); }
   [data-ffaction="detail"]:hover img { transform: translateY(-3px) scale(1.04); }
   @media (prefers-reduced-motion: reduce) {
     [data-ffaction="detail"] img { transition: none; }
     @keyframes fplh-swap-ready { 0%, 100% { box-shadow: 0 0 14px rgba(0,255,135,0.5); } }
+    @keyframes ff-drop-in { 0%, 100% { opacity: 1; transform: none; } }
   }
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">

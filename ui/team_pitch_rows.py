@@ -54,7 +54,7 @@ def _text(value, default: str = "") -> str:
 
 def pitch_rows(sq: pd.DataFrame, gw: int, proj, fix: Dict, xi: set,
                captain: Optional[int], axed: List[int], sub_from: Optional[int],
-               swap_targets: set) -> List[Dict]:
+               swap_targets: set, new_codes: Optional[set] = None) -> List[Dict]:
     """One dict per shirt for `components.pitch_view.render_squad_pitch`.
 
     `fpl_id` carries the stable `code`, not the season-local FPL id, because
@@ -80,6 +80,8 @@ def pitch_rows(sq: pd.DataFrame, gw: int, proj, fix: Dict, xi: set,
             "is_axed": code in axed, "allow_axe": True, "allow_bench": True,
             "is_sub_source": sub_from == code,
             "swap_ok": code in swap_targets,
+            # Bought in THIS week's plan: the card drops in and carries a tag.
+            "is_new": code in (new_codes or set()),
         })
     return players
 
