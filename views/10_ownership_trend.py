@@ -163,7 +163,7 @@ if pick:
           "yAxis": {**charts._axis("value"), "name": "Owned %",
                     "nameTextStyle": {"color": fill("muted2")}},
           "series": series}
-    charts.render(jo, height="360px", key="own_journeys_%d" % len(pick))
+    charts.render(jo, height="360px", key="own_journeys")
 
 # ── Price pressure ────────────────────────────────────────────────────────────
 section("Price pressure", "Net transfers this gameweek, scaled by ownership: who is closest "

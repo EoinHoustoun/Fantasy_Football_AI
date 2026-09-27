@@ -91,7 +91,7 @@ opt["series"][1]["xAxisIndex"] = 1
 # Kits on the club axis. The helper edits the axis dict it is handed, so pass
 # the heatmap's own y-axis (the option carries two).
 charts.with_image_labels({"yAxis": opt["yAxis"][0]}, [shirt_url(int(x[1])) for x in teams], size=22)
-charts.render(opt, height="%dpx" % (60 + 34 * len(teams)), key="fx_ticker_%s_%d" % (val, n))
+charts.render(opt, height="%dpx" % (60 + 34 * len(teams)), key="fx_ticker")
 
 section("Best runs", "The clubs whose next %d gameweeks look best on this measure." % n, "trending_up")
 best = list(reversed(teams))[:4]

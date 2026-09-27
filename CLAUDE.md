@@ -76,6 +76,10 @@ same flaw; `brain.patch_live_prices` now patches it from that history
 (BRAIN_VERSION 2; rank correlation with the old projections 0.997). Charts: `charts.render` resolves
 `var(--ff-*)` tokens (canvas cannot) and `charts.heat_ramp()` is theme-aware.
 
+**Rivals:** `service.league_rivals(league_id)` projects every rival's current fifteen on the
+engine and returns THREATS / SWORDS; shown on Mini-League and exposed to Claude as `rivals`.
+Charts that toggle views keep a stable key so ECharts animates between states.
+
 **Other surfaces:** rail player search -> `ui/player_sheet.py` dialog; Fixtures
 page (`views/20_fixtures.py`, engine xG / clean-sheet ticker with kits);
 Injuries parses "Expected back 11 Oct" into return gameweeks.
