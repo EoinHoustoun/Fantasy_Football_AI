@@ -58,12 +58,33 @@ five engines disagreed and three pages named three different captains.
 - Minutes are calibrated next week (pred 0.870 vs actual 0.868 for nailed
   starters) and optimistic further out, which the optimiser's decay absorbs.
 
+**Transfer audit (2026-09-27 pm)** · `analytics/transfer_audit.py` + `service.move_dossier`:
+every move is priced on the TEAM (best XI + captain) week by week, so timing
+(`gain_if_made` per week = entry point), robustness (1/3/6/8-week gains) and the
+verdict (Make it / Wait until GWk / Marginal / Skip) are team-level. Flags both
+players: luck vs xGI, minutes, penalties, DEFCON hit rate, injury, price
+pressure, fixtures after the window, and who a benchwarmer sale really
+displaces. `service.squad_exit_map` = exit weeks. Transfers page: heat grid,
+audited cards, dossier, plan holding-window timeline. Planner hold baseline is
+analytic (`transfer_plan.hold_plan`), alternatives on request (~4 s a solve).
+
+**Data traps found this round:** the live gameweek feed stamps TODAY's
+`selected` and `value` on every past week (Ownership read 0% change for all);
+real history comes from element-summary via `service.ownership_history`
+(cached per finished GW). The brain's current-season `value` feature has the
+same flaw (small effect, unfixed). Charts: `charts.render` resolves
+`var(--ff-*)` tokens (canvas cannot) and `charts.heat_ramp()` is theme-aware.
+
+**Other surfaces:** rail player search -> `ui/player_sheet.py` dialog; Fixtures
+page (`views/20_fixtures.py`, engine xG / clean-sheet ticker with kits);
+Injuries parses "Expected back 11 Oct" into return gameweeks.
+
 **MCP server** (`mcp_server/server.py`): Claude calls the same service functions.
 Runs from `.venv-mcp` (Python 3.11, numerics pinned to the app's). Registered
 user-scope as `fpl` (`claude mcp list`). Engine imports are lazy so the handshake
 beats the 30 s timeout. Tools: status, my_team, projections, player, captaincy,
-optimise_transfers, compare_players, save_plan_to_app (drafts only; Eoin
-presses Save).
+optimise_transfers, compare_players, chip_squad, check_move, exit_points,
+fixtures, save_plan_to_app (drafts only; Eoin presses Save).
 
 ## Design system
 
