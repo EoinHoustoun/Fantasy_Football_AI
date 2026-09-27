@@ -142,6 +142,12 @@ try:
     st.session_state.current_gw = get_current_gameweek(bs)
     st.session_state.plan_gw = _sim if _sim else st.session_state.current_gw
     st.session_state.season_phase = get_season_phase(bs)
+    # Every page reads the team from here. It used to be set only by Home, so a
+    # page opened by URL (or by Claude) had no team and fell back to a blank.
+    if not st.session_state.get("squad_team_id"):
+        from config import FPL_TEAM_ID as _TID
+        if _TID:
+            st.session_state.squad_team_id = int(_TID)
 
     # Pre-warm the points model in the background (daemon thread, once per
     # process) so the first click on Predictions / Free Hit is instant.

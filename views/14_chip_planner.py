@@ -130,7 +130,7 @@ st.markdown(_one_line(
     f'<div class="ff-display" style="font-size:34px;font-weight:900;'
     f'color:{V("text")};letter-spacing:-0.6px;">Chip Planner</div>'
     f'<div style="font-size:13.5px;color:{V("muted")};margin-top:2px;">'
-    f'Which week to spend each first-half chip.</div></div>'),
+    f'Which week to spend each chip you still hold.</div></div>'),
     unsafe_allow_html=True)
 
 board, scout, _, _ = build_board(_freshness.inputs_stamp())
@@ -144,8 +144,52 @@ if board is None:
 # page used to solve its own squad, so it answered for a team you had not built.
 from analytics import drafts as DR
 
+# ── Chip state · which chips are still in hand this half ─────────────────────
+from analytics.chip_state import LABEL as CHIP_LABEL, chip_state
+from data.fetchers.fpl_api import fetch_entry_history, fetch_team_picks
+
+_bs = st.session_state.get("bootstrap") or {}
+_next_gw = next((int(e["id"]) for e in _bs.get("events", []) if e.get("is_next")), 1)
+_team_id = st.session_state.get("squad_team_id")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _chips_played(team_id: int):
+    try:
+        return fetch_entry_history(int(team_id)).get("chips", [])
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _my_codes(team_id: int, gw: int):
+    try:
+        from data.fetchers.fpl_api import fetch_bootstrap
+        by_id = {int(p["id"]): int(p["code"]) for p in fetch_bootstrap()["elements"]}
+        picks = fetch_team_picks(int(team_id), int(gw)).get("picks", [])
+        return [by_id[int(p["element"])] for p in picks if int(p["element"]) in by_id]
+    except Exception:
+        return []
+
+
+_played = _chips_played(_team_id) if _team_id else None
+CS = chip_state(_played or [], _next_gw)
+if _played is not None:
+    _pills = "".join(
+        f'<span style="display:inline-flex;gap:6px;align-items:center;padding:4px 10px;'
+        f'border-radius:999px;border:1px solid {V("line")};margin-right:6px;'
+        f'font-size:12px;color:{V("muted")};">{CHIP_LABEL[c]} '
+        f'<b style="color:{V("text")};">played GW{g}</b></span>'
+        for c, g in sorted(CS["used"].items(), key=lambda kv: kv[1]))
+    st.markdown(_one_line(
+        f'<div style="margin:4px 0 12px;">{_pills}'
+        f'<span style="font-size:12px;color:{V("muted")};">Planning GW{CS["gw_lo"]}-{CS["gw_hi"]} '
+        f'· {"first" if CS["half"] == 1 else "second"} set of chips</span></div>'),
+        unsafe_allow_html=True)
+
 _saved = [d for d in DR.load_drafts() if DR.has_squad(d)]
-_opts = ["Solve a fresh squad"] + [d["name"] for d in _saved]
+_mine = _my_codes(_team_id, _next_gw) if _team_id else []
+_opts = (["My squad"] if len(_mine) == 15 else []) + ["Solve a fresh squad"] + [d["name"] for d in _saved]
 c1, c2 = st.columns([3, 1])
 with c1:
     pick = st.selectbox("Squad", _opts, label_visibility="collapsed")
@@ -154,7 +198,12 @@ with c2:
                        label_visibility="collapsed")
 
 squad = None
-if pick != "Solve a fresh squad":
+if pick == "My squad":
+    squad = board[board["code"].isin(_mine)].copy()
+    squad["pts"] = squad.get("consensus_points", squad.get("projected_points"))
+    squad["in_xi"] = squad["code"].isin(squad.nlargest(11, "pts")["code"])
+    src = "your current squad"
+elif pick != "Solve a fresh squad":
     d = next(x for x in _saved if x["name"] == pick)
     codes = [int(c) for c in d["squad"]]
     squad = board[board["code"].isin(codes)].copy()
@@ -206,8 +255,8 @@ def _projector(stamp: str, _board):
 
 PROJ = _projector(_freshness.inputs_stamp(), board)
 
-GW_HI = CHIP_TIMING["first_batch_gw_hi"]
-w = chip_windows(squad, fixtures_df, 1, GW_HI, proj=PROJ)
+GW_LO, GW_HI = CS["gw_lo"], CS["gw_hi"]
+w = chip_windows(squad, fixtures_df, GW_LO, GW_HI, proj=PROJ)
 
 # GW1-6 are per-fixture forecasts and GW7+ is fixture shape, and on the real
 # board the two sit about 23% apart. Untouched, that step decides every chip:
@@ -221,45 +270,69 @@ tc = sorted(tc, key=lambda r: -r["extra_pts"])
 fh = sorted(fh, key=lambda r: (r["squad_pts"], -r["blanks"]))
 _MATCH_HI = max([r["gw"] for r in fh if r.get("source") == "match"] or [0])
 bb_best, tc_best, fh_best = bb[0], tc[0], fh[0]
-bb_gw1 = next((x for x in bb if x["gw"] == 1), {"gw": 1, "bench_pts": 0.0})
+bb_gw1 = next((x for x in bb if x["gw"] == GW_LO), {"gw": GW_LO, "bench_pts": 0.0})
 bench_names = " · ".join(squad[~squad.get("in_xi", True)]["web_name"].tolist()[:4])
 
 # ── The calendar · the whole decision in one strip ───────────────────────────
 by_gw = sorted(fh, key=lambda x: x["gw"])
-st.markdown(_timeline(by_gw, {"bench_boost": bb_best["gw"],
-                              "triple_captain": tc_best["gw"],
-                              "free_hit": fh_best["gw"]}, 1, GW_HI,
-                        match_hi=_MATCH_HI),
+HAVE = {"bench_boost": "bboost" in CS["remaining"],
+        "triple_captain": "3xc" in CS["remaining"],
+        "free_hit": "freehit" in CS["remaining"]}
+_marks = {k: v for k, v in {"bench_boost": bb_best["gw"],
+                            "triple_captain": tc_best["gw"],
+                            "free_hit": fh_best["gw"]}.items() if HAVE[k]}
+st.markdown(_timeline(by_gw, _marks, GW_LO, GW_HI, match_hi=_MATCH_HI),
             unsafe_allow_html=True)
 
 # A clash is the one thing a planner must not let you miss.
-_weeks = [bb_best["gw"], tc_best["gw"], fh_best["gw"]]
-if len(set(_weeks)) < 3:
+_weeks = list(_marks.values())
+if len(set(_weeks)) < len(_weeks):
     st.warning("Two chips want the same week. You can only play one, so take the "
                "bigger gain and move the other to its next-best week below.")
 
 # ── The three calls ──────────────────────────────────────────────────────────
+def _played_card(name: str, key: str) -> str:
+    return _one_line(
+        f'<div style="background:{V("card")};border:1px dashed {V("line")};'
+        f'border-radius:12px;padding:16px 18px;height:100%;opacity:0.75;">'
+        f'<div style="font-size:9.5px;font-weight:800;letter-spacing:0.14em;'
+        f'text-transform:uppercase;color:{V("muted")};">{name}</div>'
+        f'<div class="ff-display" style="font-size:30px;font-weight:900;'
+        f'color:{V("muted")};margin-top:2px;">Played</div>'
+        f'<div style="font-size:12.5px;color:{V("muted")};margin-top:4px;">'
+        f'GW{CS["used"].get(key, "?")} · back for the second half from GW20</div></div>')
+
+
 h1, h2, h3 = st.columns(3)
 with h1:
-    note = ("GW1 needs no transfers or wildcard to set up"
-            if bb_best["gw"] == 1 else
-            "GW1 is worth %.0f and needs no prep" % bb_gw1["bench_pts"])
-    st.markdown(_chip_card(
-        "Bench Boost", bb_best["gw"], "%.0f bench points" % bb_best["bench_pts"],
-        "Your four bench players all score. %s" % (bench_names or "Bench: n/a"),
-        CHIP_TONE["bench_boost"], note), unsafe_allow_html=True)
+    if not HAVE["bench_boost"]:
+        st.markdown(_played_card("Bench Boost", "bboost"), unsafe_allow_html=True)
+    else:
+        note = ("Needs no transfers or wildcard to set up"
+                if bb_best["gw"] == GW_LO else
+                "GW%d is worth %.0f and needs no prep" % (GW_LO, bb_gw1["bench_pts"]))
+        st.markdown(_chip_card(
+            "Bench Boost", bb_best["gw"], "%.0f bench points" % bb_best["bench_pts"],
+            "Your four bench players all score. %s" % (bench_names or "Bench: n/a"),
+            CHIP_TONE["bench_boost"], note), unsafe_allow_html=True)
 with h2:
-    st.markdown(_chip_card(
-        "Triple Captain", tc_best["gw"], "+%.0f points" % tc_best["extra_pts"],
-        "%s in his best week of the first half." % (tc_best["captain"] or "n/a"),
-        CHIP_TONE["triple_captain"]), unsafe_allow_html=True)
+    if not HAVE["triple_captain"]:
+        st.markdown(_played_card("Triple Captain", "3xc"), unsafe_allow_html=True)
+    else:
+        st.markdown(_chip_card(
+            "Triple Captain", tc_best["gw"], "+%.0f points" % tc_best["extra_pts"],
+            "%s in his best week of this window." % (tc_best["captain"] or "n/a"),
+            CHIP_TONE["triple_captain"]), unsafe_allow_html=True)
 with h3:
-    blanks = fh_best.get("blanks", 0)
-    why = ("%d of your fifteen have no fixture." % blanks if blanks
-           else "Your squad's worst week for fixtures.")
-    st.markdown(_chip_card(
-        "Free Hit", fh_best["gw"], "%.0f squad points" % fh_best["squad_pts"],
-        why, CHIP_TONE["free_hit"]), unsafe_allow_html=True)
+    if not HAVE["free_hit"]:
+        st.markdown(_played_card("Free Hit", "freehit"), unsafe_allow_html=True)
+    else:
+        blanks = fh_best.get("blanks", 0)
+        why = ("%d of your fifteen have no fixture." % blanks if blanks
+               else "Your squad's worst week for fixtures.")
+        st.markdown(_chip_card(
+            "Free Hit", fh_best["gw"], "%.0f squad points" % fh_best["squad_pts"],
+            why, CHIP_TONE["free_hit"]), unsafe_allow_html=True)
 
 st.markdown(_one_line(
     f'<div style="font-size:11.5px;color:{V("muted")};margin:10px 0 2px;">'
@@ -272,7 +345,11 @@ st.markdown(_one_line(
 # hidden container. A chart that mounts hidden measures itself at ~90px and
 # never re-measures, which is how a previous version arrived with its labels
 # printed on top of each other. A segmented control renders one.
-VIEWS = ["Bench Boost", "Triple Captain", "Free Hit"]
+VIEWS = [lbl for lbl, k in (("Bench Boost", "bench_boost"), ("Triple Captain", "triple_captain"),
+                             ("Free Hit", "free_hit")) if HAVE[k]]
+if not VIEWS:
+    st.info("Every chip in this set is played. The second set arrives in GW20.")
+    st.stop()
 view = st.segmented_control("Week by week", VIEWS, default=VIEWS[0],
                             label_visibility="collapsed") or VIEWS[0]
 

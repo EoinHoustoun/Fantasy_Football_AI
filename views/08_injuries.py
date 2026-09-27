@@ -190,7 +190,8 @@ if squad_df is not None:
         n_starters = squad_flagged[~squad_flagged["on_bench"]].shape[0]
         n_bench    = squad_flagged[squad_flagged["on_bench"]].shape[0]
         if n_starters > 0:
-            st.warning(f"⚠️ **{n_starters} starting XI player(s)** with concerns · check before GW{current_gw + 1}!")
+            _next_gw = next((e["id"] for e in (st.session_state.get("bootstrap") or {}).get("events", []) if e.get("is_next")), current_gw + 1)
+            st.warning(f"⚠️ **{n_starters} starting XI player(s)** with concerns · check before GW{_next_gw}!")
 
         starters_flagged = squad_flagged[~squad_flagged["on_bench"]].sort_values("status")
         bench_flagged    = squad_flagged[squad_flagged["on_bench"]].sort_values("status")

@@ -257,11 +257,13 @@ with id_col:
         key="home_team_id", help="Find it in the FPL website URL: /entry/<ID>/",
     )
 st.session_state.squad_team_id = int(team_id)
-_is_demo = int(team_id) == (int(FPL_TEAM_ID) if FPL_TEAM_ID else 38148)
+# The .env team is the owner's own team, so it is never a "demo". Only an ID
+# that differs from it is someone else's, which is worth saying.
+_is_own = bool(FPL_TEAM_ID) and int(team_id) == int(FPL_TEAM_ID)
 with hint_col:
     st.markdown(
         f"<div style='padding-top:30px;font-size:12px;color:var(--ff-muted2);'>"
-        f"{'👋 Showing a <b>demo team</b> · enter your own ID above to personalise every page.' if _is_demo else 'Your team is set across every page.'}"
+        f"{'Your team · set across every page.' if _is_own else 'Viewing another manager · every page follows this ID.'}"
         f"</div>",
         unsafe_allow_html=True,
     )

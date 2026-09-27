@@ -165,6 +165,17 @@ def fetch_transfer_history(team_id: int) -> List[dict]:
     return resp.json()
 
 
+def fetch_entry_history(team_id: int) -> dict:
+    """Season history for a manager: per-GW points, past seasons and chips played.
+
+    `chips` is a list of {"name": "bboost"|"3xc"|"wildcard"|"freehit", "event": gw}.
+    """
+    url = f"https://fantasy.premierleague.com/api/entry/{team_id}/history/"
+    resp = requests.get(url, headers=HEADERS, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get_team_squad(team_id: int, gw: int, bootstrap: Optional[dict] = None) -> pd.DataFrame:
     """
     Return the manager's current squad as a DataFrame.

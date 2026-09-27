@@ -297,9 +297,9 @@ if comparison:
         d = float(row["difference"])
         pos = str(row["position"])
         if d > 1:
-            narrative_parts.append(f"**{pos}** outscores your current {pos}s by **+{d:.1f} pts**")
+            narrative_parts.append(f"<b>{pos}</b> outscores your current {pos}s by <b>+{d:.1f} pts</b>")
         elif d < -1:
-            narrative_parts.append(f"**{pos}** is weaker than your current {pos}s by **{d:.1f} pts**")
+            narrative_parts.append(f"<b>{pos}</b> is weaker than your current {pos}s by <b>{d:.1f} pts</b>")
     if narrative_parts:
         overall = comparison["gain"]
         sign = "+" if overall >= 0 else ""

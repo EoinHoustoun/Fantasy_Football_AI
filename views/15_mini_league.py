@@ -50,9 +50,11 @@ def fetch_my_leagues(team_id: int) -> List[Dict]:
         resp.raise_for_status()
         data = resp.json()
         classics = data.get("leagues", {}).get("classic", [])
-        # league_type 'x' = global/FPL-official, 'c' = created (private), 's' = system
-        # Show 'c' (private mini-leagues) first, then 's' (public/invitational), skip 'x' (global)
-        private = [l for l in classics if l.get("league_type") == "c"]
+        # league_type 's' = system (Overall, country, club, GW1). Everything else
+        # is a user-created league: FPL used 'c' for these and moved to 'x' by
+        # 2026-27, which silently emptied this page. Treat any non-system type as
+        # private rather than guessing the next letter.
+        private = [l for l in classics if l.get("league_type") != "s"]
         public  = [l for l in classics if l.get("league_type") == "s"]
         return private + public
     except Exception:
@@ -210,7 +212,7 @@ with st.sidebar:
     team_id = st.number_input(
         "FPL Team ID",
         min_value=1,
-        value=int(FPL_TEAM_ID or 1),
+        value=int(st.session_state.get("squad_team_id") or FPL_TEAM_ID or 1),
         step=1,
         help="Your FPL team ID · used to auto-load your leagues.",
     )
@@ -220,7 +222,7 @@ with st.sidebar:
 
     # Fetch both private (user-created) and system (official/region/team) leagues
     all_leagues = fetch_my_leagues(team_id)
-    private_leagues = [l for l in all_leagues if l.get("league_type") == "c"]
+    private_leagues = [l for l in all_leagues if l.get("league_type") != "s"]
     system_leagues  = [l for l in all_leagues if l.get("league_type") == "s"]
 
     show_public = st.toggle(
@@ -234,7 +236,7 @@ with st.sidebar:
     league_id  = None
     if visible_leagues:
         def _label(l):
-            tag = "🔒 Private" if l.get("league_type") == "c" else "🌐 Public"
+            tag = "🔒 Private" if l.get("league_type") != "s" else "🌐 Public"
             return f"{tag} · {l['name']}"
 
         league_options = {_label(l): l["id"] for l in visible_leagues}

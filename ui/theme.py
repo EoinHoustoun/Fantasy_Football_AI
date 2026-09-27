@@ -616,6 +616,29 @@ hr {{ border-color: var(--ff-line) !important; }}
 [data-testid="stSidebar"] .stButton button[kind="secondary"] * {{
   color: var(--ff-side-ink) !important;
 }}
+/* Inputs on the cyan rail. The blanket sidebar-ink rule turns their text dark,
+   but Streamlit still paints the field near-black, so the team ID and the
+   banked-transfers box read as dark-on-dark. Give every field a light plate. */
+[data-testid="stSidebar"] [data-baseweb="input"],
+[data-testid="stSidebar"] [data-baseweb="input"] > div,
+[data-testid="stSidebar"] [data-baseweb="base-input"],
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-testid="stNumberInputContainer"],
+[data-testid="stSidebar"] input, [data-testid="stSidebar"] textarea {{
+  background: rgba(255,255,255,0.78) !important;
+  border-color: rgba(5,34,43,0.22) !important;
+  -webkit-text-fill-color: var(--ff-side-ink) !important;
+  font-weight: 700 !important;
+}}
+[data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button {{
+  background: transparent !important;
+}}
+[data-testid="stSidebar"] [data-baseweb="tag"] {{
+  background: var(--ff-side-ink) !important;
+}}
+[data-testid="stSidebar"] [data-baseweb="tag"] * {{
+  color: #7FEAF8 !important; -webkit-text-fill-color: #7FEAF8 !important;
+}}
 [data-testid="stSidebar"] [data-testid="stPageLink"] {{ margin: 1px 0 1px 10px; }}
 [data-testid="stSidebar"] [data-testid="stPageLink"] a {{
   font-size: 13px !important; font-weight: 600 !important;

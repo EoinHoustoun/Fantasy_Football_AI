@@ -332,15 +332,15 @@ def predict_next_gw(
 
     latest["name_lower"] = latest["name"].str.lower().str.strip()
     result = latest.merge(
-        fpl_idx[["web_name", "team", "team_id", "team_code", "team_short", "position", "price",
+        fpl_idx[[c for c in ["code", "web_name", "team", "team_id", "team_code", "team_short", "position", "price",
                  "ownership", "status", "form", "total_points",
-                 "fpl_xgi_per90"]].reset_index(),
+                 "fpl_xgi_per90"] if c in fpl_idx.columns]].reset_index(),
         on="name_lower", how="left", suffixes=("_v", ""),
     )
     result["web_name"] = result["web_name"].fillna(result["name"])
     result["status"]   = result["status"].fillna("a")
 
-    keep = ["web_name", "team", "team_id", "team_code", "team_short", "position", "price", "ownership",
+    keep = ["code", "web_name", "team", "team_id", "team_code", "team_short", "position", "price", "ownership",
             "status", "predicted_pts", "base_predicted_pts", "next_gw_fdr",
             "form", "total_points", "fpl_xgi_per90",
             "roll_pts_4", "roll_xgi_4", "roll_mins_4"]

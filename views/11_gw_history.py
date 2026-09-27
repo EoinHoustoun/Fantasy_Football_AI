@@ -231,7 +231,7 @@ m1, m2, m3, m4, m5, m6 = st.columns(6)
 m1.metric("Total Points",   f"{net_total:,}")
 m2.metric("Avg / GW",       f"{avg_per_gw:.1f}")
 m3.metric("Best GW",        f"GW{int(best_gw_row['gw'])}",  f"{int(best_gw_row['net_points'])} pts")
-m4.metric("Worst GW",       f"GW{int(worst_gw_row['gw'])}", f"{int(worst_gw_row['net_points'])} pts")
+m4.metric("Worst GW",       f"GW{int(worst_gw_row['gw'])}", f"{int(worst_gw_row['net_points'])} pts", delta_color="off")
 m5.metric("Hit cost (total)", f"{total_hits} pts")
 m6.metric("Bench pts lost", f"{total_bench}")
 

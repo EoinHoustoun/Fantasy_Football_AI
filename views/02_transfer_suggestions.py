@@ -100,6 +100,12 @@ def _attach_short_names(players_df: pd.DataFrame, bootstrap: dict) -> pd.DataFra
 
 
 # ── Render helpers ─────────────────────────────────────────────────────────────
+def _md_bold(text: str) -> str:
+    """Reasoning strings carry markdown bold; inside raw HTML it shows as asterisks."""
+    import re
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(text or ""))
+
+
 def render_hero(player: pd.Series, reasoning: str) -> None:
     pos = str(player.get("position", ""))
     code = int(player.get("team_code", 1) or 1)
@@ -184,7 +190,7 @@ def render_hero(player: pd.Series, reasoning: str) -> None:
     margin-bottom:22px;
     font-size:14px;color:var(--ff-text);line-height:1.6;
     font-family:'Inter',sans-serif;
-">{reasoning}</div>
+">{_md_bold(reasoning)}</div>
 """,
         unsafe_allow_html=True,
     )
@@ -240,7 +246,7 @@ def render_podium(close_list: List[Dict[str, Any]]) -> None:
          <div style="font-size:10px;color:var(--ff-muted2);letter-spacing:0.1em;">FDR6</div></div>
   </div>
   <div style="margin-top:12px;font-size:12px;color:var(--ff-muted);line-height:1.5;">
-    {item['reasoning']}
+    {_md_bold(item['reasoning'])}
   </div>
 </div>
 """)

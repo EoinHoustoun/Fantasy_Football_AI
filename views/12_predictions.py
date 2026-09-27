@@ -213,11 +213,11 @@ if metrics["n_test"] > 0:
 
     # Friendly interpretation
     if mae < 1.5:
-        interp_col, interp_txt = "var(--ff-mint)", f"On average predictions are **{mae:.1f} pts off** per player per GW · a solid baseline."
+        interp_col, interp_txt = "var(--ff-mint)", f"On average predictions are <b>{mae:.1f} pts off</b> per player per GW · a solid baseline."
     elif mae < 2.5:
-        interp_col, interp_txt = "var(--ff-orange)", f"Predictions average **{mae:.1f} pts off** · decent for FPL's inherent randomness."
+        interp_col, interp_txt = "var(--ff-orange)", f"Predictions average <b>{mae:.1f} pts off</b> · decent for FPL's inherent randomness."
     else:
-        interp_col, interp_txt = "var(--ff-red)", f"Average error of **{mae:.1f} pts** · use predictions directionally, not literally."
+        interp_col, interp_txt = "var(--ff-red)", f"Average error of <b>{mae:.1f} pts</b> · use predictions directionally, not literally."
 
     st.markdown(
         f"<div style='padding:10px 16px;background:var(--ff-row-alt);"
@@ -327,9 +327,13 @@ if team_id and team_id > 0:
 
 if squad_df is not None:
     st.markdown(f"### Your Squad · GW{captain_gw} Predictions")
-    owned_names = set(squad_df["web_name"].tolist())
-    squad_preds = predictions[predictions["web_name"].isin(owned_names)].copy()
-
+    # Join on the stable player code. Joining on web_name matched the Ipswich
+    # keeper Palmer in place of Chelsea's Palmer. A bundle saved before `code`
+    # was carried gets it back from (web_name, club), which is unique.
+    if "code" not in predictions.columns and "team_code" in predictions.columns:
+        _pc = players_df[["web_name", "team_code", "code"]].drop_duplicates(["web_name", "team_code"])
+        predictions = predictions.merge(_pc, on=["web_name", "team_code"], how="left")
+    squad_preds = predictions[predictions["code"].isin(set(squad_df["code"]))].copy()
     if not squad_preds.empty:
         total_pred = squad_preds["predicted_pts"].sum()
         xi_preds   = squad_preds.sort_values("predicted_pts", ascending=False).head(11)
