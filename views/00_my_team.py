@@ -348,6 +348,20 @@ from config import FIXTURE_LOOKAHEAD
 _fdr_col = f"avg_fdr_next_{FIXTURE_LOOKAHEAD}"
 
 players_df_all = _get_players()
+# Every "xP" on this page reads `ep_next`. FPL's own ep_next is its 30-day form
+# (Groß 11.2 = form 11.2), so it is replaced here by the shared engine's
+# next-gameweek projection · the number Home, Captain, Transfers and Claude use.
+# FPL's figure survives as `ep_next_fpl`.
+try:
+    from analytics import service as _svc
+    _blong = _svc.projections(allow_compute=False)
+    if _blong is not None and "ep_next" in players_df_all.columns:
+        _b0 = _blong[_blong["gw"] == int(_blong["gw"].min())].groupby("code")["xp"].sum()
+        players_df_all = players_df_all.copy()
+        players_df_all["ep_next_fpl"] = players_df_all["ep_next"]
+        players_df_all["ep_next"] = players_df_all["code"].map(_b0).fillna(0.0).round(2)
+except Exception:  # noqa: BLE001 · fall back to FPL's figure, never break the page
+    _logger.warning("engine xP unavailable on My Team", exc_info=True)
 
 # Off-season the raw squad fetch carries form=0.0 for everyone (FPL's form is
 # a 30-day average) · the universe self-heals it to points_per_game, so the
@@ -475,13 +489,10 @@ def _fixture_pills(fixtures, n: int = 4) -> str:
 
 
 # ── Captain ranking (same fixture-weighted formula as before) ────────────────
+# The engine's next-gameweek xP (ep_next is overwritten with it above), so this
+# card names the same captain as Home and the Captain page.
 cap_src = squad_enriched[~squad_enriched["on_bench"]].copy()
-if _fdr_col in cap_src.columns:
-    _fn = (cap_src["form"].fillna(0).astype(float) / 10.0).clip(0, 1)
-    _fx = ((5.0 - cap_src[_fdr_col].fillna(3).astype(float)) / 4.0).clip(0, 1)
-    cap_src["cap_score"] = (0.40 * _fn + 0.60 * _fx) * 10.0
-else:
-    cap_src["cap_score"] = cap_src["form"].fillna(0).astype(float)
+cap_src["cap_score"] = pd.to_numeric(cap_src.get("ep_next"), errors="coerce").fillna(0.0)
 cap_src = cap_src.sort_values("cap_score", ascending=False)
 
 cap_top = cap_src.iloc[0] if not cap_src.empty else None
@@ -523,13 +534,19 @@ def _scored_universe(_players, stamp: str):
     d = estimate_ceiling(score_players(_players))
     return d[d["status"] == "a"].sort_values("transfer_score", ascending=False)
 
+# The best single move from the shared engine, priced on the team's points.
 try:
-    owned_names = set(squad_df["web_name"].tolist())
-    opp_df = _scored_universe(
-        players_df_all,
-        _freshness.frame_stamp(players_df_all, "total_points", "now_cost", "form"))
-    opp_df = opp_df[~opp_df["web_name"].isin(owned_names)]
-    opp = opp_df.iloc[0] if not opp_df.empty else None
+    from analytics import service as _svc2
+    _bm = _svc2.best_moves(int(team_id), horizon=6, top_n=1)
+    _m = _bm["moves"][0] if _bm.get("moves") else None
+    if _m is not None:
+        _row = players_df_all[players_df_all["code"] == _m["in_code"]]
+        opp = _row.iloc[0].copy() if not _row.empty else None
+        if opp is not None:
+            opp["move_out"], opp["move_gain"] = _m["out"], _m["gain"]
+            opp["move_gws"] = "GW%d-%d" % (_bm["gws"][0], _bm["gws"][-1])
+    else:
+        opp = None
 except Exception:
     opp = None
 
@@ -586,7 +603,7 @@ if cap_top is not None:
   </div>
   <div style="text-align:right;">
     <div style="font-size:22px;font-weight:900;color:var(--ff-gold);line-height:1;">{ctop_score:.2f}</div>
-    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">SCORE</div>
+    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">xP THIS GW</div>
   </div>
 </div>
 <div style="display:flex;gap:14px;margin-bottom:10px;">
@@ -658,16 +675,12 @@ if opp is not None:
     oteam = str(opp.get("team", ""))
     opos  = str(opp.get("position", ""))
     oprice = float(opp.get("price", 0) or 0)
-    oscore = float(opp.get("transfer_score", 0) or 0)
+    oscore = float(opp.get("move_gain", 0) or 0)
     oform = float(opp.get("form", 0) or 0)
     oep = float(opp.get("ep_next", 0) or 0)
-    afford = oprice <= (bank_m + budget_boost + 15)   # 15 = rough swap headroom
     aff_badge = (
-        '<span style="background:rgba(0,255,135,0.12);border:1px solid rgba(0,255,135,0.4);'
-        'color:var(--ff-mint);border-radius:4px;padding:2px 7px;font-size:10px;font-weight:800;'
-        'letter-spacing:0.05em;margin-left:6px;">IN BUDGET</span>'
-        if afford else ""
-    )
+        f'<span style="color:var(--ff-muted2);font-size:11px;font-weight:600;margin-left:6px;">'
+        f'for {opp.get("move_out", "")}</span>')
 
     opp_body = f"""
 <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
@@ -682,8 +695,8 @@ if opp is not None:
     </div>
   </div>
   <div style="text-align:right;">
-    <div style="font-size:22px;font-weight:900;color:var(--ff-mint);line-height:1;">{oscore:.2f}</div>
-    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">SCORE</div>
+    <div style="font-size:22px;font-weight:900;color:var(--ff-mint);line-height:1;">+{oscore:.1f}</div>
+    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">TEAM xP {opp.get("move_gws", "")}</div>
   </div>
 </div>
 <div style="display:flex;gap:14px;">
@@ -693,7 +706,7 @@ if opp is not None:
        <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">xP NEXT</div></div>
 </div>
 """
-    opp_card_html = _decision_card("🔄", "var(--ff-mint)", "Opportunity", opp_body)
+    opp_card_html = _decision_card("🔄", "var(--ff-mint)", "Best Move", opp_body)
 else:
     opp_card_html = _decision_card("🔄", "var(--ff-mint)", "Opportunity",
                                     '<div style="color:var(--ff-muted2);">No data.</div>')

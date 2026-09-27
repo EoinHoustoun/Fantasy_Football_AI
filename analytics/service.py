@@ -52,13 +52,22 @@ def inputs() -> Dict[str, Any]:
 
 
 def projections(allow_compute: bool = True) -> Optional[pd.DataFrame]:
-    """The availability-adjusted brain, long form (one row per player per GW)."""
+    """The availability-adjusted brain, long form (one row per player per GW).
+
+    Memoised for two minutes: pages call this on every rerun, and injury news
+    (the only live input once the base is cached) does not move faster.
+    """
+    hit = _MEMO.get("projections")
+    if hit and time.time() - hit[0] < 120:
+        return hit[1]
     i = inputs()
     base = brain.load(i["bootstrap"], i["players"], i["fixtures"],
                       allow_compute=allow_compute)
     if base is None:
         return None
-    return brain.with_availability(base, i["players"])
+    out = brain.with_availability(base, i["players"])
+    _MEMO["projections"] = (time.time(), out)
+    return out
 
 
 def gameweek_info() -> Dict[str, Any]:

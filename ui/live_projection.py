@@ -115,6 +115,17 @@ def projection(inputs_stamp: str) -> Dict:
     fix = club_fixtures()
     board_stamp = freshness.board_stamp(board, pts_col)
     proj = projector(board, fix, board_stamp, PROJ_VERSION, module_stamp(gwp))
+    # In season the shared engine (analytics/brain) owns every gameweek inside
+    # its horizon; the board's fixture shape only covers the weeks beyond it.
+    # One projector for the planners, Home, Captain, Transfers and Claude.
+    try:
+        from analytics import brain, service
+        long = service.projections(allow_compute=False)
+        if long is not None and not long.empty:
+            proj = brain.BrainProjection(long, fallback=proj)
+    except Exception:  # noqa: BLE001 · the board projector still works
+        import logging
+        logging.getLogger(__name__).warning("brain projection unavailable", exc_info=True)
     return {"board": board, "scout": scout, "price_bt": price_bt, "validation": validation,
             "pts_col": pts_col, "fix": fix, "proj": proj, "board_stamp": board_stamp,
             "window": proj.window}

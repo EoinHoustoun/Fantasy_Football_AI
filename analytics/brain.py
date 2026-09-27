@@ -326,3 +326,62 @@ def point_parts(rows: pd.DataFrame) -> pd.DataFrame:
 # manager sees before the deadline is FPL's 30-day form (Groß 11.2 = form 11.2),
 # and a 4-gameweek form mean ranks the next 3 weeks at 0.27 against the brain's
 # 0.48. Do not reintroduce a blend on the archived column.
+
+
+# ── Adapter: the brain behind the GwProjection interface ──────────────────────
+
+class BrainProjection(object):
+    """Drop-in for `analytics.gw_projection.GwProjection`, backed by the brain.
+
+    The Draft page, the My Team planner and the Chip Planner all read a
+    projector through `points / source / expected_minutes / misses / matrix /
+    run_total / squad_total / coverage / window`. This serves those from the
+    brain inside its horizon and hands anything beyond it to `fallback` (the
+    preseason board's fixture shape), so a planner can still scrub to GW38.
+    """
+
+    def __init__(self, long: pd.DataFrame, fallback=None):
+        from analytics.gw_projection import SRC_MATCH, SRC_SHAPE
+        self._src_match, self._src_shape = SRC_MATCH, SRC_SHAPE
+        self._fb = fallback
+        g = long.groupby(["code", "gw"])
+        self._pts = {(int(c), int(w)): float(v) for (c, w), v in g["xp"].sum().items()}
+        self._mins = {(int(c), int(w)): float(v) for (c, w), v in g["exp_minutes"].sum().items()}
+        self._gws = set(int(x) for x in long["gw"].unique())
+        self.window = sorted(self._gws)
+
+    def _mine(self, gw: int) -> bool:
+        return int(gw) in self._gws
+
+    def points(self, code: int, gw: int) -> float:
+        if self._mine(gw):
+            return self._pts.get((int(code), int(gw)), 0.0)
+        return self._fb.points(code, gw) if self._fb is not None else 0.0
+
+    def source(self, code: int, gw: int) -> str:
+        if self._mine(gw):
+            return self._src_match
+        return self._fb.source(code, gw) if self._fb is not None else self._src_shape
+
+    def expected_minutes(self, code: int, gw: int) -> Optional[float]:
+        if self._mine(gw):
+            return self._mins.get((int(code), int(gw)))
+        return self._fb.expected_minutes(code, gw) if self._fb is not None else None
+
+    def misses(self, code: int, gw: int) -> bool:
+        return False if self._mine(gw) else bool(self._fb and self._fb.misses(code, gw))
+
+    def matrix(self, codes: List[int], gws: List[int]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {gw: [self.points(c, gw) for c in codes] for gw in gws},
+            index=pd.Index([int(c) for c in codes], name="code")).round(2)
+
+    def run_total(self, code: int, gw_lo: int, gw_hi: int) -> float:
+        return float(sum(self.points(code, g) for g in range(gw_lo, gw_hi + 1)))
+
+    def squad_total(self, codes: List[int], gw: int) -> float:
+        return float(sum(self.points(c, gw) for c in codes))
+
+    def coverage(self, codes: List[int], gw: int):
+        hit = sum(1 for c in codes if self.source(c, gw) == self._src_match)
+        return hit, len(codes)
