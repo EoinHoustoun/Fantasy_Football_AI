@@ -20,8 +20,8 @@ inject_global_animations()
 
 POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "var(--ff-orange-v)"}
 MUTED = "var(--ff-muted2)"
-CARD = ("background:rgba(22,26,34,0.85);border:1px solid var(--ff-row-alt);"
-        "border-radius:12px;padding:14px 18px;")
+CARD = ("background:var(--ff-card);border:1px solid var(--ff-line);"
+        "border-radius:14px;padding:14px 18px;")
 
 
 @st.cache_data(ttl=24 * 3600)
@@ -31,15 +31,8 @@ def _summary() -> pd.DataFrame:
 
 
 def _section(title: str, sub: str = "") -> None:
-    st.markdown(
-        f'<div style="display:flex;align-items:center;gap:14px;margin:30px 0 4px;">'
-        f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;'
-        f'text-transform:uppercase;color:{MUTED};white-space:nowrap;">{title}</div>'
-        f'<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div></div>'
-        + (f'<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:10px;">{sub}</div>'
-           if sub else ""),
-        unsafe_allow_html=True,
-    )
+    from ui.page import section
+    section(title, sub)
 
 
 def _tile(label: str, value: str, sub: str, accent: str = "#fff") -> str:
@@ -137,9 +130,9 @@ charts.render(opt, height="380px", key="vl_roi_bands")
 _section("Archetypes", "The three squads every winning team is built from.")
 arch_cols = st.columns(3)
 archetypes = [
-    ("💎 Budget enablers", view[view["start_price"] <= 4.5], "var(--ff-mint)"),
-    ("⚙️ Mid-price engines", view[(view["start_price"] > 4.5) & (view["start_price"] <= 8.0)], "var(--ff-cyan)"),
-    ("👑 Premium anchors", view[view["start_price"] > 8.0], "var(--ff-gold)"),
+    (theme.icon("savings", 18, "var(--ff-mint)") + " Budget enablers", view[view["start_price"] <= 4.5], "var(--ff-mint)"),
+    (theme.icon("settings_suggest", 18, "var(--ff-cyan)") + " Mid-price engines", view[(view["start_price"] > 4.5) & (view["start_price"] <= 8.0)], "var(--ff-cyan)"),
+    (theme.icon("workspace_premium", 18, "var(--ff-gold)") + " Premium anchors", view[view["start_price"] > 8.0], "var(--ff-gold)"),
 ]
 for col, (title, grp, accent) in zip(arch_cols, archetypes):
     top5 = grp.nlargest(5, "pts_per_million" if accent != "var(--ff-gold)" else "total_points")
@@ -176,7 +169,10 @@ if not defcon.empty:
             f"<b>{r['web_name']}</b> ({r['position']})<br/>"
             f"{r['defcon_points']:.0f} DEFCON pts · £{r['start_price']:.1f} · "
             f"{r['total_points']:.0f} total")}
-    charts.render(opt, height="380px", key="vl_defcon")
+    from components.team_identity import player_photo_url as _ppu
+    opt["grid"]["left"] = 130
+    charts.with_image_labels(opt, [_ppu(int(c)) for c in dc["code"]], size=22)
+    charts.render(opt, height="400px", key="vl_defcon")
 
 # ── Does value repeat? ────────────────────────────────────────────────────────
 _section("Does value repeat?",
@@ -210,3 +206,27 @@ st.markdown(
     f'(Spearman): <span style="color:var(--ff-mint);font-weight:800;">{corr:.2f}</span> '
     f'across {len(rep):,} player-season pairs (min 900 mins both seasons).</div>',
     unsafe_allow_html=True)
+
+
+# ── This season so far ────────────────────────────────────────────────────────
+# The frontier above is history. This is the same question asked of the live
+# season: who is returning the most points per £m right now (min 270 minutes).
+_live = st.session_state.get("players_df")
+if _live is not None and "total_points" in _live.columns:
+    _l = _live[(_live["minutes"].fillna(0) >= 270) & (_live["price"] > 0)].copy()
+    if not _l.empty:
+        _l["ppm"] = _l["total_points"] / _l["price"]
+        _top = _l.nlargest(12, "ppm").sort_values("ppm")
+        _section("This season's value so far",
+                 "Points per £m in 2026-27, minimum 270 minutes. Early-season numbers are noisy: "
+                 "read them next to the xGI and minutes on each player's sheet.")
+        from components.team_identity import player_photo_url as _ppu2
+        _o = charts.bar_option(list(_top["web_name"]), [round(float(v), 2) for v in _top["ppm"]],
+                               horizontal=True,
+                               colors=[POS_COLORS.get(p, theme.fill("mint")) for p in _top["position"]])
+        _o["grid"]["left"] = 130
+        _o["series"][0]["label"] = {"show": True, "position": "right", "fontSize": 10,
+                                    "color": theme.fill("text"), "formatter": "{c}"}
+        charts.with_image_labels(_o, [_ppu2(int(c)) for c in _top["code"]], size=22)
+        charts.render(_o, height="440px", key="vl_live_ppm")
+
