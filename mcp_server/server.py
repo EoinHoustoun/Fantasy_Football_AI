@@ -80,8 +80,11 @@ def projections(position: Optional[str] = None, max_price: Optional[float] = Non
                 horizon: int = 6, top_n: int = 20, sort: str = "xp_window") -> dict:
     """Top players by projected points over the next `horizon` gameweeks.
 
-    position: GKP|DEF|MID|FWD. sort: xp_window (total), xp_next (next GW), value (xP per £m).
-    Each row has xp_by_gw, fixtures, expected minutes and injury status.
+    position: GKP|DEF|MID|FWD. sort: xp_window (total), xp_next (next GW), value (xP per £m),
+    luck_free (window xP with carried-over finishing luck removed).
+    Each row has xp_by_gw, fixtures, expected minutes, injury status, luck_pts (points of
+    the window that are past finishing luck the engine carries forward) and
+    xp_window_luck_free. Compare hot players on the luck-free number.
     """
     return S.top_players(position, max_price, horizon, top_n, sort)
 
@@ -156,6 +159,8 @@ def check_move(sell: str, buy: str, horizon: int = 8) -> dict:
     players: running hot or cold (luck vs xGI), minutes pattern, penalties,
     DEFCON hit rate, injury news, price pressure, fixtures after the window, and
     who the new player really displaces when the sale is a benchwarmer.
+    `luck` gives both players' six-week xP with and without carried-over
+    finishing luck, and team_gain_6_clean is the move's gain without it.
     ALWAYS call this before telling the user to make a transfer.
     """
     codes = S.find_players([sell, buy])

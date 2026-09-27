@@ -149,7 +149,7 @@ def audit(out_p: Dict, in_p: Dict, tm: Dict, hz: Dict[int, float],
     # Is the incoming player real?
     if in_p["luck"] >= 2.0:
         flag("in", "warn", "%s is running hot: %d G+A from %.1f xGI. Luck does not persist "
-             "(r=-0.01); the projection already discounts it, but the price may not."
+             "(r=-0.01); the engine discounts most of it, not all, and the price may not."
              % (in_p["name"], in_p["goals"] + in_p["assists"], in_p["xgi"]))
     if in_p["gws"] >= 3 and in_p["starts"] < in_p["gws"] - 1:
         flag("in", "warn", "%s has started %d of %d: minutes %s."

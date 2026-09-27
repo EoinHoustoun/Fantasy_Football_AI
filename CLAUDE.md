@@ -80,6 +80,8 @@ same flaw; `brain.patch_live_prices` now patches it from that history
 engine and returns THREATS / SWORDS; shown on Mini-League and exposed to Claude as `rivals`.
 Charts that toggle views keep a stable key so ECharts animates between states.
 
+**Luck-free xP (2026-09-27):** the brain learns from recent goals, assists and bonus, so it carries ~18-20% of past finishing luck into forecasts (measured by regressing projected G+A/90 and bonus/90 on xGI/90 and luck/90 per position). `analytics/luck.py` + `service.luck_window` strip it: `xp_clean`, `luck_pts`. Shown in the dossier (tile + table + flag), the target board (Luck-free, Luck, Strip luck toggle) and MCP (`projections(sort="luck_free")`, `check_move.luck`). Groß 28.6 -> 24.4.
+
 **Player card in season:** My Team opens `ui/engine_card.py` (engine + this season only:
 face, price/ownership sparklines, keep/exit verdict with best swap, next-8 xP by fixture
 difficulty with minutes, "is he delivering" points vs xGI, set pieces, breakdown). The

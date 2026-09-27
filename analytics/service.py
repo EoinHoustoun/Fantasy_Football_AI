@@ -196,6 +196,10 @@ def fixtures_for(team_id: int, gws: List[int]) -> List[str]:
 def _rows(df: pd.DataFrame, gws: List[int], long: pd.DataFrame) -> List[Dict]:
     per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw",
                                                  values="xp", aggfunc="sum")
+    try:
+        lw = luck_window(len(gws))
+    except Exception:  # noqa: BLE001 · luck is an annotation, never a blocker
+        lw = pd.DataFrame()
     out = []
     for _, r in df.iterrows():
         c = int(r["code"])
@@ -204,6 +208,9 @@ def _rows(df: pd.DataFrame, gws: List[int], long: pd.DataFrame) -> List[Dict]:
             "price": round(float(r.get("price", 0) or 0), 1),
             "xp_next": round(float(r.get("xp_next", 0)), 2),
             "xp_window": round(float(r.get("xp_total", 0)), 2),
+            "xp_window_luck_free": round(float(lw.at[c, "xp_clean"]), 2) if c in lw.index
+            else round(float(r.get("xp_total", 0)), 2),
+            "luck_pts": round(float(lw.at[c, "luck_pts"]), 2) if c in lw.index else 0.0,
             "xp_by_gw": {int(g): round(float(per.at[c, g]), 2) if (c in per.index and g in per.columns) else 0.0
                          for g in gws},
             "xmins": round(float(r.get("xmins", 0) or 0), 0),
@@ -224,7 +231,11 @@ def top_players(position: Optional[str] = None, max_price: Optional[float] = Non
         s = s[s["position"] == position.upper()]
     if max_price:
         s = s[s["price"] <= float(max_price)]
-    key = {"xp_window": "xp_total", "xp_next": "xp_next", "value": "xp_per_m"}.get(sort, "xp_total")
+    if sort == "luck_free":
+        s = s.join(luck_window(int(horizon))[["xp_clean"]], on="code")
+        s["xp_clean"] = s["xp_clean"].fillna(s["xp_total"])
+    key = {"xp_window": "xp_total", "xp_next": "xp_next", "value": "xp_per_m",
+           "luck_free": "xp_clean"}.get(sort, "xp_total")
     s = s.sort_values(key, ascending=False).head(int(top_n))
     return {"gws": [int(g) for g in gws], "players": _rows(s, gws, long)}
 
@@ -482,6 +493,21 @@ def season_rows():
     return _memo("season_rows", _load, ttl=1800)
 
 
+def luck_window(horizon: int = 6) -> pd.DataFrame:
+    """code -> xp, luck_pts, xp_clean over the next `horizon` gameweeks.
+
+    `luck_pts` is the part of a projection that is carried-over finishing luck
+    (analytics/luck.py); `xp_clean` is the projection without it.
+    """
+    long = projections()
+    gws = sorted(int(g) for g in long["gw"].unique())[:int(horizon)]
+
+    def _run():
+        from analytics import luck as LK
+        return LK.window(LK.adjust(long, season_rows(), gws))
+    return _memo("luck:%s:%s" % (horizon, id(long)), _run, ttl=1800)
+
+
 def move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
                  horizon: int = 8, friction: float = 2.0) -> Dict:
     """Everything needed to decide one transfer: timing, robustness, both
@@ -535,6 +561,26 @@ def _move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
         swapped = [c for c in owned if c != int(out_code)] + [int(in_code)]
         team_gain = round(team_xp(swapped, per[six], pos) - team_xp(owned, per[six], pos), 2)
     verdict = TA.audit(po, pi, tm, hz, ease_o, ease_i, team_gain, friction)
+    lw = luck_window(6)
+    lk = lambda c: {k: round(float(lw.at[c, k]), 2) if c in lw.index else None
+                    for k in ("xp", "luck_pts", "xp_clean")}
+    luck = {"out": lk(int(out_code)), "in": lk(int(in_code))}
+    team_gain_clean = None
+    if team_gain is not None and luck["in"]["luck_pts"] is not None:
+        # Approximate: the incoming player starts, so his carried luck comes
+        # off the team gain; a benched seller's luck never reached the XI.
+        team_gain_clean = round(team_gain - (luck["in"]["luck_pts"] or 0.0), 2)
+    li = luck["in"]["luck_pts"] or 0.0
+    if li >= 1.5:
+        verdict["flags"].insert(0, {"side": "in", "level": "warn", "text":
+            "%.1f of %s's %.1f six-week xP is last month's finishing luck the engine carries "
+            "forward. Without it he projects %.1f, and the move is worth about %+.1f."
+            % (li, pi["name"], luck["in"]["xp"], luck["in"]["xp_clean"],
+               team_gain_clean if team_gain_clean is not None else 0.0)})
+    elif li <= -1.0:
+        verdict["flags"].append({"side": "in", "level": "good", "text":
+            "%s has finished below his chances; with that stripped out he projects %.1f, "
+            "not %.1f." % (pi["name"], luck["in"]["xp_clean"], luck["in"]["xp"])})
     # Who the move really changes on the pitch. Selling a benchwarmer means the
     # new man displaces a STARTER, and that is the comparison that matters.
     if int(out_code) in owned:
@@ -568,6 +614,7 @@ def _move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
             "out_fixtures": fixtures_for(int(tid.get(out_code, 0)), gws),
             "in_fixtures": fixtures_for(int(tid.get(in_code, 0)), gws),
             "timing": tm, "horizons": hz, "team_gain_6": team_gain,
+            "luck": luck, "team_gain_6_clean": team_gain_clean,
             "ease_after": {"gws": [after[0], after[-1]], "out": ease_o, "in": ease_i},
             **verdict}
 

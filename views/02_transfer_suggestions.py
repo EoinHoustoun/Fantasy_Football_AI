@@ -207,6 +207,11 @@ if _in is not None:
     po, pi = D["out"], D["in"]
     tone = D["tone"]
     tg = D["team_gain_6"]
+    tgc = D.get("team_gain_6_clean")
+    _clean_line = ("" if (tgc is None or tg is None or abs(tgc - tg) < 0.3) else
+                   f'<div style="font-size:12.5px;color:{V("muted")};margin-top:2px;">'
+                   f'<span class="ff-num" style="font-weight:700;color:{V("text")};">{tgc:+.1f}</span>'
+                   f' without luck</div>')
     fo = face_html(po["code"], team_by_code.get(po["code"], 1), po["position"] == "GKP", 64)
     fi = face_html(pi["code"], team_by_code.get(pi["code"], 1), pi["position"] == "GKP", 64)
     st.markdown(_one(f"""
@@ -227,6 +232,7 @@ if _in is not None:
   <div style="text-align:right;">
     <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:{V('muted2')};">Team xP, 6 weeks</div>
     <div class="ff-display ff-num" style="font-size:34px;font-weight:900;color:{V(tone)};">{'' if tg is None else ('%+.1f' % tg)}</div>
+    {_clean_line}
   </div>
 </div>"""), unsafe_allow_html=True)
 
@@ -283,6 +289,9 @@ if _in is not None:
                + _row("xGI per 90", po["xgi90"], pi["xgi90"], fmt="%.2f")
                + _row("G+A per 90", po["ga90"], pi["ga90"], fmt="%.2f")
                + _row("Luck (G+A minus xGI)", po["luck"], pi["luck"], better="low", fmt="%+.1f")
+               + _row("xP next 6", D["luck"]["out"]["xp"], D["luck"]["in"]["xp"], fmt="%.1f")
+               + _row("xP next 6, luck removed", D["luck"]["out"]["xp_clean"],
+                      D["luck"]["in"]["xp_clean"], fmt="%.1f")
                + _row("Points per start", po["pts_per_start"], pi["pts_per_start"], fmt="%.1f")
                + _row("DEFCON hit rate", None if po["defcon_rate"] is None else round(100 * po["defcon_rate"]),
                       None if pi["defcon_rate"] is None else round(100 * pi["defcon_rate"]), fmt="%d%%")
@@ -292,7 +301,9 @@ if _in is not None:
                       D["ease_after"]["in"], better="low", fmt="%.2f")
                + '</table>')
         st.markdown(_one(tbl), unsafe_allow_html=True)
-        st.caption("Luck is noise (r = -0.01 with later luck); xGI per 90 is the signal (r = 0.53).")
+        st.caption("Luck is noise (r = -0.01 with later luck); xGI per 90 is the signal (r = 0.53). "
+                   "The engine still carries about a fifth of past luck into its forecast; "
+                   "\"luck removed\" takes that part out.")
 
     if st.button("Draft this move in My Team", key="dos_draft", icon=":material/playlist_add:",
                  type="primary"):
@@ -471,6 +482,8 @@ with f2:
     maxp = st.slider("Max price", 3.5, 16.0, 16.0, 0.5, key="tb_max", label_visibility="collapsed")
 with f3:
     hide_owned = st.toggle("Hide my players", value=True, key="tb_hide")
+    luck_free = st.toggle("Strip luck", value=False, key="tb_luck",
+                          help="Rank on xP with carried-over finishing luck removed.")
 
 wg = GWS[:H]
 summ = brain.summary(long, wg)
@@ -482,6 +495,12 @@ if max_own < 100:
 owned = {p["code"] for p in T_["squad"]}
 if hide_owned:
     summ = summ[~summ["code"].isin(owned)]
+_lw = service.luck_window(len(wg))
+summ = summ.join(_lw[["luck_pts", "xp_clean"]], on="code")
+summ["luck_pts"] = summ["luck_pts"].fillna(0.0)
+summ["xp_clean"] = summ["xp_clean"].fillna(summ["xp_total"])
+if luck_free:
+    summ = summ.sort_values("xp_clean", ascending=False)
 summ = summ.head(40)
 per = long[long["gw"].isin(wg)].pivot_table(index="code", columns="gw", values="xp", aggfunc="sum")
 
@@ -504,6 +523,7 @@ for _, r in summ.iterrows():
     rows.append({"code": c, "web_name": r["web_name"],
                  "sub": "%s · %s" % (r["team_short"], r["position"]),
                  "price": r["price"], "xp_next": r["xp_next"], "xp_total": r["xp_total"],
+                 "xp_clean": r["xp_clean"], "luck": r["luck_pts"],
                  "xmins": r["xmins"], "gws": _gw_cells(c), "own": r.get("ownership"),
                  "run": [{"opp": f.split("(")[0], "home": "(H)" in f, "fdr": 3}
                          for f in service.fixtures_for(int(r["team_id"]), wg[:4])]
@@ -515,6 +535,9 @@ T.render(rows, [
     T.col_num("price", "£m", fmt="%.1f"),
     T.col_num("xp_next", "GW%d" % first, fmt="%.2f"),
     T.col_bar("xp_total", "GW%d-%d" % (wg[0], wg[-1]), max_value=maxx, fmt="%.1f"),
+    T.col_num("xp_clean", "Luck-free", fmt="%.1f"),
+    T.col_num("luck", "Luck", fmt="%+.1f",
+              color_fn=lambda v: V("gold") if v >= 1.0 else (V("cyan") if v <= -1.0 else None)),
     T.col_html("gws", "Per gameweek"),
     T.col_num("xmins", "xMins", fmt="%.0f"),
     T.col_num("own", "Owned %", fmt="%.1f"),
@@ -522,4 +545,6 @@ T.render(rows, [
 
 st.caption("xP = expected FPL points from the component model (minutes, goals, assists, "
            "clean sheet, bonus, DEFCON), scaled by FPL's current injury news. xMins = "
-           "expected minutes per match over the window.")
+           "expected minutes per match over the window. Luck = points of the window that are "
+           "carried-over finishing luck (gold: running hot, cyan: running cold); Luck-free "
+           "removes them.")
