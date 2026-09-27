@@ -113,6 +113,8 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+from ui.legacy_notice import legacy_notice as _legacy
+_legacy('a form and fixture score', 'views/02_transfer_suggestions.py', 'Transfers · Target board')
 
 
 # ── Data ──────────────────────────────────────────────────────────────────────

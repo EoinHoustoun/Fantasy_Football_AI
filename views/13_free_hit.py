@@ -175,6 +175,8 @@ def _delta_cards_html(breakdown: pd.DataFrame) -> str:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 st.title("🎯 Free Hit Optimizer")
+from ui.legacy_notice import legacy_notice as _legacy
+_legacy('a one-gameweek XGBoost model', 'views/02_transfer_suggestions.py', 'Transfers · Target board')
 st.caption("Find the highest-scoring 15-man squad for a specific gameweek, then see exactly where you gain and lose vs your current team.")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────

@@ -128,6 +128,8 @@ st.markdown(
 </div>""",
     unsafe_allow_html=True,
 )
+from ui.legacy_notice import legacy_notice as _legacy
+_legacy('its own season projection', 'views/02_transfer_suggestions.py', 'Transfers · Plan the next weeks')
 
 with fpl_loader("Reading the season state", LINES_GENERIC):
     players_df, bootstrap, fixtures_df, current_gw = load_data()

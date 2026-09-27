@@ -133,6 +133,8 @@ def _prediction_card(player: pd.Series, rank: int, mae: float) -> str:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 st.title("🤖 GW Predictions")
+from ui.legacy_notice import legacy_notice as _legacy
+_legacy('a one-gameweek XGBoost model', 'views/02_transfer_suggestions.py', 'Transfers · Target board')
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:

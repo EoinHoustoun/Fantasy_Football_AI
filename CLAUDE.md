@@ -32,6 +32,39 @@ The user wants the app at **10/10 quality**. Three expert hats, always:
 - **Overhauls are allowed to be big.** When the user asks for an overhaul, commit fully: drop redundant sections, restructure, don't patch.
 - **Ask before destructive changes.** But within aesthetic/layout scope, make the call · the user prefers confident direction over checklist questions.
 
+## One engine, one door (2026-09-27) · read before touching any xP
+
+**Every projected-points number comes from `analytics/brain.py` through
+`analytics/service.py`.** Home, My Team (pitch, captain, best move), Captain,
+Transfers, the Draft/My Team/Chip Planner projector (via `brain.BrainProjection`
+in `ui/live_projection.py`) and Claude's MCP server all read it. Before this,
+five engines disagreed and three pages named three different captains.
+
+- **brain** = the component model run over the next 8 GWs, features frozen at
+  the planning point (`freeze_future_features`), disk-cached per finished GW
+  (`data/cache/brain_v1_*`, ~6 min to build, warmed at app start), FPL injury
+  news applied at read time (`with_availability`, fading over two weeks).
+- **service** = `team()` (squad, selling prices, FTs replayed from history,
+  chips), `captaincy`, `best_moves` (scored on the TEAM's best XI + captain,
+  never on the incoming player's total), `optimise` (`analytics/transfer_plan`
+  MILP: FT banking, hits, friction 2, decay 0.9, FT terminal value 1.5, hold
+  baseline, first-week alternatives), `player_detail`, `save_plan_to_app`.
+- **Never show FPL's `ep_next` as xP.** It is 30-day form (Groß 11.2 = form).
+  My Team overwrites it with the engine's number and keeps `ep_next_fpl`.
+- **Do not blend with the archive's FPL `xp` column.** It is captured after team
+  news (0.61 with same-GW points, 0.30 with next GW). See brain.py.
+- Validation: `scripts/benchmark_brain_horizon.py` (walk-forward, 15 folds,
+  cached to `data/cache/bench_brain/`) and `docs/research/brain_validation.md`.
+- Minutes are calibrated next week (pred 0.870 vs actual 0.868 for nailed
+  starters) and optimistic further out, which the optimiser's decay absorbs.
+
+**MCP server** (`mcp_server/server.py`): Claude calls the same service functions.
+Runs from `.venv-mcp` (Python 3.11, numerics pinned to the app's). Registered
+user-scope as `fpl` (`claude mcp list`). Engine imports are lazy so the handshake
+beats the 30 s timeout. Tools: status, my_team, projections, player, captaincy,
+optimise_transfers, compare_players, save_plan_to_app (drafts only; Eoin
+presses Save).
+
 ## Design system
 
 This is binding. If you invent a new colour or spacing, you're drifting · stop and re-use tokens below.
@@ -303,7 +336,7 @@ Understat matches by name and silently misses most players. `build_player_univer
 
 ## Team
 - Default team ID: **45595** (2026-27; was 38148 in 2025-26), manager Eoin Houstoun
-- Track the private mini-league (not the public `Spurs & Ireland` type ones · those are league_type `s`, the user wants `c`)
+- Track the private mini-leagues (not the public `Spurs & Ireland` type ones · those are league_type `s`). FPL moved user-created leagues from `c` to `x` by 2026-27, so treat every non-`s` league as private
 
 ## Credentials
 `.env` file at project root (gitignored). Keys:

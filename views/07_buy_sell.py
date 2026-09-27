@@ -192,6 +192,8 @@ def _pair_card(sell: pd.Series, buy: pd.Series, bank: float, fdr_col: str) -> st
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 st.title("💰 Buy / Sell")
+from ui.legacy_notice import legacy_notice as _legacy
+_legacy('a form-weighted verdict score', 'views/02_transfer_suggestions.py', 'Transfers')
 st.caption("For every player in your squad · find your best upgrade and see the net gain instantly.")
 
 with fpl_loader("Loading player data", LINES_GENERIC):
