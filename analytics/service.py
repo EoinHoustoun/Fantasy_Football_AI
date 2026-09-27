@@ -508,6 +508,33 @@ def luck_window(horizon: int = 6) -> pd.DataFrame:
     return _memo("luck:%s:%s" % (horizon, id(long)), _run, ttl=1800)
 
 
+def window_ranges(codes: List[int], horizon: int = 6) -> Dict[int, Any]:
+    """Simulated window points per player (analytics/ranges.py), centred on the
+    luck-free xP. Returns {code: samples}; use ranges.band / ranges.p_beats.
+
+    Calibrated walk-forward: the 10-90% band holds 80% of real six-week
+    outcomes (docs/research/ranges_calibration.md).
+    """
+    long = projections()
+    gws = sorted(int(g) for g in long["gw"].unique())[:int(horizon)]
+    codes = sorted({int(c) for c in codes})
+
+    def _run():
+        from analytics import luck as LK, ranges as RG
+        # The luck fit needs every player, so adjust the whole frame, then cut.
+        adj = LK.adjust(long, season_rows(), gws)
+        rows = adj[adj["code"].isin(codes)].copy()
+        rows["xp"] = rows["xp_clean"].clip(lower=0.0)
+        return RG.simulate(rows, codes_order=codes)
+    return _memo("ranges:%s:%s:%s" % (horizon, ",".join(map(str, codes)), id(long)), _run, ttl=1800)
+
+
+def range_bands(codes: List[int], horizon: int = 6) -> Dict[int, Dict[str, float]]:
+    from analytics import ranges as RG
+    sims = window_ranges(codes, horizon)
+    return {c: {k: round(v, 1) for k, v in RG.band(x).items()} for c, x in sims.items()}
+
+
 def move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
                  horizon: int = 8, friction: float = 2.0) -> Dict:
     """Everything needed to decide one transfer: timing, robustness, both
@@ -610,7 +637,13 @@ def _move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
                 verdict["flags"].insert(0, {"side": "move", "level": "warn", "text":
                     "%s sits on your bench in %d of %d weeks and %s would too: this buys bench "
                     "cover, not points." % (po["name"], benched, len(six), pi["name"])})
+    from analytics import ranges as RG
+    sims = window_ranges([int(out_code), int(in_code)], 6)
+    rng_ = {"out": {k: round(v, 1) for k, v in RG.band(sims.get(int(out_code))).items()},
+            "in": {k: round(v, 1) for k, v in RG.band(sims.get(int(in_code))).items()},
+            "p_in_beats_out": round(RG.p_beats(sims.get(int(in_code)), sims.get(int(out_code))), 3)}
     return {"gws": gws, "out": po, "in": pi, "out_xp": out_xp, "in_xp": in_xp,
+            "range": rng_,
             "out_fixtures": fixtures_for(int(tid.get(out_code, 0)), gws),
             "in_fixtures": fixtures_for(int(tid.get(in_code, 0)), gws),
             "timing": tm, "horizons": hz, "team_gain_6": team_gain,

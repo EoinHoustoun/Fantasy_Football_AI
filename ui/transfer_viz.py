@@ -149,3 +149,35 @@ def squad_heat_option(rows: List[Dict], gws: List[int]) -> Dict:
                       "animationDuration": 900}]
     charts.with_image_labels(opt, [player_photo_url(c) for c in codes], size=24)
     return opt
+
+
+def range_strip_html(items: List[Dict], headline: str = "", scale_max: Optional[float] = None) -> str:
+    """Six-week ranges as horizontal bands on one shared scale.
+
+    items: {name, lo, hi, centre, tone} with `tone` a theme token (mint, red,
+    cyan...). The band is the 10-90% range, the tick the centre. Pure HTML so it
+    sits inside cards; the bands grow in once.
+    """
+    from ui.theme import var as V
+    top = scale_max or max([float(i["hi"]) for i in items] + [1.0])
+    top = max(1.0, top * 1.08)
+    pct = lambda v: max(0.0, min(100.0, 100.0 * float(v) / top))
+    rows = []
+    for k, it in enumerate(items):
+        lo, hi, mid = pct(it["lo"]), pct(it["hi"]), pct(it["centre"])
+        col = V(it.get("tone", "mint"))
+        rows.append(
+            f'<div style="display:grid;grid-template-columns:96px 1fr 88px;gap:10px;align-items:center;margin:7px 0;">'
+            f'<div style="font-size:12.5px;font-weight:700;color:{V("text")};overflow:hidden;'
+            f'text-overflow:ellipsis;white-space:nowrap;">{it["name"]}</div>'
+            f'<div style="position:relative;height:16px;border-radius:8px;background:{V("row-alt")};">'
+            f'<div class="ff-grow" style="position:absolute;left:{lo:.1f}%;width:{max(1.0, hi - lo):.1f}%;'
+            f'top:3px;bottom:3px;border-radius:6px;background:{col};opacity:0.38;'
+            f'animation-delay:{0.15 + 0.15 * k:.2f}s;"></div>'
+            f'<div style="position:absolute;left:calc({mid:.1f}% - 1.5px);top:0;bottom:0;width:3px;'
+            f'border-radius:2px;background:{col};"></div></div>'
+            f'<div class="ff-num" style="font-size:12px;color:{V("muted")};text-align:right;">'
+            f'{float(it["lo"]):.0f} to {float(it["hi"]):.0f}</div></div>')
+    head = (f'<div style="font-size:13.5px;color:{V("text")};margin-bottom:4px;">{headline}</div>'
+            if headline else "")
+    return head + "".join(rows)

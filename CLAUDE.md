@@ -82,6 +82,8 @@ Charts that toggle views keep a stable key so ECharts animates between states.
 
 **Luck-free xP (2026-09-27):** the brain learns from recent goals, assists and bonus, so it carries ~18-20% of past finishing luck into forecasts (measured by regressing projected G+A/90 and bonus/90 on xGI/90 and luck/90 per position). `analytics/luck.py` + `service.luck_window` strip it: `xp_clean`, `luck_pts`. Shown in the dossier (tile + table + flag), the target board (Luck-free, Luck, Strip luck toggle) and MCP (`projections(sort="luck_free")`, `check_move.luck`). Groß 28.6 -> 24.4.
 
+**Ranges (2026-09-27):** `analytics/ranges.py` simulates window points from the brain's components (Bernoulli minutes, Poisson goals/assists/saves/conceded, DEFCON, bonus tied to returns), rescaled to the engine mean, plus a shared per-player rate multiplier (`RATE_SIGMA` 0.55) and an unforeseen-absence hazard (`HAZARD` 0.08/week from week two). Calibrated walk-forward (`scripts/calibrate_ranges.py`, docs/research/ranges_calibration.md): the 6-week 10-90% band holds 80.3% of outcomes, misses 10/10 low/high; match noise alone held 58% and missed low. `service.window_ranges` / `range_bands` centre on luck-free xP. Shown as the dossier's "How sure" strip (P in beats out), the target board's 80% range column, and MCP `compare_players.p_first_beats_second`. A 0.4-0.6 P(beats) is a coin flip.
+
 **Player card in season:** My Team opens `ui/engine_card.py` (engine + this season only:
 face, price/ownership sparklines, keep/exit verdict with best swap, next-8 xP by fixture
 difficulty with minutes, "is he delivering" points vs xGI, set pieces, breakdown). The

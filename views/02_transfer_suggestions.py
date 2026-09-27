@@ -236,6 +236,21 @@ if _in is not None:
   </div>
 </div>"""), unsafe_allow_html=True)
 
+    RN = D.get("range") or {}
+    if RN:
+        pb = RN["p_in_beats_out"]
+        lk = D.get("luck") or {"out": {}, "in": {}}
+        headline = (f'<span class="ff-num" style="font-weight:800;color:{V("mint") if pb >= 0.6 else (V("gold") if pb >= 0.45 else V("red"))};">'
+                    f'{100 * pb:.0f}%</span> of simulated six-week runs, {pi["name"]} outscores {po["name"]}. '
+                    f'<span style="color:{V("muted")};">Bands hold 80% of outcomes, luck removed.</span>')
+        st.markdown(_label("How sure · six-week range"), unsafe_allow_html=True)
+        st.markdown(_one(TV.range_strip_html([
+            {"name": po["name"], "lo": RN["out"]["lo"], "hi": RN["out"]["hi"],
+             "centre": lk["out"].get("xp_clean") or RN["out"]["mean"], "tone": "red"},
+            {"name": pi["name"], "lo": RN["in"]["lo"], "hi": RN["in"]["hi"],
+             "centre": lk["in"].get("xp_clean") or RN["in"]["mean"], "tone": "mint"},
+        ], headline)), unsafe_allow_html=True)
+
     g1, g2 = st.columns([1.6, 1])
     with g1:
         st.markdown(_label("Week by week · entry point pinned"), unsafe_allow_html=True)
@@ -502,6 +517,7 @@ summ["xp_clean"] = summ["xp_clean"].fillna(summ["xp_total"])
 if luck_free:
     summ = summ.sort_values("xp_clean", ascending=False)
 summ = summ.head(40)
+_bands = service.range_bands([int(c) for c in summ["code"]], len(wg))
 per = long[long["gw"].isin(wg)].pivot_table(index="code", columns="gw", values="xp", aggfunc="sum")
 
 
@@ -524,6 +540,7 @@ for _, r in summ.iterrows():
                  "sub": "%s · %s" % (r["team_short"], r["position"]),
                  "price": r["price"], "xp_next": r["xp_next"], "xp_total": r["xp_total"],
                  "xp_clean": r["xp_clean"], "luck": r["luck_pts"],
+                 "range": ("%.0f to %.0f" % (_bands[c]["lo"], _bands[c]["hi"])) if c in _bands else "",
                  "xmins": r["xmins"], "gws": _gw_cells(c), "own": r.get("ownership"),
                  "run": [{"opp": f.split("(")[0], "home": "(H)" in f, "fdr": 3}
                          for f in service.fixtures_for(int(r["team_id"]), wg[:4])]
@@ -538,6 +555,7 @@ T.render(rows, [
     T.col_num("xp_clean", "Luck-free", fmt="%.1f"),
     T.col_num("luck", "Luck", fmt="%+.1f",
               color_fn=lambda v: V("gold") if v >= 1.0 else (V("cyan") if v <= -1.0 else None)),
+    T.col_text("range", "80% range", align="right"),
     T.col_html("gws", "Per gameweek"),
     T.col_num("xmins", "xMins", fmt="%.0f"),
     T.col_num("own", "Owned %", fmt="%.1f"),
@@ -547,4 +565,5 @@ st.caption("xP = expected FPL points from the component model (minutes, goals, a
            "clean sheet, bonus, DEFCON), scaled by FPL's current injury news. xMins = "
            "expected minutes per match over the window. Luck = points of the window that are "
            "carried-over finishing luck (gold: running hot, cyan: running cold); Luck-free "
-           "removes them.")
+           "removes them. 80% range = where the window total lands in 8 of 10 simulated runs, "
+           "calibrated on three past seasons.")

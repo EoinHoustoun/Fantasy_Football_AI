@@ -125,9 +125,26 @@ def optimise_transfers(horizon: int = 6, free_transfers: Optional[int] = None,
 
 @mcp.tool()
 def compare_players(names: List[str], horizon: int = 6) -> dict:
-    """Side-by-side projections for 2-4 players over the horizon, with the per-GW edge."""
+    """Side-by-side projections for 2-4 players over the horizon, with the per-GW edge.
+
+    Also the 10-90% range of each player's window total (luck removed; the band
+    holds 80% of real outcomes walk-forward) and p_first_beats_second: the chance
+    the first player outscores the second over the window. Anything between 0.4
+    and 0.6 is a coin flip; say so rather than picking on a small xP gap.
+    """
     d = S.player_detail(names, horizon)
     rows = d["players"]
+    try:
+        from analytics import ranges as RG
+        codes = [int(r["code"]) for r in rows]
+        sims = S.window_ranges(codes, horizon)
+        for r in rows:
+            b = RG.band(sims.get(int(r["code"])))
+            r["range_10_90"] = [round(b["lo"], 1), round(b["hi"], 1)]
+        if len(codes) >= 2:
+            d["p_first_beats_second"] = round(RG.p_beats(sims.get(codes[0]), sims.get(codes[1])), 3)
+    except Exception as e:  # noqa: BLE001 · ranges annotate, never block
+        d["ranges_error"] = str(e)
     if len(rows) >= 2:
         a, b = rows[0], rows[1]
         d["edge_first_over_second"] = {
@@ -161,6 +178,7 @@ def check_move(sell: str, buy: str, horizon: int = 8) -> dict:
     who the new player really displaces when the sale is a benchwarmer.
     `luck` gives both players' six-week xP with and without carried-over
     finishing luck, and team_gain_6_clean is the move's gain without it.
+    `range` gives both players' six-week 10-90% bands and p_in_beats_out.
     ALWAYS call this before telling the user to make a transfer.
     """
     codes = S.find_players([sell, buy])
