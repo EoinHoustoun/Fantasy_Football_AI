@@ -118,14 +118,14 @@ rank = ("rank %s" % f'{T["overall_rank"]:,}') if T and T.get("overall_rank") els
 kicker = " · ".join(x for x in ((T or {}).get("team_name"), rank) if x)
 
 st.markdown(_one(f"""
-<div class="ff-rise" style="position:relative;overflow:hidden;display:grid;
+<div class="ff-rise ff-stack" style="position:relative;overflow:hidden;display:grid;
   grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:32px;padding:30px 34px;
   border-radius:22px;border:1px solid {V("line")};
   background:linear-gradient(135deg, rgba(0,255,135,0.07) 0%, {V("card")} 55%);">
   <div class="ff-sweep{' ff-hot' if cd_hot else ''}"></div>
   <div style="position:relative;display:flex;flex-direction:column;gap:12px;">
     {_label(kicker or "FPL Hub", "mint")}
-    <div class="ff-display" style="font-size:64px;font-weight:900;letter-spacing:-2.2px;
+    <div class="ff-display ff-hero-title" style="font-size:64px;font-weight:900;letter-spacing:-2.2px;
       line-height:0.95;color:{V("text")};white-space:nowrap;">Gameweek {gw or ""}</div>
     <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;">
       <div class="ff-display ff-num" style="font-size:36px;font-weight:800;white-space:nowrap;
@@ -401,7 +401,7 @@ asks = ["Plan my next six weeks but keep Saka",
         "Who should captain if Haaland is benched?",
         "Put the best plan in my My Team planner"]
 st.markdown(_one(
-    f'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;">'
+    f'<div class="ff-stack" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;">'
     + "".join(f'<div style="padding:14px 16px;border-radius:14px;background:{V("card")};'
               f'border:1px solid {V("line")};font-size:14px;color:{V("text")};">'
               f'{theme.icon("chat", 18, V("mint"))} &nbsp;{a}</div>' for a in asks)

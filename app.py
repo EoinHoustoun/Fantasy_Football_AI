@@ -31,7 +31,7 @@ st.set_page_config(
     page_title="FPL Analytics Hub",
     page_icon="⚽",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",   # open on desktop, tucked away on a phone
 )
 
 from components.animations import inject_global_animations

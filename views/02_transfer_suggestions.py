@@ -210,7 +210,7 @@ if _in is not None:
     fo = face_html(po["code"], team_by_code.get(po["code"], 1), po["position"] == "GKP", 64)
     fi = face_html(pi["code"], team_by_code.get(pi["code"], 1), pi["position"] == "GKP", 64)
     st.markdown(_one(f"""
-<div class="ff-rise" style="display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;
+<div class="ff-rise ff-stack" style="display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;
   padding:18px 22px;border-radius:18px;background:{V('card')};border:1px solid {V('line')};
   border-left:4px solid {V(tone)};margin:6px 0 12px;">
   <div style="display:flex;align-items:center;gap:14px;">

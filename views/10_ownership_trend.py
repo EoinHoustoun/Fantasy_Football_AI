@@ -125,7 +125,7 @@ if long is not None:
     top_d = s.nlargest(3, "resid")
     over = s.nsmallest(3, "resid")
     st.markdown(
-        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'
+        f'<div class="ff-stack" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'
         f'<div style="padding:12px 16px;border-radius:12px;background:{V("card")};border-left:3px solid {V("mint")};">'
         f'<b style="color:{V("mint")};">Under-owned for what he projects:</b> '
         + ", ".join("%s (%.1f%%)" % (r["web_name"], r["own"]) for _, r in top_d.iterrows())

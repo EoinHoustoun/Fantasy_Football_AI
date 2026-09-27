@@ -671,6 +671,18 @@ header    {{ visibility: hidden; }}
   [data-testid="stMarkdownContainer"] .fplh-stagger,
   [data-testid="stMarkdownContainer"] .fplh-animate-in {{ flex-wrap: wrap !important; }}
   [data-testid="stDataFrame"] {{ overflow-x: auto; }}
+  /* Custom HTML grids that should become one column on a phone carry
+     .ff-stack; the display type scales down so titles do not overflow. */
+  .ff-stack {{ grid-template-columns: 1fr !important; }}
+  .ff-hero-title {{ font-size: 40px !important; letter-spacing: -1px !important; white-space: normal !important; }}
+  .ff-hide-phone {{ display: none !important; }}
+  /* Streamlit's columns do not wrap at this version: three cards squeeze into
+     390px and every word breaks. Give each column the full width. */
+  [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap !important; gap: 0.6rem !important; }}
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+  [data-testid="stHorizontalBlock"] > [data-testid="column"] {{
+    width: 100% !important; flex: 1 1 100% !important; min-width: 100% !important;
+  }}
 }}
 </style>
 """
