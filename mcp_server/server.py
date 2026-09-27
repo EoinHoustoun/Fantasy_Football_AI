@@ -147,6 +147,34 @@ def chip_squad(chip: str, gw: Optional[int] = None, weeks: int = 6) -> dict:
 
 
 @mcp.tool()
+def check_move(sell: str, buy: str, horizon: int = 8) -> dict:
+    """Background check ONE transfer before recommending it.
+
+    Returns a verdict (Make it / Wait until GWk / Marginal / Skip) with the reason,
+    the team-level gain over six weeks, the value of making it in each week
+    (entry point), gains over 1/3/6/8 weeks (robustness), and flags on both
+    players: running hot or cold (luck vs xGI), minutes pattern, penalties,
+    DEFCON hit rate, injury news, price pressure, fixtures after the window, and
+    who the new player really displaces when the sale is a benchwarmer.
+    ALWAYS call this before telling the user to make a transfer.
+    """
+    codes = S.find_players([sell, buy])
+    if len(codes) != 2:
+        return {"error": "could not identify both players; use 'Name (CLUB)'"}
+    d = S.move_dossier(codes[0], codes[1], None, horizon)
+    for k in ("out", "in"):
+        d[k].pop("mins_list", None)
+    return d
+
+
+@mcp.tool()
+def exit_points(horizon: int = 8) -> dict:
+    """For each player in the squad, the weeks an affordable same-position
+    replacement outscores him by a point or more (his exit weeks)."""
+    return S.squad_exit_map(None, horizon)
+
+
+@mcp.tool()
 def save_plan_to_app(week_moves: List[dict]) -> dict:
     """Write a plan into the My Team planner as drafts (user presses Save in the app).
 

@@ -229,6 +229,9 @@ def find_players(names: List[str]) -> List[int]:
                       _f=p["name"].map(lambda s: fold_accents(str(s)).lower()))
     codes = []
     for raw in names:
+        if isinstance(raw, (int,)) or (isinstance(raw, str) and raw.isdigit() and len(raw) > 4):
+            codes.append(int(raw))          # already a player code
+            continue
         q = fold_accents(str(raw)).lower().strip()
         club = None
         if "(" in q and q.endswith(")"):
@@ -460,3 +463,122 @@ def chip_squad(chip: str, gw: Optional[int] = None, weeks: int = 1,
             "gain": round(float(new_total - current), 2),
             "proven_optimal": bool(res.get("proven_optimal")), "squad": players,
             "keeps": sum(1 for p in players if p["owned"])}
+
+
+def season_rows():
+    """This season's per-match rows (minutes, xG, DEFCON actions...). Cached 30 min."""
+    def _load():
+        from analytics.component_model import active_season
+        from data.processors.archive import _normalize_vaastav_season
+        return _normalize_vaastav_season(active_season())
+    return _memo("season_rows", _load, ttl=1800)
+
+
+def move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
+                 horizon: int = 8, friction: float = 2.0) -> Dict:
+    """Everything needed to decide one transfer: timing, robustness, both
+    players' background checks, the team-level gain and a verdict."""
+    from analytics import transfer_audit as TA
+    long = projections()
+    t = team(team_id)
+    gws = sorted(int(g) for g in long["gw"].unique())[:int(horizon)]
+    per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw", values="xp",
+                                                 aggfunc="sum").fillna(0.0)
+    xp_of = lambda c: {int(g): float(per.at[c, g]) if c in per.index else 0.0 for g in gws}
+    out_xp, in_xp = xp_of(int(out_code)), xp_of(int(in_code))
+    # Timing and robustness are priced on the TEAM (best XI + captain each
+    # week), not on the two players: selling a bench keeper for a starter is
+    # worth what it changes on the pitch, not the gap between their totals.
+    owned0 = [p["code"] for p in t["squad"]]
+    pos0 = dict(zip(long["code"], long["position"]))
+    if int(out_code) in owned0:
+        sw = [c for c in owned0 if c != int(out_code)] + [int(in_code)]
+        team_before = {g: team_xp(owned0, per[[g]], pos0) for g in gws}
+        team_after = {g: team_xp(sw, per[[g]], pos0) for g in gws}
+    else:
+        team_before, team_after = out_xp, in_xp
+    tm = TA.timing(team_before, team_after, friction)
+    hz = TA.horizon_gains(team_before, team_after)
+    rows = season_rows()
+    players = inputs()["players"]
+    fx = inputs()["fixtures"]
+    po, pi = TA.profile(int(out_code), rows, players), TA.profile(int(in_code), rows, players)
+    tid = dict(zip(players["code"], players["team_id"]))
+    after = list(range(gws[-1] + 1, gws[-1] + 7))
+    ease_o = TA.fixture_ease(int(tid.get(out_code, 0)), fx, after)
+    ease_i = TA.fixture_ease(int(tid.get(in_code, 0)), fx, after)
+    # Team-level gain over six weeks (best XI + captain), the number Home shows.
+    six = [g for g in gws[:6]]
+    owned = [p["code"] for p in t["squad"]]
+    pos = dict(zip(long["code"], long["position"]))
+    team_gain = None
+    if int(out_code) in owned:
+        swapped = [c for c in owned if c != int(out_code)] + [int(in_code)]
+        team_gain = round(team_xp(swapped, per[six], pos) - team_xp(owned, per[six], pos), 2)
+    verdict = TA.audit(po, pi, tm, hz, ease_o, ease_i, team_gain, friction)
+    # Who the move really changes on the pitch. Selling a benchwarmer means the
+    # new man displaces a STARTER, and that is the comparison that matters.
+    if int(out_code) in owned:
+        def _xi(codes, g):
+            xs = {c: float(per.at[c, g]) if c in per.index else 0.0 for c in codes}
+            by = {k: sorted([c for c in codes if pos.get(c) == k], key=lambda c: -xs[c])
+                  for k in ("GKP", "DEF", "MID", "FWD")}
+            xi = by["GKP"][:1] + by["DEF"][:3] + by["MID"][:2] + by["FWD"][:1]
+            xi += sorted([c for k in ("DEF", "MID", "FWD") for c in by[k] if c not in xi],
+                         key=lambda c: -xs[c])[:4]
+            return set(xi)
+        benched = sum(1 for g in six if int(out_code) not in _xi(owned, g))
+        if benched >= len(six) / 2:
+            sw = [c for c in owned if c != int(out_code)] + [int(in_code)]
+            dropped = {}
+            for g in six:
+                for c in _xi(owned, g) - _xi(sw, g):
+                    dropped[c] = dropped.get(c, 0) + 1
+            name = dict(zip(players["code"], players["web_name"]))
+            if dropped:
+                who = max(dropped, key=dropped.get)
+                verdict["flags"].insert(0, {"side": "move", "level": "info", "text":
+                    "%s is on your bench in %d of %d weeks, so this is really %s replacing %s in "
+                    "your XI. Judge it on that." % (po["name"], benched, len(six), pi["name"],
+                                                    name.get(who, "a starter"))})
+            else:
+                verdict["flags"].insert(0, {"side": "move", "level": "warn", "text":
+                    "%s sits on your bench in %d of %d weeks and %s would too: this buys bench "
+                    "cover, not points." % (po["name"], benched, len(six), pi["name"])})
+    return {"gws": gws, "out": po, "in": pi, "out_xp": out_xp, "in_xp": in_xp,
+            "out_fixtures": fixtures_for(int(tid.get(out_code, 0)), gws),
+            "in_fixtures": fixtures_for(int(tid.get(in_code, 0)), gws),
+            "timing": tm, "horizons": hz, "team_gain_6": team_gain,
+            "ease_after": {"gws": [after[0], after[-1]], "out": ease_o, "in": ease_i},
+            **verdict}
+
+
+def squad_exit_map(team_id: Optional[int] = None, horizon: int = 8, margin: float = 1.0) -> Dict:
+    """Each owned player's xP per week, flagged where an affordable replacement
+    in his position beats him by `margin` or more · his exit weeks.
+
+    Affordable = selling price plus bank. The replacement can differ week to week;
+    the point is to show WHEN a player stops earning his slot, not whom to buy.
+    """
+    long = projections()
+    t = team(team_id)
+    gws = sorted(int(g) for g in long["gw"].unique())[:int(horizon)]
+    per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw", values="xp",
+                                                 aggfunc="sum").fillna(0.0)
+    s = brain.summary(long, gws).set_index("code")
+    owned = [p["code"] for p in t["squad"]]
+    order = {"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
+    rows = []
+    for p in sorted(t["squad"], key=lambda p: (order.get(p["position"], 9), p["slot"])):
+        c = p["code"]
+        budget = t["bank"] + p["sell_price"]
+        pool = s[(s["position"] == p["position"]) & (s["price"] <= budget + 1e-9)
+                 & (~s.index.isin(owned))]
+        best = per.reindex(pool.index).max() if not pool.empty else pd.Series(0.0, index=gws)
+        own = {g: float(per.at[c, g]) if c in per.index else 0.0 for g in gws}
+        beaten = {g: bool(float(best.get(g, 0.0)) - own[g] >= margin) for g in gws}
+        first_exit = next((g for g in gws if beaten[g] and beaten.get(g + 1, beaten[g])), None)
+        rows.append({"code": c, "name": p["name"], "position": p["position"], "xp": own,
+                     "beaten": beaten, "exit_gw": first_exit,
+                     "weeks_beaten": sum(beaten.values())})
+    return {"gws": gws, "rows": rows, "margin": margin}
