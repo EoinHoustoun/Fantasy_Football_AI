@@ -477,7 +477,18 @@ def season_rows():
 def move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
                  horizon: int = 8, friction: float = 2.0) -> Dict:
     """Everything needed to decide one transfer: timing, robustness, both
-    players' background checks, the team-level gain and a verdict."""
+    players' background checks, the team-level gain and a verdict.
+
+    Memoised against the projection frame in use, so a page rerun (or a card
+    grid of six moves) does not re-audit what has not changed.
+    """
+    key = "dossier:%s:%s:%s:%s:%s:%s" % (team_id, out_code, in_code, horizon, friction,
+                                         id(projections(allow_compute=False)))
+    return _memo(key, lambda: _move_dossier(out_code, in_code, team_id, horizon, friction), ttl=600)
+
+
+def _move_dossier(out_code: int, in_code: int, team_id: Optional[int] = None,
+                  horizon: int = 8, friction: float = 2.0) -> Dict:
     from analytics import transfer_audit as TA
     long = projections()
     t = team(team_id)

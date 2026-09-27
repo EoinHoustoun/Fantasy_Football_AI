@@ -231,6 +231,45 @@ def solve(xp: pd.DataFrame, players: pd.DataFrame, owned: List[int], bank: float
             "ft_end": int(round(ft[len(G)].varValue or 0)), "settings": s}
 
 
+def hold_plan(xp: pd.DataFrame, players: pd.DataFrame, owned: List[int],
+              free_transfers: int, gws: List[int], s: Dict) -> Dict:
+    """The no-transfer baseline, computed directly rather than solved.
+
+    Holding leaves only the XI and the captain to choose each week, and the best
+    legal XI is exact by greedy fill (formation minimums, then the best four
+    outfielders), so a MILP adds nothing but seconds. Same objective terms as
+    `solve`: decayed weekly XI + captain + bench weight, plus the banked FTs.
+    """
+    pos = dict(zip(players["code"].astype(int), players["position"]))
+    name = dict(zip(players["code"].astype(int), players["web_name"]))
+    X = xp.copy()
+    X.index = [int(i) for i in X.index]
+    X.columns = [int(c) for c in X.columns]
+    weeks, obj, total = [], 0.0, 0.0
+    ft = int(min(FT_CAP, max(0, free_transfers)))
+    for k, g in enumerate([int(x) for x in gws]):
+        xs = {c: float(X.at[c, g]) if c in X.index else 0.0 for c in owned}
+        by = {q: sorted([c for c in owned if pos.get(c) == q], key=lambda c: -xs[c])
+              for q in ("GKP", "DEF", "MID", "FWD")}
+        xi = by["GKP"][:1] + by["DEF"][:3] + by["MID"][:2] + by["FWD"][:1]
+        xi += sorted([c for q in ("DEF", "MID", "FWD") for c in by[q] if c not in xi],
+                     key=lambda c: -xs[c])[:4]
+        cap = max(xi, key=lambda c: xs[c]) if xi else None
+        pts = sum(xs[c] for c in xi) + (xs[cap] if cap else 0.0)
+        bench = sum(xs[c] for c in owned if c not in xi)
+        obj += (s["decay"] ** k) * (pts + s["bench_weight"] * bench)
+        total += pts
+        weeks.append({"gw": g, "in": [], "out": [], "in_names": [], "out_names": [],
+                      "squad": list(owned), "xi": xi, "captain": cap,
+                      "captain_name": name.get(cap), "xp": round(pts, 2),
+                      "bench_xp": round(bench, 2), "hits": 0, "ft_before": ft,
+                      "bank_after": None})
+        ft = min(FT_CAP, ft + 1)
+    obj += s["ft_value"] * ft
+    return {"status": "Optimal", "secs": 0.0, "objective": round(obj, 2),
+            "xp_total": round(total, 2), "weeks": weeks, "ft_end": ft, "settings": s}
+
+
 def plan(summary: pd.DataFrame, long: pd.DataFrame, owned: List[int], bank: float,
          free_transfers: int, sell_price: Dict[int, float],
          horizon: Optional[int] = None, settings: Optional[Dict] = None,
@@ -258,7 +297,7 @@ def plan(summary: pd.DataFrame, long: pd.DataFrame, owned: List[int], bank: floa
               free_transfers=free_transfers, sell_price=sell_price, gws=gws,
               settings=s, locks=locks, bans=bans)
     best = solve(**kw)
-    held = solve(hold=True, **kw)
+    held = hold_plan(xp, players, owned, free_transfers, gws, s)
     out = {"best": best, "hold": held, "gws": gws, "alternatives": []}
     if best.get("weeks") and held.get("weeks"):
         out["gain_vs_hold"] = round(best["objective"] - held["objective"], 2)

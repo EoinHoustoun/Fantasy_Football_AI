@@ -325,16 +325,25 @@ _pkey = "tp_result::%d::%d" % (team_id, first)
 if run:
     with fpl_loader("Solving %d weeks of transfers" % horizon, LINES_SOLVER):
         st.session_state[_pkey] = service.optimise(
-            team_id, horizon, None, {"friction": friction, "decay": decay}, alternatives=2)
+            team_id, horizon, None, {"friction": friction, "decay": decay}, alternatives=0)
+        st.session_state[_pkey]["_args"] = (horizon, friction, decay)
 res = st.session_state.get(_pkey)
 
 
-def _week_card(w: Dict) -> str:
+def _mini_face(code: int, size: int = 26) -> str:
+    return (f'<span style="display:inline-block;width:{size}px;flex-shrink:0;">'
+            f'{face_html(int(code), team_by_code.get(int(code), 1), pos_by_code.get(int(code)) == "GKP", size)}'
+            f'</span>')
+
+
+def _week_card(w: Dict, raw: Dict) -> str:
     moves = "".join(
-        f'<div style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin:3px 0;">'
-        f'<span style="color:{V("red")};">{o}</span>{theme.icon("arrow_forward", 14, V("muted"))}'
-        f'<span style="color:{V("mint")};font-weight:700;">{i}</span></div>'
-        for o, i in zip(w["out_names"], w["in_names"]))
+        f'<div style="display:flex;gap:5px;align-items:center;font-size:12px;margin:5px 0;">'
+        f'{_mini_face(oc, 22)}<span style="color:{V("red")};overflow:hidden;text-overflow:ellipsis;'
+        f'white-space:nowrap;max-width:60px;">{o}</span>{theme.icon("arrow_forward", 13, V("muted"))}'
+        f'{_mini_face(ic, 22)}<span style="color:{V("mint")};font-weight:700;overflow:hidden;'
+        f'text-overflow:ellipsis;white-space:nowrap;max-width:64px;">{i}</span></div>'
+        for o, i, oc, ic in zip(w["out_names"], w["in_names"], raw["out"], raw["in"]))
     if not moves:
         moves = (f'<div style="font-size:12.5px;color:{V("muted")};">Bank the transfer</div>')
     hit = (f'<span style="color:{V("red")};font-weight:700;"> · -{4 * w["hits"]}</span>'
@@ -366,10 +375,55 @@ if res and res.get("best", {}).get("weeks"):
                             ("FTs left at end", best["ft_end"], "cyan")))
         + '</div>'), unsafe_allow_html=True)
     wk = best["weeks"]
+    raw_wk = res["_raw"]["best"]["weeks"]
     cols = st.columns(len(wk))
-    for c, w in zip(cols, wk):
+    for c, w, rw in zip(cols, wk, raw_wk):
         with c:
-            st.markdown(_week_card(w), unsafe_allow_html=True)
+            st.markdown(_week_card(w, rw), unsafe_allow_html=True)
+
+    # Holding windows: every player the plan buys, when he arrives and when (if
+    # ever) the plan sells him again, with the move's background-check verdict.
+    plan_gws = [w["gw"] for w in raw_wk]
+    stints = []
+    for k, rw in enumerate(raw_wk):
+        for oc, ic in zip(rw["out"], rw["in"]):
+            leave = next((raw_wk[j]["gw"] for j in range(k + 1, len(raw_wk)) if ic in raw_wk[j]["out"]), None)
+            stints.append({"in": ic, "out": oc, "from": rw["gw"], "to": leave})
+    if stints:
+        _section("Who the plan brings in, and for how long",
+                 "Each bar is a stay in your squad. A bar that stops is a planned exit; one "
+                 "that runs off the end is kept.", "timeline")
+        name_of = dict(zip(long["code"], long["web_name"]))
+        n = len(plan_gws)
+        head = "".join(f'<div style="text-align:center;font-size:11px;color:{V("muted2")};">GW{g}</div>'
+                       for g in plan_gws)
+        rows_html = []
+        for st_ in stints:
+            try:
+                d = service.move_dossier(int(st_["out"]), int(st_["in"]), team_id)
+                vt, tn = d["verdict"], d["tone"]
+            except Exception:  # noqa: BLE001
+                vt, tn = "", "muted"
+            a = plan_gws.index(st_["from"])
+            b = plan_gws.index(st_["to"]) if st_["to"] in plan_gws else n
+            span = (f'<div class="ff-grow" style="grid-column:{a + 1} / {b + 1};height:26px;border-radius:8px;'
+                    f'background:linear-gradient(90deg,{V("mint")},rgba(0,255,135,0.35));display:flex;'
+                    f'align-items:center;padding:0 10px;font-size:11.5px;font-weight:700;color:#0B0F17;">'
+                    f'{"GW%d → GW%d" % (st_["from"], st_["to"] - 1) if st_["to"] else "from GW%d, kept" % st_["from"]}</div>')
+            rows_html.append(
+                f'<div style="display:grid;grid-template-columns:230px 1fr 150px;gap:12px;align-items:center;'
+                f'padding:8px 0;border-bottom:1px solid {V("line")};">'
+                f'<div style="display:flex;align-items:center;gap:8px;">{_mini_face(st_["in"], 34)}'
+                f'<div><div style="font-weight:700;color:{V("text")};font-size:13.5px;">{name_of.get(st_["in"], "")}</div>'
+                f'<div style="font-size:12px;color:{V("muted")};">for {name_of.get(st_["out"], "")}</div></div></div>'
+                f'<div style="display:grid;grid-template-columns:repeat({n},minmax(0,1fr));gap:4px;">{span}</div>'
+                f'<div style="font-size:12.5px;font-weight:700;color:{V(tn)};text-align:right;">{vt}</div></div>')
+        st.markdown(_one(
+            f'<div style="background:{V("card")};border:1px solid {V("line")};border-radius:14px;padding:10px 16px;">'
+            f'<div style="display:grid;grid-template-columns:230px 1fr 150px;gap:12px;">'
+            f'<div></div><div style="display:grid;grid-template-columns:repeat({n},minmax(0,1fr));gap:4px;">{head}</div>'
+            f'<div style="text-align:right;font-size:11px;color:{V("muted2")};">background check</div></div>'
+            + "".join(rows_html) + '</div>'), unsafe_allow_html=True)
     b1, b2 = st.columns([1, 3])
     with b1:
         if st.button("Send this plan to My Team", key="tp_send", use_container_width=True):
@@ -378,8 +432,15 @@ if res and res.get("best", {}).get("weeks"):
                   "captain": w["captain_name"]} for w in wk], team_id)
             st.toast("Drafted %d weeks in My Team" % len(r.get("saved_drafts", []))
                      if r.get("ok") else r.get("error"))
+    if not res.get("alternatives") and st.button("Show other ways to play GW%d" % first,
+                                                  key="tp_alts", icon=":material/alt_route:"):
+        h_, f_, d_ = res.get("_args", (6, 2.0, 0.9))
+        with fpl_loader("Finding the next-best plans", LINES_SOLVER):
+            alt = service.optimise(team_id, h_, None, {"friction": f_, "decay": d_}, alternatives=2)
+        res["alternatives"] = alt["alternatives"]
+        st.session_state[_pkey] = res
     if res.get("alternatives"):
-        with st.expander("Other ways to play GW%d" % first):
+        with st.expander("Other ways to play GW%d" % first, expanded=True):
             for a in res["alternatives"]:
                 w0 = a["weeks"][0]
                 mv = ", ".join("%s → %s" % (o, i) for o, i in zip(w0["out_names"], w0["in_names"])) or "hold"
