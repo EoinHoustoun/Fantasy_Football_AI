@@ -71,8 +71,9 @@ analytic (`transfer_plan.hold_plan`), alternatives on request (~4 s a solve).
 **Data traps found this round:** the live gameweek feed stamps TODAY's
 `selected` and `value` on every past week (Ownership read 0% change for all);
 real history comes from element-summary via `service.ownership_history`
-(cached per finished GW). The brain's current-season `value` feature has the
-same flaw (small effect, unfixed). Charts: `charts.render` resolves
+(cached per finished GW). The brain's current-season `value` feature had the
+same flaw; `brain.patch_live_prices` now patches it from that history
+(BRAIN_VERSION 2; rank correlation with the old projections 0.997). Charts: `charts.render` resolves
 `var(--ff-*)` tokens (canvas cannot) and `charts.heat_ramp()` is theme-aware.
 
 **Other surfaces:** rail player search -> `ui/player_sheet.py` dialog; Fixtures

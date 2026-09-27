@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 HORIZON = 8
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
-BRAIN_VERSION = 1
+BRAIN_VERSION = 2   # 2: live-season prices patched from real weekly history
 
 # Columns that describe the FIXTURE, so they legitimately differ week to week.
 FIXTURE_COLS = ["was_home_f", "team_att", "team_def", "opp_att", "opp_def",
@@ -144,11 +144,43 @@ def build(players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
     if last and last >= first_gw:
         # Never train on the rows we are about to predict.
         history = history[~((history["season"] == season) & (history["gw"] >= first_gw))]
+    history = patch_live_prices(history, season)
     gws = [g for g in range(int(first_gw), int(first_gw) + int(horizon)) if g <= 38]
     up = upcoming_long(players_df, fixtures_df, season, gws)
     long = project(history, up)
     long["season"] = season
     return long
+
+
+def patch_live_prices(history: pd.DataFrame, season: str) -> pd.DataFrame:
+    """Give the live season's past rows the price each player really had then.
+
+    The live gameweek feed stamps TODAY's price (and ownership) on every past
+    week, so the `price_m` feature on this season's training rows was today's
+    price. FPL's per-player history has the real weekly `value`; it is fetched
+    for everyone (cached per finished gameweek by `service.ownership_history`)
+    and patched in by (code, gameweek). Any row without a history keeps its
+    value, so a failed fetch degrades to the old behaviour, never to NaN.
+    """
+    try:
+        from analytics import service
+        ph = service.ownership_history(min_own=0.0, top_traded=0)
+    except Exception:  # noqa: BLE001
+        logger.warning("brain: price history unavailable; live prices left as-is", exc_info=True)
+        return history
+    if ph is None or ph.empty or "value" not in ph.columns:
+        return history
+    fix = ph.dropna(subset=["value"]).set_index(["code", "GW"])["value"].astype(float)
+    live = history["season"] == season
+    keys = list(zip(history.loc[live, "code"].astype(int), history.loc[live, "gw"].astype(int)))
+    new = [fix.get(k, np.nan) for k in keys]
+    old = history.loc[live, "value"].astype(float).values
+    patched = np.where(np.isnan(new), old, new)
+    out = history.copy()
+    out.loc[live, "value"] = patched
+    logger.info("brain: patched %d of %d live-season prices (%d changed)",
+                int(np.sum(~np.isnan(new))), len(keys), int(np.sum(patched != old)))
+    return out
 
 
 _LOCK = threading.Lock()
