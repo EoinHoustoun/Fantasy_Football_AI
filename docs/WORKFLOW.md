@@ -1676,3 +1676,65 @@ Accuracy pass: Lammens's Carrick ×1.174 removed from the overrides (it
 multiplied the blended cell · double-count); Kinsky checked and NOT boosted
 (7 starts, 1.43 saves/game · the sites being low on him is defensible);
 Saliba's injury confirmed current, so Mosquera's minutes hold. 636 tests.
+
+## 2026-09-22 · GW5 review, the persistence test, and a ten-week transfer plan
+
+Analysis session, no app code. Scripts live locally in
+`docs/research/2026-09-22_gw5_review/` (gitignored in spirit: it reads paid
+snapshots, so it is not committed). Paid-source figures (Fantasy Football
+Scout, the Hub) are deliberately left out of this public log.
+
+**State.** 381 pts, rank 67,663 after a 36 in GW5. Chips used BB1, TC3, WC4 ·
+only the Free Hit left until GW19. 4 FTs, cap 5. GW6 deadline Fri 10 Oct.
+
+**The persistence test (2025-26 archive, GW1-5 → GW6-38).** Attackers with
+300+ min early and 1500+ after (n=53), defenders n=47, all 20 clubs:
+- xGI/90 → later pts/90 **r=0.53**; pts/90 → later pts/90 r=0.26;
+  G+A/90 → 0.33.
+- Luck (G+A minus xGI) → later luck **r=-0.01**; → later pts/90 -0.08.
+- Defender DC/90 → later DC/90 **r=0.71** (DEFCON is buyable on five starts).
+- Team xG → later goals 0.54; team goals → later goals 0.26.
+Quote these whenever a "form" argument comes up.
+
+**Third-party expected-minutes fades are the thing to distrust.** A paid
+tool faded Konsa, De Cuyper and Calafiori over GW6-15 with no pitch evidence
+(all three playing 90). Re-scaled to their actual minutes, the free wildcard
+optimum keeps all three, and every "sell Konsa / Calafiori for Gabriel" call of
+the day was withdrawn as a minutes-fade artefact.
+
+**Convictions priced** against a free wildcard optimum, best XI + captain each
+week: keeping Haaland is cheap at his ownership; the double-Arsenal set costs
+more. Eoin responds to the number, not the argument.
+
+**Multi-week optimiser (new).** Transfers in any GW, FT accrual, no hits,
+per-GW XI and captain. Without friction it churns (a player in one week and out
+the next). With a 2-pt friction cost per move it made ONE move: Rogers →
+Mbeumo at GW6, then held. Rogers vs Mbeumo on public numbers: xGI/90 0.61 vs
+0.77, share of team xG 23% vs 30%, luck +4.4 vs -5.4.
+
+**Superseded 27 Sep:** the Sangaré → Tavernier and Groß reads from this session
+were re-run on the validated engine with luck removed: Groß and E.Le Fée are a
+coin flip, Tavernier trails both, and the move hinges on Sangaré's minutes.
+
+**Data plumbing that worked:** targeted DOM reads of pages Eoin can see, one
+click per call (reading in the same call can freeze CDP); top-10k sample from
+`leagues-classic/314/standings` via curl (python urllib SSL fails on this Mac).
+
+## 2026-09-27 · One engine, the transfer audit, Claude over MCP, Floodlit
+
+Ten rounds in one day; CLAUDE.md "One engine, one door" has the detail.
+- `analytics/brain.py` (component model over 8 GWs, walk-forward beats form in
+  15/15 folds) + `analytics/service.py` behind every page and the MCP server
+  `fpl` (`mcp_server/server.py`, `.venv-mcp`).
+- Transfer audit: team-level timing (entry week), horizon robustness,
+  background flags, benchwarmer displacement, exit-week heat grid.
+- Floodlit design + night rail, 19 → 15 pages, phone layout, finite animations,
+  server-side face resolution, engine player card.
+- Luck-free xP (`analytics/luck.py`): the brain carries ~20% of past finishing
+  luck; stripped out in the dossier, target board and MCP.
+- Calibrated ranges (`analytics/ranges.py`): six-week 10-90% band holds 80.3% of
+  outcomes walk-forward (docs/research/ranges_calibration.md); P(A beats B)
+  shown in the dossier and returned by `compare_players`.
+- Chips page on the engine in season; says Hold when no week stands out.
+- Rejected with evidence: FPL xP blend (leaked), midweek rotation penalty
+  (refuted), DEFCON newcomer blend (docs/research/defcon_newcomers.md).
