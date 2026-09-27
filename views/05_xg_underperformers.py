@@ -190,11 +190,9 @@ else:
 
 # ── Card grid ─────────────────────────────────────────────────────────────────
 if not underperformers.empty:
-    st.markdown(
-        '<div style="margin:24px 0 12px;font-size:20px;font-weight:800;color:var(--ff-text);">'
-        '🎯 Players Due a Goal</div>',
-        unsafe_allow_html=True,
-    )
+    from ui.page import section as _sec0
+    _sec0("Due a goal", "Creating more than they have scored. The chances are the part "
+          "that persists, so the goals tend to follow.", "sports_soccer")
 
     cards = []
     for _, p in underperformers.iterrows():
@@ -270,61 +268,12 @@ if not underperformers.empty:
         unsafe_allow_html=True,
     )
 
-# ── Scatter chart ─────────────────────────────────────────────────────────────
-    st.markdown(
-        '<div style="margin:28px 0 10px;font-size:18px;font-weight:800;color:var(--ff-text);">'
-        '📊 xG vs Actual Goals</div>'
-        '<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:14px;">'
-        'Players above the line are underperforming (haul candidates). Below the line = overperforming.'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    chart_df = players_df[
-        (players_df["position"].isin(positions)) &
-        (players_df["xg"].notna()) &
-        (players_df["xg"] >= 0.5)
-    ].copy()
-
-    if not chart_df.empty:
-        underperformer_names = set(underperformers["web_name"].tolist())
-        chart_df["category"] = chart_df["web_name"].apply(
-            lambda x: "Underperforming (buy?)" if x in underperformer_names else "On track"
-        )
-        sizes = charts.scale_sizes(list(chart_df["xg"]), lo=6.0, hi=22.0)
-        groups = []
-        for cat, col in [("Underperforming (buy?)", "var(--ff-mint)"),
-                         ("On track", "#555a66")]:
-            sub = chart_df[chart_df["category"] == cat]
-            pts = []
-            for _, r in sub.iterrows():
-                idx = chart_df.index.get_loc(r.name)
-                pts.append({
-                    "x": int(r["goals_scored"]), "y": round(float(r["xg"]), 2),
-                    "name": str(r["web_name"]), "size": sizes[idx],
-                    "tip": (f"<b>{r['web_name']}</b> · {r['team']}<br/>"
-                            f"{int(r['goals_scored'])} goals vs {r['xg']:.2f} xG<br/>"
-                            f"£{r['price']:.1f}m · {r['ownership']:.1f}% · form {r['form']}"),
-                })
-            if pts:
-                groups.append((cat, col, pts))
-        opt = charts.multi_scatter_option(groups, x_name="Actual Goals",
-                                          y_name="Expected Goals (xG)")
-        max_val = float(max(chart_df["xg"].max(), chart_df["goals_scored"].max(), 1))
-        charts.with_diagonal(opt, max_val, name="xG = Goals")
-        charts.render(opt, height="500px", key="xg_under_scatter")
+# (The xG-vs-goals scatter was a subset of the finishing-luck chart below; removed.)
 
 
 # ── Finishing luck: both tails, and does it even out? ─────────────────────────
-st.markdown(
-    '<div style="margin:30px 0 10px;font-size:20px;font-weight:800;color:var(--ff-text);">'
-    '🎲 Finishing Luck · Both Tails</div>'
-    '<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:14px;">'
-    'Every player who took the pitch this season. Green = scoring more than their '
-    'chances deserve, red = less. The histogram answers "does it even out": most '
-    'players cluster near zero · the tails are luck plus elite/poor finishing.</div>',
-    unsafe_allow_html=True,
-)
+from ui.page import section as _sec
+_sec("Finishing luck · both tails", "Every player who took the pitch this season. Green = scoring more than his chances deserve, red = less. Most cluster near zero; the tails are luck plus elite or poor finishing, and luck does not persist (r = -0.01).", "casino")
 
 luck_df = players_df[
     players_df["xg"].notna() & (players_df["minutes"] > 0)

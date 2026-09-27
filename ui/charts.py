@@ -414,6 +414,7 @@ def multi_scatter_option(series: List[Tuple[str, str, List[Dict[str, Any]]]],
                                  "fontFamily": _FONT}
             data.append(item)
         out_series.append({"name": nm, "type": "scatter", "data": data,
+                           "itemStyle": {"color": col},
                            "emphasis": {"scale": 1.4}})
     return {
         "backgroundColor": "transparent",
@@ -761,6 +762,32 @@ def _retheme(node: Any) -> Any:
     return node
 
 
+_VAR_RE = None
+
+
+def _resolve_tokens(o):
+    """Turn `var(--ff-x)` strings into real colours, recursively.
+
+    ECharts paints on a canvas, which cannot read CSS custom properties, so a
+    series coloured `var(--ff-mint)` silently falls back to grey (the xG
+    tracker's whole scatter did). Pages hand theme tokens around freely, so the
+    renderer resolves them once here for every chart.
+    """
+    global _VAR_RE
+    if _VAR_RE is None:
+        import re
+        _VAR_RE = re.compile(r"var\(--ff-([a-z0-9-]+)\)")
+    if isinstance(o, dict):
+        return {k: _resolve_tokens(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_resolve_tokens(v) for v in o]
+    if isinstance(o, str) and "var(--ff-" in o:
+        from ui.theme import palette
+        pal = palette()
+        return _VAR_RE.sub(lambda m: pal.get(m.group(1), m.group(0)), o)
+    return o
+
+
 def _json_safe(o):
     """Replace NaN and infinity with None, recursively.
 
@@ -800,6 +827,7 @@ def render(option: Dict[str, Any], height: str = "260px",
     import streamlit as st
     from streamlit_echarts import st_echarts
     from ui.theme import is_light
+    option = _resolve_tokens(option)
     if is_light():
         option = _retheme(option)
         # The key has to change with the palette or Streamlit reuses the mounted
