@@ -99,6 +99,21 @@ def show(code: int) -> None:
         + '</div>'), unsafe_allow_html=True)
     st.caption("Minutes by gameweek: %s. Luck = goals and assists minus xGI: it does not "
                "persist, xGI per 90 does." % (", ".join(map(str, prof["mins_list"])) or "none"))
+    # Cup and European minutes (FPL-Core-Insights, cached locally). Context only:
+    # in 2025-26 midweek minutes did NOT predict weekend rotation (research note
+    # docs/research/midweek_minutes.md), so nothing here changes a projection.
+    try:
+        from analytics.component_model import active_season
+        from data.fetchers.core_insights import midweek_minutes
+        mw = midweek_minutes(active_season())
+        mine_mw = mw[mw["code"] == int(code)].sort_values("kickoff", ascending=False).head(4) \
+            if not mw.empty else mw
+        if not mine_mw.empty:
+            st.caption("Outside the league: " + " · ".join(
+                "%d' %s (%s)" % (r["minutes"], r["competition"], r["kickoff"].strftime("%d %b"))
+                for _, r in mine_mw.iterrows()))
+    except Exception:  # noqa: BLE001 · context, never a blocker
+        pass
     b1, b2 = st.columns(2)
     with b1:
         st.page_link("views/02_transfer_suggestions.py", label="Check a move with him →")
