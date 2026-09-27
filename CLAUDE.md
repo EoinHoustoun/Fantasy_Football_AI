@@ -79,6 +79,16 @@ same flaw (small effect, unfixed). Charts: `charts.render` resolves
 page (`views/20_fixtures.py`, engine xG / clean-sheet ticker with kits);
 Injuries parses "Expected back 11 Oct" into return gameweeks.
 
+**My Team planning week (fixed 2026-09-27):** while the next gameweek's
+deadline is open (`is_next`), THAT week is the first planning week; the page
+used to start a week later, so drafts written for the open week were invisible.
+The banked-FT box seeds from `service.team()["free_transfers"]`. Players bought
+in the viewed week carry `is_new` on the pitch (drop-in animation + NEW tag).
+
+**Phone:** sidebar starts collapsed (`initial_sidebar_state="auto"`), Streamlit
+columns go full width under 640px (theme.py mobile block), and custom HTML grids
+that should stack carry the `ff-stack` class.
+
 **MCP server** (`mcp_server/server.py`): Claude calls the same service functions.
 Runs from `.venv-mcp` (Python 3.11, numerics pinned to the app's). Registered
 user-scope as `fpl` (`claude mcp list`). Engine imports are lazy so the handshake
