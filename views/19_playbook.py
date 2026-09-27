@@ -615,7 +615,7 @@ with _pb_tabs[2]:
         charts.render(_opt, height="360px", key="pb_defcon_beasts")
         st.caption("Green = defender (10-action bar), magenta = midfielder (12). "
                    "Minimum 8 starts, so late breakthroughs still qualify.")
-        with st.expander("📋 Full DEFCON table · every player with 8+ starts"):
+        with st.expander(":material/table_rows: Full DEFCON table · every player with 8+ starts"):
             _t = _bs[["web_name", "team_name", "position", "starts", "dc_per_start",
                       "hit_rate", "defcon_pts_per_start", "pts_per_start",
                       "goals", "assists"]].copy()

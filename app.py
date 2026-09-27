@@ -176,13 +176,13 @@ PAGES = {
     "Plan": [
         st.Page("views/20_fixtures.py",             title="Fixtures",      icon=":material/calendar_month:"),
         st.Page("views/14_chip_planner.py",         title="Chips",         icon=":material/casino:"),
-        st.Page("views/18_draft_2026_27.py",        title="Squad Builder", icon=":material/draw:"),
     ],
     "Research": [
         st.Page("views/05_xg_underperformers.py",   title="xG Tracker",    icon=":material/bolt:"),
         st.Page("views/10_ownership_trend.py",      title="Ownership",     icon=":material/trending_up:"),
         st.Page("views/17_value_lab.py",            title="Value Lab",     icon=":material/science:"),
         st.Page("views/19_playbook.py",             title="Playbook",      icon=":material/menu_book:"),
+        st.Page("views/18_draft_2026_27.py",        title="Draft Lab",     icon=":material/draw:"),
     ],
     "History": [
         st.Page("views/11_gw_history.py",           title="GW History",    icon=":material/history:"),

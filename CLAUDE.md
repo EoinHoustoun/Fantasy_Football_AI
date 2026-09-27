@@ -290,8 +290,9 @@ Call `inject_global_animations()` at the top of every page. Provides:
 ## Navigation & pages (Floodlit, 2026-09-27)
 Nav is an accordion built in `app.py` over a hidden `st.navigation`: four groups,
 fourteen pages. **This week**: Home, My Team, Captain, Transfers, Injuries ·
-**Plan**: Chips (`14_chip_planner`), Squad Builder (`18_draft_2026_27`) ·
-**Research**: xG Tracker, Ownership, Value Lab, Playbook · **History**: GW
+**Plan**: Fixtures (`20_fixtures`), Chips (`14_chip_planner`) ·
+**Research**: xG Tracker, Ownership, Value Lab, Playbook, Draft Lab (`18_draft_2026_27`,
+the preseason planner kept as a lab; in season it banners users to Chips) · **History**: GW
 History, Mini-League, Perfect Season. Merged away: Buy/Sell and Differentials
 (Transfers' best moves and target board with its ownership ceiling), Wildcard and
 Free Hit (Chips prices the Free Hit week by week via `service.chip_squad`),

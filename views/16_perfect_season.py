@@ -29,7 +29,7 @@ from config import CACHE_DIR, LAST_COMPLETE_SEASON
 inject_global_animations()
 
 MUTED = "var(--ff-muted2)"
-CARD = ("background:rgba(22,26,34,0.85);border:1px solid var(--ff-row-alt);"
+CARD = ("background:var(--ff-card);border:1px solid var(--ff-line);"
         "border-radius:12px;padding:14px 18px;")
 
 SEASON_KEY = LAST_COMPLETE_SEASON.replace("-", "_")
@@ -132,15 +132,8 @@ def _pitch_players(squad, xi, captain, gw=None, prices=None):
 
 
 def _section(title: str, sub: str = "") -> None:
-    st.markdown(
-        f'<div style="display:flex;align-items:center;gap:14px;margin:28px 0 10px;">'
-        f'<div style="font-size:11px;font-weight:800;letter-spacing:0.22em;'
-        f'text-transform:uppercase;color:{MUTED};white-space:nowrap;">{title}</div>'
-        f'<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div></div>'
-        + (f'<div style="font-size:12px;color:var(--ff-muted2);margin-bottom:10px;">{sub}</div>'
-           if sub else ""),
-        unsafe_allow_html=True,
-    )
+    from ui.page import section
+    section(title, sub)
 
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
@@ -156,7 +149,7 @@ for label, info in scenarios.items():
 tiles.append((SET_AND_FORGET, count_up(saf["total_points"]),
               "one squad, never touched", "var(--ff-mag)"))
 if my_total:
-    tiles.append(("Eoin actual", count_up(my_total), "Vicario Kart", "var(--ff-orange-v)"))
+    tiles.append(("You, actually", count_up(my_total), "Vicario Kart, 2025-26", "var(--ff-orange-v)"))
 if bench_marks.get("winner_total"):
     tiles.append(("Global winner", count_up(bench_marks["winner_total"]),
                   "best human, no hindsight", "#c084fc"))

@@ -570,7 +570,7 @@ _HERO = _one_line(f"""
 <div class="fplh-animate-in" style="display:flex;align-items:center;gap:12px;
      flex-wrap:wrap;padding:0 0 6px;font-family:'Inter',sans-serif;">
   <div class="ff-display ff-hero-title" style="font-size:24px;font-weight:900;
-       color:{V('text')};">Squad Builder</div>
+       color:{V('text')};">Draft Lab</div>
   <span title="{_FRESH_TITLE}" style="background:{V('chip-bg')};
     border:1px solid {V(_FRESH_TOKEN)};color:{V(_FRESH_TOKEN)};font-size:9.5px;
     font-weight:800;letter-spacing:0.12em;padding:3px 9px;border-radius:20px;
@@ -655,6 +655,20 @@ _all_opts = sorted(list(_SAVED_BY_NAME),
 _hero, _ctrl = st.columns([4, 1])
 with _hero:
     st.markdown(_HERO, unsafe_allow_html=True)
+# In season this page is the preseason draft planner, kept as a lab. The live
+# chip squads (Free Hit week by week, Wildcard windows) are solved on the
+# engine on the Chips page; say so rather than let GW1 numbers pass as advice.
+_phase = (st.session_state.get("season_phase") or {}).get("phase")
+if _phase == "inseason":
+    st.markdown(_one_line(
+        f'<div style="display:flex;gap:12px;align-items:center;padding:12px 16px;margin:4px 0 10px;'
+        f'border-radius:12px;background:{V("card")};border:1px solid {V("line")};'
+        f'border-left:3px solid {V("cyan")};font-size:13.5px;color:{V("text")};">'
+        f'{theme.icon("science", 20, V("cyan"))}<div><b>Draft Lab.</b> The preseason planner, kept for '
+        f'building and comparing whole squads from GW1. For this season\'s Free Hit and Wildcard '
+        f'squads, priced on the live engine against your current team, use <b>Chips</b>.</div></div>'),
+        unsafe_allow_html=True)
+    st.page_link("views/14_chip_planner.py", label="Open Chips →")
 with _ctrl:
     st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
 
