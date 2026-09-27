@@ -315,9 +315,9 @@ st.markdown("---")
 
 # ── Charts ─────────────────────────────────────────────────────────────────────
 tab_cum, tab_rank, tab_gw = st.tabs([
-    "📈 Cumulative Points",
-    "📉 Rank Progression",
-    "📊 GW by GW",
+    ":material/show_chart: Cumulative points",
+    ":material/trending_down: Rank progression",
+    ":material/bar_chart: Gameweek by gameweek",
 ])
 
 with tab_cum:

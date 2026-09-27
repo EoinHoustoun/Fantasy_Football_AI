@@ -15,6 +15,7 @@ from the previous version but visually tightened.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -459,16 +460,7 @@ for _k, _v in (("axe", []), ("sub_from", None), ("xi_override", {}),
     st.session_state.setdefault(_sk(_k), _v)
 
 
-# ── THIS WEEK'S DECISIONS · Captain · Sell · Opportunity ─────────────────────
-st.markdown(
-    '<div class="fplh-animate-in" style="margin:6px 0 14px;display:flex;'
-    'align-items:center;gap:14px;">'
-    '<div style="font-size:11px;letter-spacing:0.22em;color:var(--ff-muted2);'
-    'text-transform:uppercase;font-weight:800;">This Gameweek\'s Decisions</div>'
-    '<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div>'
-    '</div>',
-    unsafe_allow_html=True,
-)
+# ── THIS WEEK · one slim strip (the full cards live on Home, Captain, Transfers) ──
 
 
 def _fixture_pills(fixtures, n: int = 4) -> str:
@@ -572,162 +564,36 @@ def _decision_card(kind: str, accent: str, header: str, body_html: str) -> str:
 """
 
 
-# ── Captain card ─────────────────────────────────────────────────────────────
+# Captain, the flagged starter and the best move in one line. The same
+# answers as Home, deliberately not re-rendered as a second set of cards.
+_strip = []
 if cap_top is not None:
-    ctop_code = int(cap_top.get("team_code", 1) or 1)
-    ctop_shirt = _shirt(ctop_code, str(cap_top.get("position", "")) == "GKP")
-    ctop_name = str(cap_top.get("web_name", "?"))
-    ctop_team = str(cap_top.get("team", ""))
-    ctop_pos  = str(cap_top.get("position", ""))
-    ctop_score = float(cap_top["cap_score"])
-    ctop_form = float(cap_top.get("form", 0) or 0)
-    ctop_fdr = float(cap_top.get(_fdr_col, 3.0) or 3.0) if _fdr_col in cap_top else 3.0
-    ctop_fix = _fixture_pills(cap_top.get("upcoming_fixtures"), n=4)
-
-    cap_body = f"""
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
-  <div class="fplh-pop" style="position:relative;">
-    <img src="{ctop_shirt}" width="62"
-         onerror="this.src='{SHIRT_BASE}/shirt_1-66.png'"
-         style="filter:drop-shadow(0 4px 6px rgba(0,0,0,0.45));"/>
-    <div class="fplh-captain-pulse" style="position:absolute;top:-6px;right:-6px;
-         background:var(--ff-gold);color:#000;border-radius:50%;width:24px;height:24px;
-         line-height:24px;text-align:center;font-weight:900;font-size:12px;">C</div>
-  </div>
-  <div style="flex:1;min-width:0;">
-    <div style="font-size:18px;font-weight:900;color:var(--ff-text);white-space:nowrap;
-         overflow:hidden;text-overflow:ellipsis;">{ctop_name}</div>
-    <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
-      {_position_chip(ctop_pos)} <span style="margin-left:6px;">{ctop_team}</span>
-    </div>
-  </div>
-  <div style="text-align:right;">
-    <div style="font-size:22px;font-weight:900;color:var(--ff-gold);line-height:1;">{ctop_score:.2f}</div>
-    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">xP THIS GW</div>
-  </div>
-</div>
-<div style="display:flex;gap:14px;margin-bottom:10px;">
-  <div><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{ctop_form:.2f}</div>
-       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
-  <div><div style="font-size:14px;font-weight:800;color:{_fdr_color(ctop_fdr)};">{ctop_fdr:.2f}</div>
-       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">FDR{FIXTURE_LOOKAHEAD}</div></div>
-</div>
-<div style="margin-top:auto;">{ctop_fix}</div>
-"""
-    cap_card_html = _decision_card("🏆", "var(--ff-gold)", "Captain Pick", cap_body)
-else:
-    cap_card_html = _decision_card("🏆", "var(--ff-gold)", "Captain Pick",
-                                    '<div style="color:var(--ff-muted2);">No data.</div>')
-
-
-# ── Sell card ────────────────────────────────────────────────────────────────
-if sell_candidates:
-    worst, flags = sell_candidates[0]
-    wcode = int(worst.get("team_code", 1) or 1)
-    wshirt = _shirt(wcode, str(worst.get("position", "")) == "GKP")
-    wname = str(worst.get("web_name", "?"))
-    wteam = str(worst.get("team", ""))
-    wpos  = str(worst.get("position", ""))
-    flag_html = "".join(
-        f'<span style="display:inline-block;background:rgba(255,75,75,0.08);'
-        f'border:1px solid rgba(255,75,75,0.3);color:var(--ff-text);border-radius:4px;'
-        f'padding:2px 8px;font-size:11px;margin:2px 4px 2px 0;">{f}</span>'
-        for f in flags[:4]
-    )
-    others = len(sell_candidates) - 1
-    others_html = (
-        f'<div style="font-size:11px;color:var(--ff-muted2);margin-top:10px;">'
-        f'+{others} other player{"s" if others > 1 else ""} flagged</div>'
-        if others > 0 else ""
-    )
-
-    sell_body = f"""
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
-  <img src="{wshirt}" width="56"
-       onerror="this.src='{SHIRT_BASE}/shirt_1-66.png'"
-       style="filter:drop-shadow(0 4px 6px rgba(0,0,0,0.45));"/>
-  <div style="flex:1;min-width:0;">
-    <div style="font-size:18px;font-weight:900;color:var(--ff-text);white-space:nowrap;
-         overflow:hidden;text-overflow:ellipsis;">{wname}</div>
-    <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
-      {_position_chip(wpos)} <span style="margin-left:6px;">{wteam}</span>
-    </div>
-  </div>
-</div>
-<div style="margin-top:4px;margin-bottom:4px;">{flag_html}</div>
-{others_html}
-"""
-    sell_card_html = _decision_card("⚠️", "var(--ff-red)", "Sell Alert", sell_body)
-else:
-    sell_card_html = _decision_card(
-        "✅", "var(--ff-mint)", "Sell Alert",
-        '<div style="font-size:14px;color:var(--ff-muted);line-height:1.5;">'
-        'No major concerns in your starting XI. Everyone\'s playing and firing.'
-        '</div>'
-    )
-
-
-# ── Opportunity card ─────────────────────────────────────────────────────────
+    _strip.append(("military_tech", "gold", "Captain", "%s · %.2f xP" % (
+        cap_top.get("web_name"), float(cap_top.get("cap_score", 0) or 0)),
+        "views/06_captain_picker.py"))
 if opp is not None:
-    ocode = int(opp.get("team_code", 1) or 1)
-    oshirt = _shirt(ocode, str(opp.get("position", "")) == "GKP")
-    oname = str(opp.get("web_name", "?"))
-    oteam = str(opp.get("team", ""))
-    opos  = str(opp.get("position", ""))
-    oprice = float(opp.get("price", 0) or 0)
-    oscore = float(opp.get("move_gain", 0) or 0)
-    oform = float(opp.get("form", 0) or 0)
-    oep = float(opp.get("ep_next", 0) or 0)
-    aff_badge = (
-        f'<span style="color:var(--ff-muted2);font-size:11px;font-weight:600;margin-left:6px;">'
-        f'for {opp.get("move_out", "")}</span>')
-
-    opp_body = f"""
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
-  <img src="{oshirt}" width="56"
-       onerror="this.src='{SHIRT_BASE}/shirt_1-66.png'"
-       style="filter:drop-shadow(0 4px 6px rgba(0,0,0,0.45));"/>
-  <div style="flex:1;min-width:0;">
-    <div style="font-size:18px;font-weight:900;color:var(--ff-text);white-space:nowrap;
-         overflow:hidden;text-overflow:ellipsis;">{oname}{aff_badge}</div>
-    <div style="font-size:11px;color:var(--ff-muted2);margin-top:2px;">
-      {_position_chip(opos)} <span style="margin-left:6px;">{oteam} · £{oprice:.2f}m</span>
-    </div>
-  </div>
-  <div style="text-align:right;">
-    <div style="font-size:22px;font-weight:900;color:var(--ff-mint);line-height:1;">+{oscore:.1f}</div>
-    <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">TEAM xP {opp.get("move_gws", "")}</div>
-  </div>
-</div>
-<div style="display:flex;gap:14px;">
-  <div><div style="font-size:14px;font-weight:800;color:var(--ff-text);">{oform:.2f}</div>
-       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">FORM</div></div>
-  <div><div style="font-size:14px;font-weight:800;color:var(--ff-cyan);">{oep:.2f}</div>
-       <div style="font-size:9px;color:var(--ff-muted2);letter-spacing:0.1em;">xP NEXT</div></div>
-</div>
-"""
-    opp_card_html = _decision_card("🔄", "var(--ff-mint)", "Best Move", opp_body)
-else:
-    opp_card_html = _decision_card("🔄", "var(--ff-mint)", "Opportunity",
-                                    '<div style="color:var(--ff-muted2);">No data.</div>')
-
-
-st.markdown(
-    '<div class="fplh-stagger" style="display:grid;'
-    'grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:4px;">'
-    + cap_card_html + sell_card_html + opp_card_html
-    + '</div>',
-    unsafe_allow_html=True,
-)
-
-# Small deep-link row under the decisions panel
-link_cols = st.columns(3)
-with link_cols[0]:
-    st.page_link("views/06_captain_picker.py", label="Full captain breakdown →")
-with link_cols[1]:
-    st.page_link("views/02_transfer_suggestions.py", label="Best replacements →")
-with link_cols[2]:
-    st.page_link("views/02_transfer_suggestions.py", label="All transfer targets →")
+    _strip.append(("swap_horiz", "mint", "Best move", "%s for %s · +%.1f" % (
+        opp.get("web_name"), opp.get("move_out", ""), float(opp.get("move_gain", 0) or 0)),
+        "views/02_transfer_suggestions.py"))
+if sell_candidates:
+    _w, _fl = sell_candidates[0]
+    _strip.append(("warning", "red", "Watch", "%s · %s" % (_w.get("web_name"),
+                                                           re.sub(r"^\W+", "", _fl[0])),
+                   "views/08_injuries.py"))
+_sc = st.columns(len(_strip) or 1)
+for _c, (_ic, _tone, _lab, _txt, _pg) in zip(_sc, _strip):
+    with _c:
+        st.markdown(
+            f'<div class="ff-rise" style="display:flex;align-items:center;gap:10px;padding:10px 14px;'
+            f'border-radius:12px;background:var(--ff-card);border:1px solid var(--ff-line);'
+            f'border-left:3px solid var(--ff-{_tone});">'
+            f'{theme.icon(_ic, 20, "var(--ff-" + _tone + ")")}'
+            f'<div style="min-width:0;"><div style="font-size:10.5px;font-weight:700;letter-spacing:0.14em;'
+            f'text-transform:uppercase;color:var(--ff-muted2);">{_lab}</div>'
+            f'<div style="font-size:14px;font-weight:700;color:var(--ff-text);white-space:nowrap;'
+            f'overflow:hidden;text-overflow:ellipsis;">{_txt}</div></div></div>',
+            unsafe_allow_html=True)
+        st.page_link(_pg, label="Open →")
 
 
 # ── FORWARD-WEEK PLANNER ──────────────────────────────────────────────────────
@@ -1265,7 +1131,7 @@ st.markdown(
 )
 
 
-tab_pitch, tab_lineup, tab_table = st.tabs(["⚽ Pitch View", "✏️ Lineup", "📋 Squad Table"])
+tab_pitch, tab_lineup, tab_table = st.tabs([":material/stadium: Pitch", ":material/edit: Lineup", ":material/table_rows: Squad table"])
 
 with tab_lineup:
     from collections import Counter
@@ -1599,56 +1465,6 @@ with tab_table:
         _squad_table(bench)
 
 
-# ── SEASON TREND ──────────────────────────────────────────────────────────────
-st.markdown(
-    '<div style="margin:30px 0 12px;display:flex;align-items:center;gap:14px;">'
-    '<div style="font-size:11px;letter-spacing:0.22em;color:var(--ff-muted2);'
-    'text-transform:uppercase;font-weight:800;">Season Trend</div>'
-    '<div style="flex:1;height:1px;background:var(--ff-row-alt);"></div>'
-    '</div>',
-    unsafe_allow_html=True,
-)
-
-try:
-    history    = _load_history(team_id)
-    gw_history = history.get("current", [])
-
-    if gw_history:
-        hist_df = pd.DataFrame(gw_history)
-        hist_df["net_points"] = hist_df["points"] - hist_df["event_transfers_cost"]
-        season_avg = float(hist_df["net_points"].mean())
-
-        # Summary strip (cleaner than 4-up st.metric)
-        best_row  = hist_df.loc[hist_df["net_points"].idxmax()]
-        worst_row = hist_df.loc[hist_df["net_points"].idxmin()]
-        total_hits = int(hist_df["event_transfers_cost"].sum())
-        total_bench = int(hist_df["points_on_bench"].sum()) if "points_on_bench" in hist_df.columns else 0
-
-        summary_html = (
-            _hero_stat("Best GW", f"{count_up(best_row['net_points'])} pts", "var(--ff-mint)",
-                       f"GW{int(best_row['event'])}")
-            + _hero_stat("Worst GW", f"{count_up(worst_row['net_points'])} pts", "var(--ff-red)",
-                         f"GW{int(worst_row['event'])}")
-            + _hero_stat("Season Avg", f"{count_up(season_avg, 1)} pts", "#fff",
-                         f"over {len(hist_df)} GWs")
-            + _hero_stat("Bench Loss", f"{count_up(total_bench)} pts", "var(--ff-orange)",
-                         f"Total hits: −{total_hits}")
-        )
-        st.markdown(
-            f'<div class="fplh-animate-in" style="display:flex;gap:10px;margin-bottom:16px;'
-            f'flex-wrap:wrap;">{summary_html}</div>',
-            unsafe_allow_html=True,
-        )
-
-        opt = charts.bar_option(
-            x=list(hist_df["event"]),
-            y=[int(p) for p in hist_df["net_points"]],
-            colors=[theme.fill("mint") if p >= season_avg else theme.fill("red")
-                    for p in hist_df["net_points"]],
-        )
-        opt["tooltip"]["formatter"] = "GW{b}: {c} pts"
-        charts.render(with_mark_line(opt, season_avg, f"Avg: {season_avg:.1f}"),
-                      height="280px", key="mt_net_points")
-
-except Exception as e:
-    st.warning(f"Could not load points history: {e}")
+# Season trend lives on GW History (no duplicate sections).
+st.page_link("views/11_gw_history.py", label="Season so far, gameweek by gameweek →",
+             icon=":material/history:")
