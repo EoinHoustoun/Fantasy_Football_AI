@@ -461,11 +461,21 @@ if squad_df is not None:
                 score_breakdown_chart(pool.head(6), "Where the expected points come from",
                                       key="cap_breakdown_squad")
 
+        # Rival ownership in the league last viewed on Mini-League: a captain most
+        # rivals own is a SHIELD (you only avoid losing ground); one few own is a SWORD.
+        from analytics import prefs as _pf
+        _rown = {}
+        if _pf.get("league_id"):
+            try:
+                _rown = _svc3.league_rivals(int(_pf.get("league_id")), int(team_id))["rival_own"]
+            except Exception:  # noqa: BLE001
+                _rown = {}
         _rows = [{"code": int(r["code"]), "web_name": r["web_name"],
                   "sub": "%s · %s" % (r.get("team_short", ""), r["position"]),
                   "fx": _svc3.fixtures_for(int(r["team_id"]), [int(captain_gw)])[0],
                   "xp": float(r["xp"]), "pg": 100 * r["p_goal"], "pga": 100 * r["p_ga"],
-                  "p60": 100 * float(r["p60"]), "own": float(r.get("ownership") or 0)}
+                  "p60": 100 * float(r["p60"]), "own": float(r.get("ownership") or 0),
+                  "rown": _rown.get(int(r["code"])) if _rown else None}
                  for _, r in pool.iterrows()]
         _T.render(_rows, [
             _T.col_face("code", url_fn=_ppu), _T.col_player("web_name", sub="sub"),
@@ -473,7 +483,8 @@ if squad_df is not None:
             _T.col_bar("xp", "xP GW%d" % captain_gw, max_value=max(r["xp"] for r in _rows), fmt="%.2f"),
             _T.col_num("pg", "Goal %", fmt="%.0f"), _T.col_num("pga", "G or A %", fmt="%.0f"),
             _T.col_num("p60", "60+ min %", fmt="%.0f"), _T.col_num("own", "Owned %", fmt="%.1f"),
-        ], key="cap_shortlist", max_height=420)
+        ] + ([_T.col_num("rown", "Rivals own %", fmt="%.0f", empty="none")] if _rown else []),
+            key="cap_shortlist", max_height=420)
 
     st.markdown("---")
 

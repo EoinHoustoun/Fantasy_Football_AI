@@ -235,10 +235,14 @@ with st.sidebar:
             return f"{tag} · {l['name']}"
 
         league_options = {_label(l): l["id"] for l in visible_leagues}
+        from analytics import prefs as _prefs0
+        _remembered = _prefs0.get("league_id")
+        _names = list(league_options.keys())
+        _idx = next((k for k, n in enumerate(_names) if league_options[n] == _remembered), 0)
         selected_name  = st.selectbox(
             "Your leagues",
-            options=list(league_options.keys()),
-            index=0,
+            options=_names,
+            index=_idx,
             help="Private leagues listed first. Toggle above to include public leagues.",
         )
         league_id = league_options[selected_name]
@@ -263,6 +267,11 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption("Classic leagues only. Head-to-head leagues not supported.")
+
+if league_id:
+    # Remember it: Home and Captain read the league last viewed here.
+    from analytics import prefs as _prefs
+    _prefs.set("league_id", int(league_id))
 
 if league_id is None or league_id == 0:
     st.info("Your leagues will appear in the dropdown once your team ID is loaded.")

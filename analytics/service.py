@@ -754,7 +754,8 @@ def league_rivals(league_id: int, team_id: Optional[int] = None, top_n: int = 20
     for m in out:
         m.pop("codes", None)
     return {"league": name, "gws": gws, "managers": sorted(out, key=lambda m: -m["xp_window"]),
-            "threats": threats, "swords": swords, "n_rivals": n_riv}
+            "threats": threats, "swords": swords, "n_rivals": n_riv,
+            "rival_own": {int(c): round(100.0 * k / n_riv, 1) for c, k in own.items()}}
 
 
 _WARMED = {"done": False}

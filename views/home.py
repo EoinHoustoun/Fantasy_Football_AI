@@ -293,6 +293,38 @@ with c3:
     st.page_link("views/08_injuries.py", label="Injury news →")
 
 
+# ── League watch (the league last viewed on Mini-League) ─────────────────────
+# Where you stand now and where the engine projects you if every squad stays as
+# it is: points so far plus each squad's best-XI-and-captain xP over six weeks.
+from analytics import prefs as _prefs
+_lg = _prefs.get("league_id")
+if _lg:
+    try:
+        _R = service.league_rivals(int(_lg), team_id, top_n=20)
+    except Exception:  # noqa: BLE001
+        _R = None
+    if _R and _R.get("managers"):
+        _ms = _R["managers"]
+        _now = sorted(_ms, key=lambda m: -(m.get("total") or 0))
+        _proj = sorted(_ms, key=lambda m: -((m.get("total") or 0) + m["xp_window"]))
+        _me_now = next((k + 1 for k, m in enumerate(_now) if m["you"]), None)
+        _me_proj = next((k + 1 for k, m in enumerate(_proj) if m["you"]), None)
+        _ord = lambda n: "%d%s" % (n, "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+        _thr = _R["threats"][0] if _R.get("threats") else None
+        _tone = "mint" if (_me_proj or 99) <= (_me_now or 99) else "orange"
+        st.markdown(_one(
+            f'<div class="ff-rise" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:18px;'
+            f'padding:14px 18px;border-radius:14px;background:{V("card")};border:1px solid {V("line")};'
+            f'border-left:3px solid {V(_tone)};">'
+            f'{theme.icon("leaderboard", 22, V(_tone))}'
+            f'<div style="font-size:14.5px;color:{V("text")};"><b>{_R["league"]}</b>: '
+            f'{_ord(_me_now) if _me_now else "?"} now, projected '
+            f'<b style="color:{V(_tone)};">{_ord(_me_proj) if _me_proj else "?"}</b> of {len(_ms)} by '
+            f'GW{_R["gws"][-1]} if every squad stays as it is'
+            + (f' · biggest threat <b>{_thr["name"]}</b> (owned by {int(_thr["league_own"])}% of rivals, not you)'
+               if _thr else "") + '</div></div>'), unsafe_allow_html=True)
+        st.page_link("views/15_mini_league.py", label="Rivals in full →")
+
 # ── The market vs the engine ──────────────────────────────────────────────────
 _section("The market this week", "Where the crowd is moving, against what the engine expects")
 summ = brain.summary(long, sorted(long["gw"].unique())[:6]).set_index("code")
