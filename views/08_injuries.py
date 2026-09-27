@@ -1,271 +1,191 @@
 """
-Injury & Availability Tracker.
+Injuries · who is out, and when they are back (rebuilt 2026-09-27).
 
-Shows:
-  • Your squad · any players flagged as injured, doubtful, or suspended
-  • Full league: all players with availability concerns, grouped by status
-  • Suggested replacements for your injured starters
+FPL's news carries the return date in words ("Expected back 11 Oct",
+"Suspended until 17 Oct"). Read into a RETURN GAMEWEEK it becomes a planning
+signal: a player back in GW8 is an entry point, a starter out until GW10 is an
+exit. Players who have left the league are separated out rather than mixed in.
 """
 
-import streamlit as st
-from ui.page import section as _sec
+from __future__ import annotations
 
-from components.loading import LINES_GENERIC, LINES_SQUAD, fpl_loader
+import re
+from datetime import datetime, timezone
+from typing import Optional
+
 import pandas as pd
-from typing import Optional, List
+import streamlit as st
 
+from analytics import service
+from components import ff_table as T
+from components.animations import count_up, inject_global_animations
+from components.team_identity import face_html, player_photo_url
 from ui import charts, theme
+from ui.page import header, section, tiles
+from ui.theme import fill, var as V
 
-# set_page_config is owned by the app.py router (st.navigation)
+inject_global_animations()
+header("Injuries", "Who is out, when they are back, and what it means for your fifteen.",
+       kicker="This week", icon="medical_services")
 
-STATUS_CONFIG = {
-    "i": {"label": "Injured",    "color": "var(--ff-red)", "emoji": "🚑", "bg": "rgba(255,75,75,0.08)",   "border": "rgba(255,75,75,0.4)"},
-    "s": {"label": "Suspended",  "color": "var(--ff-red)", "emoji": "🚫", "bg": "rgba(255,75,75,0.08)",   "border": "rgba(255,75,75,0.4)"},
-    "d": {"label": "Doubtful",   "color": "var(--ff-orange)", "emoji": "⚠️", "bg": "rgba(255,165,0,0.08)",   "border": "rgba(255,165,0,0.4)"},
-    "u": {"label": "Unavailable","color": "#aaa",    "emoji": "❓", "bg": "rgba(180,180,180,0.06)", "border": "rgba(180,180,180,0.3)"},
-}
-
-SHIRT_BASE = "https://fantasy.premierleague.com/dist/img/shirts/standard"
-POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "#ff6900"}
-
-
-# ── Data helpers ──────────────────────────────────────────────────────────────
-
-def load_universe():
-    """Shared loader · see data/universe.py. Was a per-page copy on a 15-minute
-    timer, which was the honest way to keep injury news fresh before the stamp
-    watched the bootstrap. It does now, so this invalidates on the news actually
-    changing rather than on a clock."""
-    from analytics import freshness
-    from data.fetchers.fpl_api import fetch_bootstrap
-    from data.universe import load_universe as _shared
-    bs = fetch_bootstrap()
-    return _shared(freshness.inputs_stamp()), bs
+bs = st.session_state.get("bootstrap") or {}
+players = st.session_state.get("players_df")
+if players is None:
+    players = service.inputs()["players"]
+events = [(int(e["id"]), datetime.fromisoformat(e["deadline_time"].replace("Z", "+00:00")))
+          for e in bs.get("events", []) if e.get("deadline_time")]
+next_gw = next((int(e["id"]) for e in bs.get("events", []) if e.get("is_next")), 1)
+_MONTHS = {m: i for i, m in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+                                       "Sep", "Oct", "Nov", "Dec"], 1)}
 
 
-@st.cache_data(ttl=900, show_spinner=False)
-def load_squad(team_id: int, gw: int):
-    from data.fetchers.fpl_api import get_team_squad, fetch_bootstrap
-    bs = fetch_bootstrap()
-    squad_df, _ = get_team_squad(team_id, gw, bootstrap=bs)
-    return squad_df
-
-
-def _shirt_url(team_code: int, is_gkp: bool) -> str:
-    # GK kit is the ONLY one with a suffix (_1); outfield has no suffix.
-    suffix = "_1" if is_gkp else ""
-    return f"{SHIRT_BASE}/shirt_{team_code}{suffix}-66.png"
-
-
-def _player_alert_card(player: pd.Series, show_shirt: bool = True) -> str:
-    status = str(player.get("status", "a"))
-    cfg = STATUS_CONFIG.get(status, STATUS_CONFIG["u"])
-    code = int(player.get("team_code", 1) or 1)
-    is_gkp = str(player.get("position", "")) == "GKP"
-    shirt = _shirt_url(code, is_gkp)
-    fallback = f"{SHIRT_BASE}/shirt_1_1-66.png"
-
-    name  = str(player.get("web_name", "?"))
-    team  = str(player.get("team", ""))
-    pos   = str(player.get("position", ""))
-    price = float(player.get("price", 0) or 0)
-    own   = float(player.get("ownership", 0) or 0)
-    news  = str(player.get("news", "") or "")
-    cop   = player.get("chance_of_playing_next_round")
-    ppg   = float(player.get("points_per_game", 0) or 0)
-    form  = float(player.get("form", 0) or 0)
-
-    cop_html = ""
-    if cop is not None:
-        cop_color = theme.fill("mint") if cop >= 75 else theme.fill("orange") if cop >= 25 else theme.fill("red")
-        cop_html = (
-            f'<div style="background:{cop_color};color:#000;border-radius:20px;'
-            f'padding:2px 10px;font-size:12px;font-weight:800;display:inline-block;margin-bottom:8px;">'
-            f'{int(cop)}% chance of playing</div>'
-        )
-
-    pos_col = POS_COLORS.get(pos, "#888")
-    img_html = (
-        f'<img src="{shirt}" width="48" onerror="this.src=\'{fallback}\'" style="flex-shrink:0;"/>'
-        if show_shirt else ""
-    )
-
-    return f"""
-    <div style="
-        background:{cfg['bg']};
-        border:1px solid {cfg['border']};
-        border-radius:12px;
-        padding:14px 18px;
-        display:flex;
-        align-items:flex-start;
-        gap:14px;
-        font-family:sans-serif;
-        margin-bottom:10px;
-    ">
-      {img_html}
-      <div style="flex:1; min-width:0;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap;">
-          <span style="font-size:16px;font-weight:800;color:var(--ff-text);">{name}</span>
-          <span style="background:{cfg['color']};color:var(--ff-text);border-radius:4px;padding:1px 8px;font-size:11px;font-weight:700;">{cfg['emoji']} {cfg['label']}</span>
-          <span style="background:{pos_col};color:#000;border-radius:3px;padding:0 6px;font-size:11px;font-weight:700;">{pos}</span>
-        </div>
-        <div style="font-size:12px;color:var(--ff-muted2);margin-bottom:6px;">
-          {team} &nbsp;·&nbsp; £{price:.1f}m &nbsp;·&nbsp; {own:.1f}% owned
-          &nbsp;·&nbsp; {ppg:.1f} PPG &nbsp;·&nbsp; {form:.1f} form
-        </div>
-        {cop_html}
-        <div style="font-size:12px;color:var(--ff-muted);font-style:italic;line-height:1.4;">
-          {news if news else "No further news available."}
-        </div>
-      </div>
-    </div>
-    """
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
-from ui.page import header as _header
-_header("Injuries", "Live availability from FPL, refreshed every 15 minutes. Your fifteen first, then the whole league.", kicker="This week", icon="medical_services")
-
-with fpl_loader("Checking the treatment room", LINES_GENERIC):
-    players_df, bootstrap = load_universe()
-
-from data.fetchers.fpl_api import get_current_gameweek
-current_gw = get_current_gameweek(bootstrap)
-
-# Merge team_code if missing
-if "team_code" not in players_df.columns:
-    teams_lookup = {t["id"]: t["code"] for t in bootstrap["teams"]}
-    players_df["team_code"] = players_df["team_id"].map(teams_lookup).fillna(1).astype(int)
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### Your Squad")
-    from config import FPL_TEAM_ID
-    default_id = int(FPL_TEAM_ID) if FPL_TEAM_ID else 0
-    team_id = st.number_input("FPL Team ID", min_value=1, value=default_id, step=1)
-    st.markdown("---")
-    show_pos = st.multiselect(
-        "Filter by position",
-        ["GKP", "DEF", "MID", "FWD"],
-        default=["GKP", "DEF", "MID", "FWD"],
-    )
-    show_status = st.multiselect(
-        "Filter by status",
-        ["Injured", "Doubtful", "Suspended", "Unavailable"],
-        default=["Injured", "Doubtful", "Suspended"],
-    )
-
-status_map = {"Injured": "i", "Doubtful": "d", "Suspended": "s", "Unavailable": "u"}
-selected_statuses = [status_map[s] for s in show_status]
-
-# ── Section 1: YOUR SQUAD alerts ──────────────────────────────────────────────
-squad_df = None
-if team_id and team_id > 0:
+def return_gw(news: str) -> Optional[int]:
+    """'Expected back 11 Oct' / 'Suspended until 17 Oct' -> the first gameweek
+    whose deadline falls after that date."""
+    m = re.search(r"(?:back|until)\s+(\d{1,2})\s+([A-Z][a-z]{2})", news or "")
+    if not m or m.group(2) not in _MONTHS:
+        return None
+    now = datetime.now(timezone.utc)
+    mon = _MONTHS[m.group(2)]
+    year = now.year + (1 if mon < 7 and now.month >= 7 else 0)
     try:
-        with fpl_loader(f"Fetching squad {team_id}", LINES_SQUAD):
-            squad_df = load_squad(team_id, current_gw)
-    except Exception:
-        st.sidebar.warning("Could not load squad.")
+        d = datetime(year, mon, int(m.group(1)), tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return next((g for g, dl in events if dl > d), None)
 
-if squad_df is not None:
-    _sec("Your Squad Alerts")
 
-    if "team_code" not in squad_df.columns:
-        tc = players_df[["fpl_id", "team_code"]].drop_duplicates()
-        squad_df = squad_df.merge(tc, on="fpl_id", how="left")
+fl = players[players["status"].fillna("a") != "a"].copy()
+left = fl["news"].fillna("").str.contains("joined|loan|left", case=False) | (fl["status"] == "u")
+gone, fl = fl[left], fl[~left].copy()
+fl["ret_gw"] = [return_gw(n) for n in fl["news"].fillna("")]
+fl["dated"] = fl["ret_gw"].notna()
+fl["chance"] = pd.to_numeric(fl["chance_of_playing_next_round"], errors="coerce")
+# 75% doubts usually play: treat them as back for the next gameweek.
+fl.loc[fl["ret_gw"].isna() & (fl["chance"] >= 75), "ret_gw"] = next_gw
+fl["when"] = fl.apply(lambda r: ("GW%d" % r["ret_gw"]) if pd.notna(r["ret_gw"]) else "unknown", axis=1)
 
-    # Also merge chance_of_playing
-    cop_merge = players_df[["fpl_id", "chance_of_playing_next_round", "news",
-                             "points_per_game", "form"]].drop_duplicates("fpl_id")
-    squad_df = squad_df.merge(cop_merge, on="fpl_id", how="left", suffixes=("", "_pu"))
-    for col in ["news", "chance_of_playing_next_round", "points_per_game", "form"]:
-        if col + "_pu" in squad_df.columns:
-            squad_df[col] = squad_df[col].fillna(squad_df[col + "_pu"])
+long = service.projections(allow_compute=False)
+xp_next = (long[long["gw"] == long["gw"].min()].groupby("code")["xp"].sum()
+           if long is not None else pd.Series(dtype=float))
 
-    squad_flagged = squad_df[squad_df["status"].isin(["i", "d", "s", "u"])].copy()
+try:
+    T_ = service.team()
+    mine = {p["code"]: p for p in T_["squad"]}
+except Exception:  # noqa: BLE001
+    mine = {}
+mine_fl = fl[fl["code"].isin(mine)]
 
-    if squad_flagged.empty:
-        st.success("✅ All your players are fully fit and available!")
-    else:
-        n_starters = squad_flagged[~squad_flagged["on_bench"]].shape[0]
-        n_bench    = squad_flagged[squad_flagged["on_bench"]].shape[0]
-        if n_starters > 0:
-            _next_gw = next((e["id"] for e in (st.session_state.get("bootstrap") or {}).get("events", []) if e.get("is_next")), current_gw + 1)
-            st.warning(f"⚠️ **{n_starters} starting XI player(s)** with concerns · check before GW{_next_gw}!")
+tiles([
+    ("In your fifteen", count_up(len(mine_fl)), "flagged right now", "red" if len(mine_fl) else "mint"),
+    ("Back within 3 GWs", count_up(int((fl["ret_gw"] <= next_gw + 2).sum())), "dated returns and 75% doubts", "mint"),
+    ("No return date", count_up(int(fl["ret_gw"].isna().sum())), "injured, date unknown", "orange"),
+    ("Left the league", count_up(len(gone)), "transferred abroad or down", "text"),
+])
 
-        starters_flagged = squad_flagged[~squad_flagged["on_bench"]].sort_values("status")
-        bench_flagged    = squad_flagged[squad_flagged["on_bench"]].sort_values("status")
-
-        if not starters_flagged.empty:
-            st.markdown("**Starting XI concerns**")
-            for _, p in starters_flagged.iterrows():
-                st.markdown(_player_alert_card(p), unsafe_allow_html=True)
-
-        if not bench_flagged.empty:
-            with st.expander(f"Bench concerns ({n_bench} player{'s' if n_bench>1 else ''})"):
-                for _, p in bench_flagged.iterrows():
-                    st.markdown(_player_alert_card(p), unsafe_allow_html=True)
-
-    st.markdown("---")
-
-# ── Section 2: Full league injury board ───────────────────────────────────────
-_sec("Full Injury Board")
-
-all_flagged = players_df[
-    (players_df["status"].isin(selected_statuses)) &
-    (players_df["position"].isin(show_pos))
-].copy()
-
-if all_flagged.empty:
-    st.info("No players match the current filters.")
+# ── Your fifteen ──────────────────────────────────────────────────────────────
+section("Your fifteen", "Every flag in your squad, with when he should be back and what the "
+        "engine still expects from him next gameweek.", "shield_person")
+if mine_fl.empty:
+    st.markdown(f'<div style="padding:16px;border-radius:14px;background:{V("card")};'
+                f'border-left:3px solid {V("mint")};color:{V("text")};">Everyone in your fifteen is '
+                f'available.</div>', unsafe_allow_html=True)
 else:
-    # Summary chart: injured/doubtful count by team
-    team_counts = all_flagged.groupby("team")["fpl_id"].count().reset_index()
-    team_counts.columns = ["team", "flagged"]
-    team_counts = team_counts.sort_values("flagged", ascending=False)
+    cols = st.columns(min(3, len(mine_fl)))
+    for c, (_, r) in zip(cols * 3, mine_fl.iterrows()):
+        ch = r["chance"]
+        tone = "orange" if (pd.notna(ch) and ch >= 50) else "red"
+        pct = 0 if pd.isna(ch) else int(ch)
+        bench = mine.get(int(r["code"]), {}).get("on_bench")
+        with c:
+            st.markdown(
+                f'<div class="ff-rise" style="display:flex;gap:14px;align-items:center;padding:14px 16px;'
+                f'border-radius:14px;background:{V("card")};border:1px solid {V("line")};'
+                f'border-top:3px solid {V(tone)};">'
+                f'<div style="width:56px;flex-shrink:0;">{face_html(int(r["code"]), int(r["team_code"] or 1), r["position"] == "GKP", 56)}</div>'
+                f'<div style="flex:1;min-width:0;"><div style="font-weight:800;color:{V("text")};font-size:16px;">'
+                f'{r["web_name"]}<span style="font-size:12px;color:{V("muted2")};font-weight:500;">'
+                f'{" · bench" if bench else " · starting XI"}</span></div>'
+                f'<div style="font-size:12.5px;color:{V("muted")};">{r["news"] or "flagged"}</div>'
+                f'<div style="font-size:12.5px;color:{V("text")};margin-top:4px;">Back: <b>{r["when"]}</b> · '
+                f'engine GW{next_gw} <b class="ff-num">{float(xp_next.get(int(r["code"]), 0)):.2f}</b> xP</div></div>'
+                f'<div style="width:58px;height:58px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;'
+                f'justify-content:center;background:conic-gradient({V(tone)} {pct * 3.6}deg, {V("row-alt")} 0);">'
+                f'<div class="ff-display ff-num" style="width:44px;height:44px;border-radius:50%;background:{V("bg2")};'
+                f'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;'
+                f'color:{V(tone)};">{pct}%</div></div></div>', unsafe_allow_html=True)
 
-    counts = [int(v) for v in team_counts["flagged"]]
-    opt = charts.bar_option(
-        x=list(team_counts["team"]), y=counts, horizontal=True,
-        colors=charts.color_ramp(counts, theme.fill("orange"), theme.fill("red")),
-    )
-    opt["title"] = {"text": "Players with Availability Concerns · by Team",
-                    "textStyle": {"color": "var(--ff-text)", "fontSize": 13,
-                                  "fontWeight": "bold"}}
-    opt["grid"]["top"] = 40
-    opt["tooltip"]["formatter"] = "{b}: {c} flagged"
-    charts.render(opt, height=f"{max(250, len(team_counts) * 24)}px",
-                  key="inj_by_team")
+# ── Who is coming back ────────────────────────────────────────────────────────
+section("Who is coming back",
+        "Players with a dated return, placed on the gameweek they should be available. Higher = "
+        "owned by more managers. A good player back soon is an entry point; 75% doubts are in "
+        "the board below.",
+        "event_available")
+back = fl[fl["dated"] & (fl["ret_gw"] <= next_gw + 7)].copy()
+back = back.sort_values("ownership", ascending=False).head(24)
+_faces = set(back.head(10)["code"]) | (set(back["code"]) & set(mine))
+if back.empty:
+    st.caption("No dated returns in the next eight gameweeks.")
+else:
+    gws = list(range(next_gw, next_gw + 8))
+    data = []
+    for _, r in back.iterrows():
+        big = int(r["code"]) in _faces
+        data.append({"value": [gws.index(int(r["ret_gw"])), round(float(r["ownership"] or 0), 1)],
+                     "name": r["web_name"],
+                     "symbol": "image://" + player_photo_url(int(r["code"])) if big else "circle",
+                     "symbolSize": 38 if big else 10,
+                     "itemStyle": {"color": fill("mint")},
+                     "label": {"show": big, "formatter": r["web_name"], "position": "bottom",
+                               "color": fill("text"), "fontSize": 10}})
+    from streamlit_echarts import JsCode
+    opt = {"backgroundColor": "transparent", "animationDuration": 1100,
+           "grid": {"left": 50, "right": 24, "top": 20, "bottom": 40},
+           "tooltip": {**charts._tooltip(), "trigger": "item",
+                       "formatter": JsCode("function(p){return p.name+' · owned '+p.value[1]+'%';}").js_code},
+           "xAxis": {**charts._axis("category", ["GW%d" % g for g in gws]), "boundaryGap": True},
+           "yAxis": {**charts._axis("value"), "name": "Owned %", "type": "log", "min": 0.1,
+                     "nameTextStyle": {"color": fill("muted2")}},
+           "series": [{"type": "scatter", "data": data}]}
+    charts.render(opt, height="380px", key="inj_returns")
 
-    st.markdown(f"**{len(all_flagged)} players flagged**")
+# ── The board ─────────────────────────────────────────────────────────────────
+section("Everyone flagged", "Sorted by ownership. Chance is FPL's figure for next gameweek.",
+        "list_alt")
+f1, f2 = st.columns([2, 1])
+with f1:
+    pos = st.segmented_control("Position", ["All", "GKP", "DEF", "MID", "FWD"], default="All",
+                               key="inj_pos", label_visibility="collapsed") or "All"
+with f2:
+    min_own = st.select_slider("Owned by at least", [0.0, 0.5, 1.0, 2.0, 5.0, 10.0], value=1.0,
+                               key="inj_own", format_func=lambda v: "%g%%" % v)
+bd = fl if pos == "All" else fl[fl["position"] == pos]
+bd = bd[bd["ownership"].fillna(0) >= min_own].sort_values("ownership", ascending=False)
+_ST = {"i": "Injured", "d": "Doubtful", "s": "Suspended", "n": "Unavailable"}
+rows = [{"code": int(r["code"]), "web_name": r["web_name"],
+         "sub": "%s · %s" % (r["team_short"], r["position"]),
+         "status": _ST.get(r["status"], r["status"]),
+         "chance": None if pd.isna(r["chance"]) else float(r["chance"]),
+         "when": r["when"], "news": r["news"] or "",
+         "own": float(r["ownership"] or 0)} for _, r in bd.iterrows()]
+T.render(rows, [
+    T.col_face("code", url_fn=player_photo_url),
+    T.col_player("web_name", sub="sub"),
+    T.col_chip("status", "Status", lambda v: fill("orange-v") if v == "Doubtful" else fill("red-v")),
+    T.col_num("chance", "Chance %", fmt="%.0f", empty="none given"),
+    T.col_text("when", "Back"),
+    T.col_text("news", "News"),
+    T.col_num("own", "Owned %", fmt="%.1f"),
+], key="inj_board", max_height=520, empty="Nobody flagged at this ownership.")
 
-    # Group by status for display
-    for status_code in ["i", "s", "d", "u"]:
-        if status_code not in selected_statuses:
-            continue
-        cfg   = STATUS_CONFIG[status_code]
-        group = all_flagged[all_flagged["status"] == status_code].sort_values("ownership", ascending=False)
-        if group.empty:
-            continue
+section("By club", "Flagged players per club, a rough read on squad depth trouble.", "groups")
+counts = fl.groupby("team")["code"].count().sort_values()
+opt = charts.bar_option(list(counts.index), [int(v) for v in counts.values], horizontal=True,
+                        colors=charts.color_ramp([float(v) for v in counts.values],
+                                                 fill("orange"), fill("red")))
+opt["grid"]["left"] = 110
+charts.render(opt, height="%dpx" % max(260, 22 * len(counts)), key="inj_by_club")
 
-        with st.expander(f"{cfg['emoji']} {cfg['label']} · {len(group)} players", expanded=(status_code in ["i", "s"])):
-            # High-ownership ones first
-            high_own = group[group["ownership"] >= 5.0]
-            low_own  = group[group["ownership"] < 5.0]
-
-            if not high_own.empty:
-                st.markdown("*Highly owned (5%+) · transfer decisions needed:*")
-                for _, p in high_own.iterrows():
-                    st.markdown(_player_alert_card(p), unsafe_allow_html=True)
-
-            if not low_own.empty:
-                # Streamlit forbids nested expanders (we're already inside the
-                # status-group one) · a native <details> collapses the same way.
-                _cards = "".join(_player_alert_card(p, show_shirt=False)
-                                 for _, p in low_own.iterrows())
-                st.markdown(
-                    f"<details><summary style='cursor:pointer;font-size:13px;"
-                    f"color:var(--ff-muted);padding:4px 0;'>Lower ownership "
-                    f"({len(low_own)} more)</summary>{_cards}</details>",
-                    unsafe_allow_html=True)
+if not gone.empty:
+    with st.expander("Left the league (%d)" % len(gone)):
+        st.caption(", ".join("%s (%s)" % (r["web_name"], r["news"]) for _, r in gone.iterrows()))
