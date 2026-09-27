@@ -103,8 +103,10 @@ def _timeline(rows, marks, gw_lo, gw_hi, match_hi: int = 0) -> str:
         + "".join(cells) + '</div></div>')
 
 
-def _chip_card(name: str, gw: int, headline: str, why: str, tone: str,
+def _chip_card(name: str, gw, headline: str, why: str, tone: str,
                note: str = "") -> str:
+    """`gw` is a week number or a label ("GW7", "Hold")."""
+    big = ("GW%d" % gw) if isinstance(gw, int) else str(gw)
     col = V(tone)
     return _one_line(
         f'<div style="background:{V("card")};border:1px solid {V("line")};'
@@ -114,7 +116,7 @@ def _chip_card(name: str, gw: int, headline: str, why: str, tone: str,
         f'text-transform:uppercase;color:{V("muted")};">{name}</div>'
         f'<div class="ff-display" style="font-size:38px;font-weight:900;'
         f'color:{col};line-height:1.05;margin-top:2px;'
-        f'font-variant-numeric:tabular-nums;">GW{gw}</div>'
+        f'font-variant-numeric:tabular-nums;">{big}</div>'
         f'<div style="font-size:14px;font-weight:700;color:{V("text")};'
         f'margin-top:2px;">{headline}</div>'
         f'<div style="font-size:12px;color:{V("muted")};margin-top:6px;'
@@ -128,11 +130,6 @@ def _chip_card(name: str, gw: int, headline: str, why: str, tone: str,
 from ui.page import header as _header
 _header("Chips", "Which week to spend each chip you still hold, priced on the engine.", kicker="Plan", icon="casino")
 
-board, scout, _, _ = build_board(_freshness.inputs_stamp())
-if board is None:
-    st.error("The archive has not been built. Run `python scripts/build_archive.py`, "
-             "then reload this page.")
-    st.stop()
 
 # ── Squad ────────────────────────────────────────────────────────────────────
 # A saved draft first · chip timing depends on WHICH fifteen you own, and the
@@ -182,26 +179,34 @@ if _played is not None:
         f'· {"first" if CS["half"] == 1 else "second"} set of chips</span></div>'),
         unsafe_allow_html=True)
 
-# ── Free Hit on the engine · what it is worth each week ──────────────────────
-# The chip you hold is priced week by week: the best fifteen the budget buys
-# for that single gameweek (it reverts afterwards) against your own best XI and
-# captain. Solved exactly, one MILP per week, on the shared engine.
-if "freehit" in CS["remaining"]:
-    from analytics import service as _svc
-    from components.team_identity import face_html as _face
-    from ui.page import section as _section
+def _played_card(name: str, key: str) -> str:
+    return _one_line(
+        f'<div style="background:{V("card")};border:1px dashed {V("line")};'
+        f'border-radius:12px;padding:16px 18px;height:100%;opacity:0.75;">'
+        f'<div style="font-size:9.5px;font-weight:800;letter-spacing:0.14em;'
+        f'text-transform:uppercase;color:{V("muted")};">{name}</div>'
+        f'<div class="ff-display" style="font-size:30px;font-weight:900;'
+        f'color:{V("muted")};margin-top:2px;">Played</div>'
+        f'<div style="font-size:12.5px;color:{V("muted")};margin-top:4px;">'
+        f'GW{CS["used"].get(key, "?")} · back for the second half from GW20</div></div>')
 
-    _section("Free Hit · what it is worth each week",
-             "Best fifteen for that week alone, minus what your own team scores. "
-             "It pays most in a blank or double, or when your fixtures collapse.", "my_location")
+
+
+# ── In season: every chip priced on the engine, one source for the whole page ──
+# The calendar, the three cards and the week-by-week chart used to come from the
+# preseason Value Board (season projection shaped by fixtures, GW1-19) while the
+# Free Hit section read the engine, and the two disagreed about the same week.
+# In season they all read `service.chip_calendar` / `service.chip_squad` now.
+from analytics import service as _svc
+
+_long = _svc.projections(allow_compute=False)
+if _team_id and _long is not None:
+    from ui.page import section as _section
 
     @st.cache_data(ttl=1800, show_spinner=False)
     def _fh_by_week(team_id: int, stamp: str):
-        long = _svc.projections(allow_compute=False)
-        if long is None:
-            return []
         out = []
-        for g in sorted(int(x) for x in long["gw"].unique()):
+        for g in sorted(int(x) for x in _svc.projections(allow_compute=False)["gw"].unique()):
             if g > CS["gw_hi"]:
                 break
             r = _svc.chip_squad("fh", g, team_id=team_id)
@@ -209,54 +214,146 @@ if "freehit" in CS["remaining"]:
                 out.append(r)
         return out
 
-    _stamp = "%s-%s" % (_next_gw, len(_played or []))
-    with st.spinner("Solving a Free Hit squad for each week"):
-        _fh = _fh_by_week(int(_team_id), _stamp) if _team_id else []
-    if _fh:
-        _best = max(_fh, key=lambda r: r["gain"])
-        _o = charts.bar_option(
-            x=["GW%d" % r["gws"][0] for r in _fh], y=[round(r["gain"], 1) for r in _fh],
-            colors=[theme.fill("mint") if r is _best else theme.fill("muted2") for r in _fh])
-        _o["tooltip"]["formatter"] = "{b}: +{c} pts over your XI"
-        _gains = [r["gain"] for r in _fh]
-        _flat = max(_gains) - sorted(_gains)[len(_gains) // 2] < 3.0
-        _verdict = (("No standout week yet: the best (GW%d, +%.1f) is barely above a typical week "
-                     "(+%.1f). Hold it for a blank or a double.")
-                    % (_best["gws"][0], _best["gain"], sorted(_gains)[len(_gains) // 2]) if _flat else
-                    ("GW%d stands out at +%.1f against a typical +%.1f." %
-                     (_best["gws"][0], _best["gain"], sorted(_gains)[len(_gains) // 2])))
-        st.markdown(_one_line(
-            f'<div style="font-size:15px;color:{V("text")};margin:0 0 8px;">'
-            f'{theme.icon("lightbulb", 18, V("gold"))} {_verdict}</div>'), unsafe_allow_html=True)
-        _c1, _c2 = st.columns([1.3, 1])
-        with _c1:
-            charts.render(_o, height="240px", key="fh_by_week")
-        with _c2:
-            _pick = st.selectbox("Show the squad for", ["GW%d" % r["gws"][0] for r in _fh],
-                                 index=_fh.index(_best), key="fh_pick")
-            _r = next(r for r in _fh if "GW%d" % r["gws"][0] == _pick)
-            st.markdown(_one_line(
-                f'<div style="background:{V("card")};border:1px solid {V("line")};'
-                f'border-top:3px solid {V("mint")};border-radius:14px;padding:14px 16px;">'
-                f'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
-                f'<div class="ff-display ff-num" style="font-size:30px;font-weight:900;color:{V("mint")};">'
-                f'+{_r["gain"]:.1f}</div><div style="font-size:12.5px;color:{V("muted")};">'
-                f'{_r["points"]:.1f} vs your {_r["current_points"]:.1f} · £{_r["cost"]:.1f}m of '
-                f'£{_r["budget"]:.1f}m</div></div>'
-                + "".join(
-                    f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
-                    f'border-bottom:1px solid {V("line")};font-size:13px;'
-                    f'{"opacity:0.6;" if not p["in_xi"] else ""}">'
-                    f'<span style="width:34px;color:{V("muted")};">{p["position"]}</span>'
-                    f'<span style="flex:1;color:{V("text")};font-weight:{700 if p["captain"] else 500};">'
-                    f'{p["name"]}{" (C)" if p["captain"] else ""}{" · yours" if p["owned"] else ""}</span>'
-                    f'<span class="ff-num" style="color:{V("cyan")};">{p["xp"]:.2f}</span></div>'
-                    for p in sorted(_r["squad"], key=lambda p: (not p["in_xi"],
-                                    ["GKP", "DEF", "MID", "FWD"].index(p["position"]))))
-                + '</div>'), unsafe_allow_html=True)
-        st.caption("Within the engine's eight-week horizon. Blanks and doubles land in the "
-                   "fixture list during the season, so re-read this when one is announced.")
+    _stamp = "%s-%s-%s" % (_next_gw, len(_played or []), id(_long))
+    HAVE = {"bench_boost": "bboost" in CS["remaining"],
+            "triple_captain": "3xc" in CS["remaining"],
+            "free_hit": "freehit" in CS["remaining"]}
+    cal = [w for w in _svc.chip_calendar(int(_team_id))["weeks"] if w["gw"] <= CS["gw_hi"]]
+    _fh = []
+    if HAVE["free_hit"]:
+        with st.spinner("Solving a Free Hit squad for each week"):
+            _fh = _fh_by_week(int(_team_id), _stamp)
+    fh_gain = {r["gws"][0]: r["gain"] for r in _fh}
+    for w_ in cal:
+        w_["fh_gain"] = fh_gain.get(w_["gw"])
 
+    def _pick(key, flat_gap):
+        rows = [w_ for w_ in cal if w_.get(key) is not None]
+        if not rows:
+            return None, True, 0.0
+        vals = sorted(w_[key] for w_ in rows)
+        best = max(rows, key=lambda w_: w_[key])
+        med = vals[len(vals) // 2]
+        return best, (best[key] - med) < flat_gap, med
+
+    bb_best, bb_flat, bb_med = _pick("bench_pts", 2.0)
+    tc_best, tc_flat, tc_med = _pick("captain_xp", 1.5)
+    fh_best, fh_flat, fh_med = _pick("fh_gain", 3.0)
+    lo_gw, hi_gw = cal[0]["gw"], cal[-1]["gw"]
+
+    _marks = {k: b["gw"] for k, b, have, flat in (
+        ("bench_boost", bb_best, HAVE["bench_boost"], bb_flat),
+        ("triple_captain", tc_best, HAVE["triple_captain"], tc_flat),
+        ("free_hit", fh_best, HAVE["free_hit"], fh_flat)) if have and b and not flat}
+    st.markdown(_timeline(cal, _marks, lo_gw, hi_gw), unsafe_allow_html=True)
+    if len(set(_marks.values())) < len(_marks):
+        st.warning("Two chips want the same week. You can only play one, so take the "
+                   "bigger gain and move the other to its next-best week below.")
+
+    def _hold_card(name: str, tone: str, best_txt: str, why: str) -> str:
+        return _chip_card(name, "Hold", best_txt, why, tone,
+                          "No standout week in GW%d-%d. Doubles and blanks are where chips pay."
+                          % (lo_gw, hi_gw))
+
+    h1, h2, h3 = st.columns(3)
+    with h1:
+        if not HAVE["bench_boost"]:
+            st.markdown(_played_card("Bench Boost", "bboost"), unsafe_allow_html=True)
+        elif bb_flat:
+            st.markdown(_hold_card("Bench Boost", CHIP_TONE["bench_boost"],
+                                   "Best GW%d: %.1f bench pts" % (bb_best["gw"], bb_best["bench_pts"]),
+                                   "A typical week is worth %.1f." % bb_med), unsafe_allow_html=True)
+        else:
+            st.markdown(_chip_card(
+                "Bench Boost", "GW%d" % bb_best["gw"], "%.1f bench points" % bb_best["bench_pts"],
+                "Bench that week: %s. A typical week is worth %.1f."
+                % (" · ".join(bb_best["bench"]), bb_med), CHIP_TONE["bench_boost"]),
+                unsafe_allow_html=True)
+    with h2:
+        if not HAVE["triple_captain"]:
+            st.markdown(_played_card("Triple Captain", "3xc"), unsafe_allow_html=True)
+        elif tc_flat:
+            st.markdown(_hold_card("Triple Captain", CHIP_TONE["triple_captain"],
+                                   "Best GW%d: %s +%.1f" % (tc_best["gw"], tc_best["captain"],
+                                                            tc_best["captain_xp"]),
+                                   "A typical week adds %.1f." % tc_med), unsafe_allow_html=True)
+        else:
+            st.markdown(_chip_card(
+                "Triple Captain", "GW%d" % tc_best["gw"], "+%.1f points" % tc_best["captain_xp"],
+                "%s in his best week of the horizon. A typical week adds %.1f."
+                % (tc_best["captain"], tc_med), CHIP_TONE["triple_captain"]), unsafe_allow_html=True)
+    with h3:
+        if not HAVE["free_hit"]:
+            st.markdown(_played_card("Free Hit", "freehit"), unsafe_allow_html=True)
+        elif fh_best is None:
+            st.markdown(_hold_card("Free Hit", CHIP_TONE["free_hit"], "No solve available", ""),
+                        unsafe_allow_html=True)
+        elif fh_flat:
+            st.markdown(_hold_card("Free Hit", CHIP_TONE["free_hit"],
+                                   "Best GW%d: +%.1f" % (fh_best["gw"], fh_best["fh_gain"]),
+                                   "A typical week gains %.1f over your XI." % fh_med),
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(_chip_card(
+                "Free Hit", "GW%d" % fh_best["gw"], "+%.1f over your XI" % fh_best["fh_gain"],
+                "A typical week gains %.1f." % fh_med, CHIP_TONE["free_hit"]), unsafe_allow_html=True)
+
+    VIEWS = [lbl for lbl, k in (("Bench Boost", "bench_boost"), ("Triple Captain", "triple_captain"),
+                                 ("Free Hit", "free_hit")) if HAVE[k]]
+    if not VIEWS:
+        st.info("Every chip in this set is played. The second set arrives in GW20.")
+        st.stop()
+    _section("Week by week", "What each chip you hold would add in each week of the engine's "
+             "horizon, on your current fifteen.", "bar_chart")
+    view = st.segmented_control("Week by week", VIEWS, default=VIEWS[0],
+                                label_visibility="collapsed") or VIEWS[0]
+    key, best, tone = {"Bench Boost": ("bench_pts", bb_best, "cyan"),
+                       "Triple Captain": ("captain_xp", tc_best, "gold"),
+                       "Free Hit": ("fh_gain", fh_best, "mint")}[view]
+    rows = [w_ for w_ in cal if w_.get(key) is not None]
+    opt = charts.bar_option(
+        x=["GW%d" % w_["gw"] for w_ in rows], y=[round(w_[key], 1) for w_ in rows],
+        colors=[theme.fill(tone) if best and w_["gw"] == best["gw"] else theme.fill("muted2")
+                for w_ in rows])
+    opt["tooltip"]["formatter"] = "{b}: +{c} pts"
+    charts.render(opt, height="260px", key="chipcal_%s" % view.replace(" ", "_"))
+
+    if view == "Free Hit" and _fh:
+        _pick_gw = st.selectbox("Show the Free Hit squad for", ["GW%d" % r["gws"][0] for r in _fh],
+                                index=[r["gws"][0] for r in _fh].index(fh_best["gw"]), key="fh_pick")
+        _r = next(r for r in _fh if "GW%d" % r["gws"][0] == _pick_gw)
+        st.markdown(_one_line(
+            f'<div style="background:{V("card")};border:1px solid {V("line")};'
+            f'border-top:3px solid {V("mint")};border-radius:14px;padding:14px 16px;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+            f'<div class="ff-display ff-num" style="font-size:30px;font-weight:900;color:{V("mint")};">'
+            f'+{_r["gain"]:.1f}</div><div style="font-size:12.5px;color:{V("muted")};">'
+            f'{_r["points"]:.1f} vs your {_r["current_points"]:.1f} · £{_r["cost"]:.1f}m of '
+            f'£{_r["budget"]:.1f}m</div></div>'
+            + "".join(
+                f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+                f'border-bottom:1px solid {V("line")};font-size:13px;'
+                f'{"opacity:0.6;" if not p["in_xi"] else ""}">'
+                f'<span style="width:34px;color:{V("muted")};">{p["position"]}</span>'
+                f'<span style="flex:1;color:{V("text")};font-weight:{700 if p["captain"] else 500};">'
+                f'{p["name"]}{" (C)" if p["captain"] else ""}{" · yours" if p["owned"] else ""}</span>'
+                f'<span class="ff-num" style="color:{V("cyan")};">{p["xp"]:.2f}</span></div>'
+                for p in sorted(_r["squad"], key=lambda p: (not p["in_xi"],
+                                ["GKP", "DEF", "MID", "FWD"].index(p["position"]))))
+            + '</div>'), unsafe_allow_html=True)
+
+    st.caption("All on the engine and your current fifteen, GW%d-%d (its horizon). This set must "
+               "be spent by GW%d; later weeks join as the horizon rolls forward. Blanks and doubles "
+               "are announced during the season and are where chips pay, so re-read this when one "
+               "is." % (lo_gw, hi_gw, CS["gw_hi"]))
+    st.stop()
+
+# ── Preseason fallback: the Value Board path, for a draft before a ball is kicked ──
+board, scout, _, _ = build_board(_freshness.inputs_stamp())
+if board is None:
+    st.error("The archive has not been built. Run `python scripts/build_archive.py`, "
+             "then reload this page.")
+    st.stop()
 _saved = [d for d in DR.load_drafts() if DR.has_squad(d)]
 _mine = _my_codes(_team_id, _next_gw) if _team_id else []
 _opts = (["My squad"] if len(_mine) == 15 else []) + ["Solve a fresh squad"] + [d["name"] for d in _saved]
@@ -361,18 +458,6 @@ if len(set(_weeks)) < len(_weeks):
                "bigger gain and move the other to its next-best week below.")
 
 # ── The three calls ──────────────────────────────────────────────────────────
-def _played_card(name: str, key: str) -> str:
-    return _one_line(
-        f'<div style="background:{V("card")};border:1px dashed {V("line")};'
-        f'border-radius:12px;padding:16px 18px;height:100%;opacity:0.75;">'
-        f'<div style="font-size:9.5px;font-weight:800;letter-spacing:0.14em;'
-        f'text-transform:uppercase;color:{V("muted")};">{name}</div>'
-        f'<div class="ff-display" style="font-size:30px;font-weight:900;'
-        f'color:{V("muted")};margin-top:2px;">Played</div>'
-        f'<div style="font-size:12.5px;color:{V("muted")};margin-top:4px;">'
-        f'GW{CS["used"].get(key, "?")} · back for the second half from GW20</div></div>')
-
-
 h1, h2, h3 = st.columns(3)
 with h1:
     if not HAVE["bench_boost"]:

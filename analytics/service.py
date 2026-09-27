@@ -484,6 +484,42 @@ def chip_squad(chip: str, gw: Optional[int] = None, weeks: int = 1,
             "keeps": sum(1 for p in players if p["owned"])}
 
 
+def chip_calendar(team_id: Optional[int] = None) -> Dict:
+    """Week-by-week chip values for the CURRENT fifteen, on the engine.
+
+    Per gameweek in the horizon: the squad's best XI + captain (`squad_pts`),
+    what the four on the bench score (`bench_pts`, a Bench Boost's value), and
+    the captain with his xP (a Triple Captain adds one more captain score).
+    The Free Hit needs a solve per week and comes from `chip_squad`.
+    """
+    long = projections()
+    t = team(team_id)
+    gws = sorted(int(g) for g in long["gw"].unique())
+    per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw", values="xp",
+                                                 aggfunc="sum").fillna(0.0)
+    pos = dict(zip(long["code"], long["position"]))
+    name = dict(zip(long["code"], long["web_name"]))
+    codes = [p["code"] for p in t["squad"]]
+    weeks = []
+    for g in gws:
+        xs = {c: float(per.at[c, g]) if c in per.index else 0.0 for c in codes}
+        by = {k: sorted([c for c in codes if pos.get(c) == k], key=lambda c: -xs[c])
+              for k in ("GKP", "DEF", "MID", "FWD")}
+        xi = by["GKP"][:1] + by["DEF"][:3] + by["MID"][:2] + by["FWD"][:1]
+        xi += sorted([c for k in ("DEF", "MID", "FWD") for c in by[k] if c not in xi],
+                     key=lambda c: -xs[c])[:4]
+        bench = [c for c in codes if c not in xi]
+        cap = max(xi, key=lambda c: xs[c]) if xi else None
+        weeks.append({"gw": int(g),
+                      "squad_pts": round(sum(xs[c] for c in xi) + (xs[cap] if cap else 0.0), 2),
+                      "bench_pts": round(sum(xs[c] for c in bench), 2),
+                      "bench": [name.get(c, "") for c in sorted(bench, key=lambda c: -xs[c])],
+                      "captain": name.get(cap, "") if cap else "",
+                      "captain_code": int(cap) if cap else None,
+                      "captain_xp": round(xs[cap], 2) if cap else 0.0})
+    return {"gws": gws, "weeks": weeks}
+
+
 def season_rows():
     """This season's per-match rows (minutes, xG, DEFCON actions...). Cached 30 min."""
     def _load():
