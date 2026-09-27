@@ -175,6 +175,14 @@ def exit_points(horizon: int = 8) -> dict:
 
 
 @mcp.tool()
+def fixtures(horizon: int = 6) -> dict:
+    """Engine fixture ticker: every club's expected goals and clean-sheet chance per
+    gameweek over the horizon, sorted by attacking total. Use it to pick which
+    clubs to invest in and when their run starts or ends."""
+    return S.fixture_ticker(horizon)
+
+
+@mcp.tool()
 def save_plan_to_app(week_moves: List[dict]) -> dict:
     """Write a plan into the My Team planner as drafts (user presses Save in the app).
 

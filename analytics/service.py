@@ -651,3 +651,21 @@ def ownership_history(min_own: float = 1.0, top_traded: int = 60) -> pd.DataFram
     # A double gameweek gives two rows per round; ownership is per round.
     return (df.sort_values("GW").groupby(["code", "GW"], as_index=False)
               .agg({k: "last" for k in df.columns if k not in ("code", "GW")}))
+
+
+def fixture_ticker(horizon: int = 6) -> Dict:
+    """Each club's expected goals and clean-sheet chance per gameweek, from the engine."""
+    long = projections()
+    gws = sorted(int(g) for g in long["gw"].unique())[:int(horizon)]
+    t = (long[long["gw"].isin(gws)].groupby(["team_short", "team_id", "gw"])
+         .agg(xg=("e_goals", "sum"), cs=("p_clean_sheet", "max")).reset_index())
+    out = []
+    for (short, tid), g in t.groupby(["team_short", "team_id"]):
+        fx = fixtures_for(int(tid), gws)
+        out.append({"team": short,
+                    "weeks": [{"gw": int(r["gw"]), "fixture": fx[gws.index(int(r["gw"]))],
+                               "xg": round(float(r["xg"]), 2), "cs": round(float(r["cs"]), 2)}
+                              for _, r in g.sort_values("gw").iterrows()],
+                    "xg_total": round(float(g["xg"].sum()), 2),
+                    "cs_total": round(float(g["cs"].sum()), 2)})
+    return {"gws": gws, "teams": sorted(out, key=lambda x: -x["xg_total"])}

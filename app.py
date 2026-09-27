@@ -174,6 +174,7 @@ PAGES = {
         st.Page("views/08_injuries.py",             title="Injuries",      icon=":material/medical_services:"),
     ],
     "Plan": [
+        st.Page("views/20_fixtures.py",             title="Fixtures",      icon=":material/calendar_month:"),
         st.Page("views/14_chip_planner.py",         title="Chips",         icon=":material/casino:"),
         st.Page("views/18_draft_2026_27.py",        title="Squad Builder", icon=":material/draw:"),
     ],
