@@ -408,7 +408,7 @@ if res and res.get("best", {}).get("weeks"):
             b = plan_gws.index(st_["to"]) if st_["to"] in plan_gws else n
             span = (f'<div class="ff-grow" style="grid-column:{a + 1} / {b + 1};height:26px;border-radius:8px;'
                     f'background:linear-gradient(90deg,{V("mint")},rgba(0,255,135,0.35));display:flex;'
-                    f'align-items:center;padding:0 10px;font-size:11.5px;font-weight:700;color:#0B0F17;">'
+                    f'align-items:center;padding:0 10px;font-size:11.5px;font-weight:700;color:{V("bg")};">'
                     f'{"GW%d → GW%d" % (st_["from"], st_["to"] - 1) if st_["to"] else "from GW%d, kept" % st_["from"]}</div>')
             rows_html.append(
                 f'<div style="display:grid;grid-template-columns:230px 1fr 150px;gap:12px;align-items:center;'

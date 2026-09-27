@@ -59,7 +59,6 @@ NO_ARGS_OK = {
     # Captain Picker, Buy/Sell and Injuries used to sit here with their own
     # per-page copies of the universe build. They now call the shared, stamped
     # loader in `data/universe.py`, so they need no exception.
-    "10_ownership_trend::load_gw_history", "10_ownership_trend::load_universe",
     "11_gw_history::load_bootstrap", "15_mini_league::fetch_global_avg",
     "16_perfect_season::_load_all", "16_perfect_season::_replay_lookup",
     "17_value_lab::_summary",

@@ -593,3 +593,61 @@ def squad_exit_map(team_id: Optional[int] = None, horizon: int = 8, margin: floa
                      "beaten": beaten, "exit_gw": first_exit,
                      "weeks_beaten": sum(beaten.values())})
     return {"gws": gws, "rows": rows, "margin": margin}
+
+
+def ownership_history(min_own: float = 1.0, top_traded: int = 60) -> pd.DataFrame:
+    """Real per-gameweek ownership and price for the players that matter.
+
+    The live gameweek feed has no history for `selected` or `value`: it stamps
+    today's figure on every past week, so an ownership chart built on it is
+    flat. FPL's per-player history does carry them. Fetched for everyone owned
+    by `min_own`% or more plus the `top_traded` most bought and sold, in parallel,
+    and cached on disk until the next gameweek finishes.
+    Columns: code, web_name, name, team_short, position, GW, selected, value,
+    transfers_in, transfers_out.
+    """
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    from data.fetchers.fpl_history import FPL_BASE, _get
+    i = inputs()
+    fin = gameweek_info()["last_finished_gw"]
+    path = brain.CACHE_DIR / ("ownership_history_gw%d.json" % fin)
+    p = i["players"]
+    pick = set(p.loc[p["ownership"].fillna(0) >= min_own, "fpl_id"])
+    net = (p["transfers_in_event"].fillna(0) - p["transfers_out_event"].fillna(0))
+    pick |= set(p.loc[net.abs().nlargest(top_traded).index, "fpl_id"])
+    cached = {}
+    if path.exists():
+        try:
+            cached = json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            cached = {}
+    todo = [int(x) for x in pick if str(int(x)) not in cached]
+    if todo:
+        def _one(pid):
+            d = _get("%s/element-summary/%d/" % (FPL_BASE, pid)) or {}
+            return pid, [{"GW": h["round"], "selected": h.get("selected"), "value": h.get("value"),
+                          "transfers_in": h.get("transfers_in"), "transfers_out": h.get("transfers_out")}
+                         for h in d.get("history", [])]
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for pid, rows in ex.map(_one, todo):
+                cached[str(pid)] = rows
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cached))
+    meta = p.set_index("fpl_id")
+    out = []
+    for pid, rows in cached.items():
+        pid = int(pid)
+        if pid not in meta.index or pid not in pick:
+            continue
+        m = meta.loc[pid]
+        for r in rows:
+            out.append({"code": int(m["code"]), "web_name": m["web_name"], "name": m["name"],
+                        "team": m["team"], "team_short": m["team_short"], "position": m["position"],
+                        **r})
+    df = pd.DataFrame(out)
+    if df.empty:
+        return df
+    # A double gameweek gives two rows per round; ownership is per round.
+    return (df.sort_values("GW").groupby(["code", "GW"], as_index=False)
+              .agg({k: "last" for k in df.columns if k not in ("code", "GW")}))

@@ -1,343 +1,201 @@
 """
-Ownership Trend · visual-only tracking of how player ownership has moved
-across the season, using vaastav GW-by-GW data.
+Ownership · the crowd, set against the engine (rebuilt 2026-09-27).
 
-Shows:
-  • Biggest ownership risers this season (line chart)
-  • Biggest ownership fallers this season (line chart)
-  • Search any player to see their ownership trajectory
+The old page read ownership from the live gameweek feed, which stamps today's
+figure on every past week, so every player showed a 0% change and the season
+chart collapsed onto one line. It now reads FPL's per-player history
+(`service.ownership_history`), which carries the real `selected` count per week.
+
+  movers        biggest ownership rises and falls since GW1, faces on the axis
+  crowd vs engine  ownership against the engine's six-week projection: the
+                 differentials worth owning and the template picks the numbers
+                 do not support
+  journeys      week-by-week ownership for any players you pick
+  pressure      who is closest to a price move right now
 """
 
-import streamlit as st
-from ui.page import section as _sec
+from __future__ import annotations
 
-from components.loading import LINES_GENERIC, fpl_loader
-from ui import charts, theme
 import pandas as pd
-import numpy as np
-from typing import Optional, List
+import streamlit as st
 
-# set_page_config is owned by the app.py router (st.navigation)
-
-POS_COLORS = {"GKP": "var(--ff-mint)", "DEF": "var(--ff-cyan)", "MID": "var(--ff-mag)", "FWD": "#ff6900"}
-
-
-# ── Data helpers ──────────────────────────────────────────────────────────────
-
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
-def load_gw_history():
-    from data.fetchers.vaastav import fetch_gw_history
-    return fetch_gw_history()
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def load_universe():
-    from data.fetchers.fpl_api import fetch_bootstrap, get_current_gameweek
-    from data.fetchers.understat import fetch_understat_players
-    from data.processors.player_stats import build_player_universe
-    bs = fetch_bootstrap()
-    understat_df = fetch_understat_players()
-    players = build_player_universe(bootstrap=bs, understat_df=understat_df)
-    gw = get_current_gameweek(bs)
-    return players, gw
-
-
-def _ownership_series(gw_df: pd.DataFrame, players_df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """
-    Build a wide DataFrame: rows = GW, columns = player web_name, values = selected_by_percent.
-    Uses vaastav 'selected' column (ownership count) + total players to estimate %.
-    """
-    if gw_df is None:
-        return None
-
-    # Vaastav uses 'selected' column = number of FPL managers who owned that player
-    if "selected" not in gw_df.columns or "GW" not in gw_df.columns:
-        return None
-
-    # Approximate total FPL managers per GW (constant ~11M in 24-25 season)
-    TOTAL_MANAGERS = 11_000_000
-
-    # Get current ownership from FPL API for reference
-    fpl_own = players_df[["web_name", "ownership"]].copy()
-    fpl_own = fpl_own.groupby("web_name").first().reset_index()
-
-    # Need to identify players by name. vaastav uses 'name' column (full name).
-    name_col = "name" if "name" in gw_df.columns else None
-    if name_col is None:
-        return None
-
-    # Build name->web_name mapping from players_df
-    # vaastav full name ≈ FPL full name (first_name + second_name)
-    from data.processors.player_stats import build_player_universe
-    players_subset = players_df[["name", "web_name", "position", "team"]].drop_duplicates("web_name")
-    name_to_webname = dict(zip(players_subset["name"].str.lower(), players_subset["web_name"]))
-    name_to_pos = dict(zip(players_subset["name"].str.lower(), players_subset["position"]))
-    name_to_team = dict(zip(players_subset["name"].str.lower(), players_subset["team"]))
-
-    gw_df = gw_df.copy()
-    gw_df["ownership_pct"] = (gw_df["selected"] / TOTAL_MANAGERS * 100).round(2)
-    gw_df["name_lower"] = gw_df[name_col].str.lower()
-    gw_df["web_name"]   = gw_df["name_lower"].map(name_to_webname)
-    gw_df["position"]   = gw_df["name_lower"].map(name_to_pos)
-    gw_df["team"]       = gw_df["name_lower"].map(name_to_team)
-
-    # Keep only matched players with valid GW
-    gw_df = gw_df.dropna(subset=["web_name", "GW"])
-    gw_df["GW"] = gw_df["GW"].astype(int)
-
-    return gw_df
-
-
-def _ownership_change(gw_own: pd.DataFrame, current_gw: int) -> pd.DataFrame:
-    """
-    For each player, compute ownership at GW1 vs latest GW to find biggest movers.
-    Returns DataFrame: web_name, position, team, gw1_own, latest_own, change
-    """
-    earliest_gw = int(gw_own["GW"].min())
-    latest_gw   = min(int(gw_own["GW"].max()), current_gw)
-
-    early = gw_own[gw_own["GW"] == earliest_gw][["web_name", "ownership_pct"]].copy()
-    early.columns = ["web_name", "early_own"]
-    late  = gw_own[gw_own["GW"] == latest_gw][["web_name", "ownership_pct", "position", "team"]].copy()
-    late.columns  = ["web_name", "late_own", "position", "team"]
-
-    merged = early.merge(late, on="web_name", how="inner")
-    merged["change"] = merged["late_own"] - merged["early_own"]
-    return merged.dropna(subset=["change"])
-
-
-def _sparkline_chart(
-    gw_own: pd.DataFrame,
-    players: List[str],
-    title: str,
-    color_map: Optional[dict] = None,
-    height: int = 350,
-    key: str = "own_trend",
-) -> None:
-    """Render a multi-line ownership trend chart for a list of players."""
-    colors = [
-        "var(--ff-mint)", "var(--ff-cyan)", "var(--ff-mag)", "#ff6900",
-        "var(--ff-gold)", "#c084fc", "#f472b6", "#38bdf8",
-        "#a3e635", "#fb923c",
-    ]
-
-    series = []
-    for i, player in enumerate(players):
-        pdata = gw_own[gw_own["web_name"] == player].sort_values("GW")
-        if pdata.empty:
-            continue
-        col = color_map.get(player, colors[i % len(colors)]) if color_map else colors[i % len(colors)]
-        team = pdata["team"].iloc[0] if "team" in pdata.columns else ""
-        series.append((
-            f"{player} ({team})",
-            list(zip(pdata["GW"], pdata["ownership_pct"].round(1))),
-            col,
-        ))
-
-    opt = charts.multi_line_option(series, x_name="Gameweek", y_name="Ownership %")
-    for s in opt["series"]:
-        s["symbol"] = "circle"
-        s["symbolSize"] = 5
-    opt["title"] = {"text": title, "textStyle": {
-        "color": "var(--ff-text)", "fontSize": 13, "fontWeight": "bold"}}
-    opt["legend"]["top"] = 22
-    opt["grid"]["top"] = 52
-    charts.render(opt, height=f"{height}px", key=key)
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
-from ui.page import header as _header
-_header("Ownership", "Who the crowd has bought and sold across the season.", kicker="Research", icon="trending_up")
-
-with fpl_loader("Tracking the transfer market", LINES_GENERIC):
-    players_df, current_gw = load_universe()
-    gw_raw = load_gw_history()
-
-if gw_raw is None:
-    st.error("Ownership history data unavailable. Vaastav data source may be temporarily down.")
-    st.stop()
-
-gw_own = _ownership_series(gw_raw, players_df)
-
-if gw_own is None or gw_own.empty:
-    st.error("Could not process ownership data · vaastav columns may have changed.")
-    st.stop()
-
-movers = _ownership_change(gw_own, current_gw)
-
-# ── Summary metrics ────────────────────────────────────────────────────────────
-n_rising  = (movers["change"] > 3).sum()
-n_falling = (movers["change"] < -3).sum()
-top_riser = movers.nlargest(1, "change").iloc[0] if not movers.empty else None
-top_faller= movers.nsmallest(1, "change").iloc[0] if not movers.empty else None
-
-# Season movement is a difference between gameweeks · one finished GW is a
-# single point, and "Raya +0.0%" is not a finding.
-n_hist_gws = int(gw_raw["GW"].nunique()) if "GW" in gw_raw.columns else 0
-has_movement = n_hist_gws >= 2
-
-if has_movement:
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Players rising 3%+",  f"{n_rising}")
-    m2.metric("Players falling 3%+", f"{n_falling}")
-    if top_riser is not None:
-        m3.metric("Biggest riser",   top_riser["web_name"],
-                  f"+{top_riser['change']:.1f}%")
-    if top_faller is not None:
-        m4.metric("Biggest faller",  top_faller["web_name"],
-                  f"{top_faller['change']:.1f}%")
-else:
-    st.info(f"⏳ Season ownership movement needs two finished gameweeks · "
-            f"{n_hist_gws} so far. The Price Pressure Radar below runs on live "
-            "transfers and is already meaningful.")
-
-st.markdown("---")
-
-# ── Price pressure radar ──────────────────────────────────────────────────────
-_sec("Price Pressure Radar")
-st.caption("Net transfers scaled by ownership · who is closest to a price move. "
-           "Heuristic ordering, not FPL's secret algorithm. Buy risers before "
-           "the rise; a faller banks you only half the drop.")
-
+from analytics import brain, service
 from analytics.price_radar import price_watch
-_risers, _fallers = price_watch(players_df, top_n=8)
+from components.animations import count_up, inject_global_animations
+from components.loading import LINES_GENERIC, fpl_loader
+from components.team_identity import face_html, player_photo_url
+from ui import charts, theme
+from ui.page import header, section, tiles
+from ui.theme import fill, var as V
 
-def _pressure_rows(df, accent, arrow):
-    if df.empty:
-        return ("<div style='padding:14px;color:var(--ff-muted2);"
-                "font-size:12px;'>Market asleep · price pressure returns "
-                "with the season.</div>")
-    rows = ""
-    for _, r in df.iterrows():
-        bar = int(r["pressure"])
-        rows += (
-            f"<div style='display:flex;align-items:center;gap:10px;padding:6px 0;"
-            f"border-bottom:1px solid var(--ff-row-alt);'>"
-            f"<span style='color:{accent};font-weight:900;width:16px;'>{arrow}</span>"
-            f"<span style='flex:1;color:var(--ff-text);font-weight:700;font-size:13px;'>"
-            f"{r['web_name']}<span style='color:var(--ff-muted2);font-weight:400;"
-            f"font-size:11px;'> · {r.get('team', '')} · £{float(r['price']):.1f}m</span></span>"
-            f"<span style='width:90px;height:6px;background:var(--ff-row-alt);"
-            f"border-radius:3px;overflow:hidden;'><span style='display:block;height:100%;"
-            f"width:{bar}%;background:{accent};'></span></span>"
-            f"<span style='width:56px;text-align:right;font-size:11px;"
-            f"color:var(--ff-muted2);'>{int(r['transfer_balance']) // 1000:+d}k</span>"
-            f"</div>")
-    return rows
+inject_global_animations()
+header("Ownership", "Where the crowd has moved this season, and whether the engine agrees.",
+       kicker="Research", icon="trending_up")
 
-_pc1, _pc2 = st.columns(2)
-with _pc1:
-    st.markdown("<div style='font-size:11px;letter-spacing:0.16em;text-transform:"
-                "uppercase;font-weight:800;color:var(--ff-mint);margin-bottom:6px;'>"
-                "Likely risers</div>" + _pressure_rows(_risers, "var(--ff-mint)", "▲"),
-                unsafe_allow_html=True)
-with _pc2:
-    st.markdown("<div style='font-size:11px;letter-spacing:0.16em;text-transform:"
-                "uppercase;font-weight:800;color:var(--ff-red);margin-bottom:6px;'>"
-                "Likely fallers</div>" + _pressure_rows(_fallers, "var(--ff-red)", "▼"),
-                unsafe_allow_html=True)
+bs = st.session_state.get("bootstrap") or {}
+total = float(bs.get("total_players") or 11_000_000)
+with fpl_loader("Reading every player's ownership history", LINES_GENERIC):
+    hist = service.ownership_history()
+players = service.inputs()["players"]
+if hist is None or hist.empty or hist["GW"].nunique() < 2:
+    st.info("Ownership movement needs two finished gameweeks.")
+    st.stop()
 
-st.markdown("---")
+hist = hist.copy()
+hist["own"] = 100.0 * hist["selected"].astype(float) / total
+g0, g1 = int(hist["GW"].min()), int(hist["GW"].max())
+w = hist.pivot_table(index="code", columns="GW", values="own")
+meta = hist.drop_duplicates("code").set_index("code")
+chg = (w[g1] - w[g0]).dropna().sort_values()
 
-if has_movement:
-    # ── Rising vs Falling scatter ──────────────────────────────────────────────────
-    _sec("Season Ownership Movement")
-    st.caption("Each bubble is a player. Right = owned more now. Left = owned less. Size = current ownership.")
+tiles([
+    ("Rising 3 points+", count_up(int((chg >= 3).sum())), "ownership up since GW%d" % g0, "mint"),
+    ("Falling 3 points+", count_up(int((chg <= -3).sum())), "ownership down since GW%d" % g0, "red"),
+    ("Biggest riser", meta.at[chg.index[-1], "web_name"], "+%.1f points of ownership" % chg.iloc[-1], "mint"),
+    ("Biggest faller", meta.at[chg.index[0], "web_name"], "%.1f points of ownership" % chg.iloc[0], "red"),
+])
 
-    scatter_df = movers.merge(
-        players_df[["web_name", "price", "ownership", "total_points"]].drop_duplicates("web_name"),
-        on="web_name", how="left",
-    )
-    scatter_df = scatter_df[scatter_df["ownership"].notna()]
-    scatter_df["size"] = scatter_df["ownership"].clip(lower=1)
+# ── Movers ────────────────────────────────────────────────────────────────────
+section("Biggest movers since GW%d" % g0,
+        "Change in the share of managers who own him, in percentage points.", "swap_vert")
+mv = pd.concat([chg.head(8), chg.tail(8)]).sort_values()
+names = [meta.at[c, "web_name"] for c in mv.index]
+opt = charts.bar_option(names, [round(v, 1) for v in mv.values], horizontal=True,
+                        colors=[fill("mint") if v > 0 else fill("red") for v in mv.values])
+opt["grid"]["left"] = 150
+opt["series"][0]["label"] = {"show": True, "position": "right", "color": fill("text"),
+                             "fontSize": 10, "formatter": "{c}"}
+opt["tooltip"]["formatter"] = "{b}: {c} pts of ownership"
+opt["animationDuration"], opt["animationEasing"] = 1100, "cubicOut"
+charts.with_image_labels(opt, [player_photo_url(c) for c in mv.index], size=24)
+charts.render(opt, height="%dpx" % (40 + 30 * len(mv)), key="own_movers")
 
-    _sizes = charts.scale_sizes(list(scatter_df["size"]), lo=7.0, hi=35.0)
-    _groups = []
-    for pos, col in POS_COLORS.items():
-        sub = scatter_df[scatter_df["position"] == pos]
+# ── Crowd vs engine ───────────────────────────────────────────────────────────
+long = service.projections(allow_compute=False)
+if long is not None:
+    section("The crowd against the engine",
+            "Ownership across, the engine's six-week xP up. Top left: owned by few, "
+            "projected well (differentials). Bottom right: owned by many, projected "
+            "modestly. Faces mark the extremes.", "scatter_plot")
+    s = brain.summary(long, sorted(long["gw"].unique())[:6])
+    s = s[s["xmins"] >= 45]
+    s["own"] = s["ownership"].fillna(0).astype(float)
+    fit = s[["own", "xp_total"]]
+    slope = float(pd.Series(fit["xp_total"]).corr(fit["own"]) * fit["xp_total"].std() / max(fit["own"].std(), 1e-9))
+    base = float(fit["xp_total"].mean() - slope * fit["own"].mean())
+    s["resid"] = s["xp_total"] - (base + slope * s["own"])
+    faces = set(s.nlargest(6, "resid")["code"]) | set(s.nsmallest(5, "resid")["code"])
+    pos_col = {"GKP": fill("mint"), "DEF": fill("cyan"), "MID": fill("mag"), "FWD": fill("orange")}
+    groups = []
+    for pos, col in pos_col.items():
         pts = []
-        for _, r in sub.iterrows():
-            idx = scatter_df.index.get_loc(r.name)
-            pts.append({
-                "x": round(float(r["change"]), 1),
-                "y": round(float(r["late_own"]), 1),
-                "name": str(r["web_name"]), "size": _sizes[idx],
-                "tip": (f"<b>{r['web_name']}</b> · {r['team']}<br/>"
-                        f"Change {r['change']:+.1f}% → now {r['late_own']:.1f}%<br/>"
-                        f"£{r['price']:.1f}m"),
-            })
-        if pts:
-            _groups.append((pos, col, pts))
-    opt = charts.multi_scatter_option(
-        _groups, x_name="Ownership Change (season start → now)",
-        y_name="Current Ownership %")
-    opt["title"] = {"text": "Ownership Change vs Current Ownership",
-                    "textStyle": {"color": "var(--ff-text)", "fontSize": 13,
-                                  "fontWeight": "bold"}}
-    opt["legend"]["top"] = 22
-    charts.with_vertical_marks(opt, [(0, "")], color=theme.fill("muted2"))
-    charts.render(opt, height="400px", key="own_change_scatter")
+        for _, r in s[s["position"] == pos].iterrows():
+            d = {"value": [round(r["own"], 1), round(r["xp_total"], 1)], "name": r["web_name"],
+                 "itemStyle": {"color": col, "opacity": 0.55}}
+            if r["code"] in faces:
+                d["symbol"] = "image://" + player_photo_url(int(r["code"]))
+                d["symbolSize"] = 34
+                d["label"] = {"show": True, "formatter": r["web_name"], "position": "top",
+                              "color": fill("text"), "fontSize": 10}
+            else:
+                d["symbolSize"] = 8
+            pts.append(d)
+        groups.append({"name": pos, "type": "scatter", "data": pts,
+                       "itemStyle": {"color": col}})
+    xs = [0, float(s["own"].max())]
+    groups.append({"name": "typical", "type": "line", "symbol": "none", "silent": True,
+                   "data": [[x, base + slope * x] for x in xs],
+                   "lineStyle": {"type": "dashed", "color": fill("muted2"), "width": 1}})
+    sc = {"backgroundColor": "transparent", "animationDuration": 1200,
+          "grid": {"left": 50, "right": 24, "top": 30, "bottom": 40},
+          "legend": {"top": 0, "right": 8, "textStyle": {"color": fill("muted2")},
+                     "data": list(pos_col)},
+          "tooltip": {**charts._tooltip(), "trigger": "item",
+                      "formatter": "{b}<br/>owned {c0}%"},
+          "xAxis": {**charts._axis("value"), "name": "Owned %", "nameLocation": "middle",
+                    "nameGap": 26, "nameTextStyle": {"color": fill("muted2")}},
+          "yAxis": {**charts._axis("value"), "name": "xP, next six", "scale": True,
+                    "nameTextStyle": {"color": fill("muted2")}},
+          "series": groups}
+    from streamlit_echarts import JsCode
+    sc["tooltip"]["formatter"] = JsCode(
+        "function(p){if(!p.value)return '';return p.name+'<br/>owned '+p.value[0]+'% · '"
+        "+p.value[1]+' xP next six';}").js_code
+    charts.render(sc, height="440px", key="own_vs_engine")
+    top_d = s.nlargest(3, "resid")
+    over = s.nsmallest(3, "resid")
+    st.markdown(
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'
+        f'<div style="padding:12px 16px;border-radius:12px;background:{V("card")};border-left:3px solid {V("mint")};">'
+        f'<b style="color:{V("mint")};">Under-owned for what he projects:</b> '
+        + ", ".join("%s (%.1f%%)" % (r["web_name"], r["own"]) for _, r in top_d.iterrows())
+        + f'</div><div style="padding:12px 16px;border-radius:12px;background:{V("card")};border-left:3px solid {V("red")};">'
+        f'<b style="color:{V("red")};">Owned beyond what he projects:</b> '
+        + ", ".join("%s (%.1f%%)" % (r["web_name"], r["own"]) for _, r in over.iterrows())
+        + '</div></div>', unsafe_allow_html=True)
 
-    st.markdown("---")
+# ── Journeys ──────────────────────────────────────────────────────────────────
+section("Ownership journeys", "Week by week. Starts with your squad; add anyone.", "show_chart")
+try:
+    mine = [p["code"] for p in service.team()["squad"]]
+except Exception:  # noqa: BLE001
+    mine = []
+opts = [int(c) for c in w.index]
+lab = {c: "%s · %s" % (meta.at[c, "web_name"], meta.at[c, "team_short"]) for c in opts}
+default = [c for c in mine if c in opts][:6] or list(chg.index[-5:])
+pick = st.multiselect("Players", opts, default=default, format_func=lambda c: lab.get(c, c),
+                      key="own_pick", label_visibility="collapsed")
+if pick:
+    gws = [int(g) for g in w.columns]
+    palette = [fill(t) for t in ("mint", "cyan", "gold", "mag", "orange", "red")] * 4
+    series = []
+    for k, c in enumerate(pick):
+        vals = [None if pd.isna(w.at[c, g]) else round(float(w.at[c, g]), 2) for g in gws]
+        series.append({"name": meta.at[c, "web_name"], "type": "line", "smooth": 0.35, "data": vals,
+                       "symbol": "circle", "symbolSize": 6, "lineStyle": {"width": 3, "color": palette[k]},
+                       "itemStyle": {"color": palette[k]},
+                       "endLabel": {"show": True, "formatter": "{a}", "color": palette[k], "fontSize": 11},
+                       "emphasis": {"focus": "series"}})
+    jo = {"backgroundColor": "transparent", "animationDuration": 1400,
+          "grid": {"left": 44, "right": 110, "top": 20, "bottom": 30},
+          "tooltip": charts._tooltip(),
+          "xAxis": {**charts._axis("category", ["GW%d" % g for g in gws]), "boundaryGap": False},
+          "yAxis": {**charts._axis("value"), "name": "Owned %",
+                    "nameTextStyle": {"color": fill("muted2")}},
+          "series": series}
+    charts.render(jo, height="360px", key="own_journeys_%d" % len(pick))
 
-    # ── Top Risers chart ───────────────────────────────────────────────────────────
-    _sec("Biggest Ownership Risers")
-    st.caption("Players who've been bought most heavily across the season.")
+# ── Price pressure ────────────────────────────────────────────────────────────
+section("Price pressure", "Net transfers this gameweek, scaled by ownership: who is closest "
+        "to a price move. A heuristic ordering, not FPL's formula.", "price_change")
+_uni = st.session_state.get("players_df")
+_r, _f = price_watch(_uni if _uni is not None else players, top_n=8)
 
-    col_rise, col_fall = st.columns(2)
 
-    with col_rise:
-        top_risers_10 = movers.nlargest(10, "change")["web_name"].tolist()
-        if top_risers_10:
-            _sparkline_chart(gw_own, top_risers_10, "Top 10 Ownership Risers",
-                             key="own_risers")
+def _rows(df, tone, arrow):
+    if df.empty:
+        return f'<div style="padding:12px;color:{V("muted2")};">Market asleep.</div>'
+    out = ""
+    for _, r in df.iterrows():
+        code = int(players.loc[players["web_name"] == r["web_name"], "code"].iloc[0]) \
+            if (players["web_name"] == r["web_name"]).any() else None
+        face = face_html(code, int(r.get("team_code") or 1), False, 28) if code else ""
+        out += (f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;'
+                f'border-bottom:1px solid {V("line")};">'
+                f'<span style="width:28px;flex-shrink:0;">{face}</span>'
+                f'<span style="flex:1;color:{V("text")};font-weight:700;font-size:13px;">{r["web_name"]}'
+                f'<span style="color:{V("muted2")};font-weight:400;font-size:12px;"> · £{float(r["price"]):.1f}m</span></span>'
+                f'<span style="width:90px;height:6px;background:{V("row-alt")};border-radius:3px;overflow:hidden;">'
+                f'<span class="ff-grow" style="display:block;height:100%;width:{int(r["pressure"])}%;background:{V(tone)};"></span></span>'
+                f'<span class="ff-num" style="width:60px;text-align:right;font-size:12px;color:{V("muted")};">'
+                f'{arrow} {int(r["transfer_balance"]) // 1000:+d}k</span></div>')
+    return out
 
-            # Summary bar
-            riser_df = movers.nlargest(10, "change")[["web_name", "position", "team", "change", "late_own"]]
-            riser_df["change"] = riser_df["change"].round(1)
-            riser_df["late_own"] = riser_df["late_own"].round(1)
-            riser_df = riser_df.rename(columns={
-                "web_name": "Player", "position": "Pos", "team": "Team",
-                "change": "Change %", "late_own": "Now %",
-            })
-            st.dataframe(riser_df, use_container_width=True, hide_index=True)
 
-    with col_fall:
-        _sec("Biggest Ownership Fallers")
-        st.caption("Players managers have been selling all season.")
-        top_fallers_10 = movers.nsmallest(10, "change")["web_name"].tolist()
-        if top_fallers_10:
-            _sparkline_chart(gw_own, top_fallers_10, "Top 10 Ownership Fallers",
-                             key="own_fallers")
-
-            faller_df = movers.nsmallest(10, "change")[["web_name", "position", "team", "change", "late_own"]]
-            faller_df["change"] = faller_df["change"].round(1)
-            faller_df["late_own"] = faller_df["late_own"].round(1)
-            faller_df = faller_df.rename(columns={
-                "web_name": "Player", "position": "Pos", "team": "Team",
-                "change": "Change %", "late_own": "Now %",
-            })
-            st.dataframe(faller_df, use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-# ── Search any player ──────────────────────────────────────────────────────────
-_sec("Track Any Player")
-
-all_tracked = sorted(gw_own["web_name"].dropna().unique().tolist())
-selected_players = st.multiselect(
-    "Search and add players to compare",
-    all_tracked,
-    default=[],
-    max_selections=10,
-    placeholder="Type a player name...",
-)
-
-if selected_players:
-    pos_map = dict(zip(players_df["web_name"], players_df["position"]))
-    color_map = {p: POS_COLORS.get(pos_map.get(p, "MID"), "var(--ff-mint)") for p in selected_players}
-    _sparkline_chart(gw_own, selected_players, "Ownership Trend · Selected Players",
-                     color_map=color_map, height=380, key="own_search")
-else:
-    st.caption("Add players above to see their ownership trend side-by-side.")
+c1, c2 = st.columns(2)
+with c1:
+    st.markdown(f'<div style="font-size:11px;letter-spacing:0.16em;font-weight:700;color:{V("mint")};'
+                f'margin-bottom:6px;">LIKELY RISERS</div>' + _rows(_r, "mint", "▲"), unsafe_allow_html=True)
+with c2:
+    st.markdown(f'<div style="font-size:11px;letter-spacing:0.16em;font-weight:700;color:{V("red")};'
+                f'margin-bottom:6px;">LIKELY FALLERS</div>' + _rows(_f, "red", "▼"), unsafe_allow_html=True)
