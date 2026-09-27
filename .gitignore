@@ -17,3 +17,6 @@ data/cache/*
 !data/cache/archive/**
 !data/cache/perfect_season_*.json
 .venv-mcp/
+
+# Analysis folders that read paid snapshots (Scout, Hub) · never commit
+docs/research/2026-09-22_gw5_review/
