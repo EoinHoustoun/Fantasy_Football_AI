@@ -203,6 +203,12 @@ st.session_state.setdefault("nav_cat", _home_cat)
 
 with st.sidebar:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    # Look anyone up from any page: the player sheet opens as a dialog.
+    try:
+        from ui.player_sheet import rail_search
+        rail_search()
+    except Exception:  # noqa: BLE001 · the search is a convenience, never a blocker
+        pass
     for _cat, _pages in PAGES.items():
         _open = st.session_state["nav_cat"] == _cat
         if st.button(_cat, key=f"navcat_{_cat}", icon=CATEGORY_ICONS[_cat],
