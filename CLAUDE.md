@@ -255,30 +255,27 @@ Call `inject_global_animations()` at the top of every page. Provides:
 | `assets/defender_roles_2025_26.json` | Curated CB/FB labels (user-editable; refresh each season) |
 | `docs/WORKFLOW.md` | Session log, data source matrix, full architecture |
 
-## Navigation & pages
-Nav is **grouped via `st.navigation`** in `app.py` (Streamlit ≥1.36). Five
-sidebar sections (slimmed 2026-07; Dashboard + standalone Planner deleted):
-**This Week** (Home, My Team, Captain) · **Transfers** (Transfers, Buy/Sell,
-Injuries) · **Chips** (Wildcard, Free Hit, Chip Planner) · **Scouting**
-(Differentials, xG Tracker, Predictions, Ownership) · **Data Science Lab**
-(Perfect Season, Value Lab, Playbook, 26/27 Draft, GW History, Mini-League).
-The My Team pitch IS the transfer planner · do not re-add a planner page.
+## Navigation & pages (Floodlit, 2026-09-27)
+Nav is an accordion built in `app.py` over a hidden `st.navigation`: four groups,
+fourteen pages. **This week**: Home, My Team, Captain, Transfers, Injuries ·
+**Plan**: Chips (`14_chip_planner`), Squad Builder (`18_draft_2026_27`) ·
+**Research**: xG Tracker, Ownership, Value Lab, Playbook · **History**: GW
+History, Mini-League, Perfect Season. Merged away: Buy/Sell and Differentials
+(Transfers' best moves and target board with its ownership ceiling), Wildcard and
+Free Hit (Chips prices the Free Hit week by week via `service.chip_squad`),
+Predictions (the engine replaced its model). The My Team pitch IS the planner.
+
+**Page chrome:** every page opens with `ui.page.header(title, lead, kicker, icon)`,
+sections use `ui.page.section`, stat rows use `ui.page.tiles`. The rail is the
+night variant (`side-*` tokens in `ui/theme.py`), carries the wordmark and the
+deadline. Motion utilities in `components/animations.py`: `ff-rise(-2/3/4)`,
+`ff-grow`, `ff-growy`, `ff-sweep` (+`ff-hot` inside the last day), `ff-swap-in`,
+all disabled under prefers-reduced-motion. Design canvas:
+https://claude.ai/artifact/N1AV5zvuhEXfuSQVPGNcpe
 
 **Page files live in `views/`, NOT `pages/`.** `pages/` is reserved by Streamlit's
-automatic multipage system and collides with `st.navigation` (symptom: doubled/broken
-sidebar + a "st.navigation was called in an app with a pages/ directory" warning).
-Never recreate a top-level `pages/` folder. `st.Page("views/…")` and
-`st.page_link("views/…")` reference paths relative to the `app.py` entrypoint.
-
-**Rule: pages must NOT call `st.set_page_config`** · only the `app.py` router may.
-Adding it to a page raises a Streamlit error under `st.navigation`.
-
-Page files: `home` · `00_my_team` · `02_transfer_suggestions` ·
-`04_differentials` · `05_xg_underperformers` · `06_captain_picker` ·
-`07_buy_sell` · `08_injuries` · `09_wildcard` (✅ MILP) · `10_ownership_trend` ·
-`11_gw_history` · `12_predictions` · `13_free_hit` · `14_chip_planner` ·
-`15_mini_league` · `16_perfect_season` · `17_value_lab` · `18_draft_2026_27` ·
-`19_playbook`. (Deleted: `01_dashboard`, `03_transfer_planner`.)
+automatic multipage system and collides with `st.navigation`. Never recreate a
+top-level `pages/` folder. Pages must NOT call `st.set_page_config`.
 
 ## My Team pitch planner (2026-07, re-platformed 2026-08-28)
 The Pitch View timeline scrubs history (GW1..now) AND future planning weeks.
