@@ -97,7 +97,7 @@ _GLOBAL_CSS = """
 }
 
 .fplh-captain-pulse {
-  animation: fplh-pulse-gold 2.2s ease-in-out infinite;
+  animation: fplh-pulse-gold 2.2s ease-in-out 3;
   border-radius: 50%;
 }
 
@@ -146,8 +146,8 @@ _GLOBAL_CSS = """
 .ff-sweep  { position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(100deg, transparent 0, rgba(0,255,135,.10) 40%, transparent 60%);
   background-size: 420px 100%; background-repeat: no-repeat;
-  animation: ff-sweep 7s linear infinite; }
-.ff-sweep.ff-hot { animation-duration: 2.6s;
+  animation: ff-sweep 7s linear 2 both; }
+.ff-sweep.ff-hot { animation-duration: 2.6s; animation-iteration-count: 4;
   background-image: linear-gradient(100deg, transparent 0, rgba(255,75,75,.14) 40%, transparent 60%); }
 .ff-swap-out { animation: ff-out .7s cubic-bezier(.6,0,.2,1) both; }
 .ff-swap-in  { animation: ff-in .7s .35s cubic-bezier(.2,.8,.2,1) both; }

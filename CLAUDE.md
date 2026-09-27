@@ -80,6 +80,22 @@ same flaw; `brain.patch_live_prices` now patches it from that history
 engine and returns THREATS / SWORDS; shown on Mini-League and exposed to Claude as `rivals`.
 Charts that toggle views keep a stable key so ECharts animates between states.
 
+**Player card in season:** My Team opens `ui/engine_card.py` (engine + this season only:
+face, price/ownership sparklines, keep/exit verdict with best swap, next-8 xP by fixture
+difficulty with minutes, "is he delivering" points vs xGI, set pieces, breakdown). The
+preseason Draft card (`ui/player_card.py`) mixed a stale board and Hub snapshot with the
+engine and contradicted itself; it stays for Draft Lab only.
+
+**Faces:** Streamlit strips `onerror` from st.markdown HTML, so browser-side fallbacks never
+fired. `team_identity.player_photo_url` returns a URL resolved server-side and cached in
+`data/cache/face_urls.json` (premierleague25 path, then the older `p` path, else "" -> kit).
+27 Sep: 455 of 496 owned players have a photo; ~41 new arrivals have none anywhere on the PL
+CDN. Lookups never run under pytest.
+
+**Animation budget:** no `infinite` CSS animations except transient loaders. Every open tab
+repaints them forever and on this 8 GB Air that pinned Chrome's GPU process and WindowServer
+(27 Sep). Arrival effects play a few times and stop.
+
 **Other surfaces:** rail player search -> `ui/player_sheet.py` dialog; Fixtures
 page (`views/20_fixtures.py`, engine xG / clean-sheet ticker with kits);
 Injuries parses "Expected back 11 Oct" into return gameweeks.

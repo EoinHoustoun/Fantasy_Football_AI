@@ -16,6 +16,7 @@ and badge CDNs key on. Colours are keyed by `team_short` (e.g. "ARS") which is
 human-readable and user-editable each season · see TEAM_COLORS in config.py.
 """
 
+from pathlib import Path
 from typing import Optional, Tuple
 
 from config import TEAM_COLORS, ACCENT_COLOR
@@ -104,29 +105,132 @@ def team_color_pair(key: Optional[str]) -> Tuple[str, str]:
     return pair if pair else (_FALLBACK_COLOR, _FALLBACK_SECONDARY)
 
 
-def player_photo_url(code) -> str:
-    """Official PL headshot for a player `code` (plain code, no 'p' prefix).
-    Callers should provide an onerror/kit fallback for missing photos."""
+def _photo_primary(code) -> str:
+    return ("https://resources.premierleague.com/premierleague25/"
+            f"photos/players/110x140/{int(code)}.png")
+
+
+# ── Face resolution ───────────────────────────────────────────────────────────
+# Streamlit strips `onerror` from st.markdown HTML, so a browser-side fallback
+# never fired outside the component iframes: a missing photo rendered as an
+# empty box. Instead, which URL actually exists is resolved once per player on
+# the server (current path, then the older 'p' path) and cached on disk; a
+# player with neither gets the kit. Unknown players are resolved in the
+# background and use the current path until then.
+_FACE_CACHE = Path(__file__).resolve().parent.parent / "data" / "cache" / "face_urls.json"
+_FACES: dict = {}
+_FACES_LOADED = False
+_PENDING: set = set()
+
+
+def _load_faces() -> None:
+    global _FACES_LOADED, _FACES
+    if _FACES_LOADED:
+        return
+    _FACES_LOADED = True
     try:
-        return ("https://resources.premierleague.com/premierleague25/"
-                f"photos/players/110x140/{int(code)}.png")
+        import json
+        _FACES = json.loads(_FACE_CACHE.read_text())
+    except Exception:  # noqa: BLE001
+        _FACES = {}
+
+
+def resolve_faces(codes, workers: int = 4) -> None:
+    """Check which headshot URL exists for each code (cached to disk). Gentle
+    on the PL server: few workers, GET with a short timeout, one retry."""
+    import json
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    _load_faces()
+    todo = [int(c) for c in codes if str(int(c)) not in _FACES]
+    if not todo:
+        return
+
+    def _ok(url):
+        for _ in range(2):
+            try:
+                r = requests.get(url, timeout=6)
+                if r.status_code == 200 and r.headers.get("content-type", "").startswith("image"):
+                    return True
+                if r.status_code in (403, 404):
+                    return False
+            except Exception:  # noqa: BLE001
+                pass
+        return None          # unknown (network trouble): do not cache
+
+    def _one(c):
+        a = _ok(_photo_primary(c))
+        if a:
+            return c, _photo_primary(c)
+        b = _ok(player_photo_url_legacy(c))
+        if b:
+            return c, player_photo_url_legacy(c)
+        if a is False and b is False:
+            return c, ""
+        return c, None
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for c, url in ex.map(_one, todo):
+            if url is not None:
+                _FACES[str(c)] = url
+    try:
+        _FACE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        _FACE_CACHE.write_text(json.dumps(_FACES))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _queue(code: int) -> None:
+    # Never reach the network from tests or scripts: only a running app
+    # (Streamlit loaded, not under pytest) resolves unknown faces.
+    import sys
+    if "pytest" in sys.modules or "streamlit.runtime.scriptrunner" not in sys.modules:
+        return
+    if code in _PENDING or len(_PENDING) > 64:
+        return
+    _PENDING.add(code)
+    import threading
+    threading.Thread(target=lambda: (resolve_faces([code]), _PENDING.discard(code)),
+                     daemon=True).start()
+
+
+def player_photo_url(code) -> str:
+    """Best known headshot URL for a player `code`, or "" when he has none
+    (callers then show the kit). Resolved and cached; see resolve_faces."""
+    try:
+        c = int(code)
+    except (TypeError, ValueError):
+        return ""
+    _load_faces()
+    hit = _FACES.get(str(c))
+    if hit is not None:
+        return hit
+    _queue(c)
+    return _photo_primary(c)
+
+
+def player_photo_url_legacy(code) -> str:
+    """The PL's older headshot path (with the 'p' prefix). Measured 27 Sep 2026:
+    it serves some players the premierleague25 path 403s (Konsa among them),
+    so it is the second try before the kit."""
+    try:
+        return ("https://resources.premierleague.com/premierleague/"
+                f"photos/players/110x140/p{int(code)}.png")
     except (TypeError, ValueError):
         return ""
 
 
 def face_html(player_code, team_code: int, is_gkp: bool = False,
               width: int = 56) -> str:
-    """Player headshot with an automatic kit fallback · use anywhere a card
-    talks about ONE player. Falls back to the club kit when the photo CDN
-    has no image (new signings, youth) or no code is known."""
+    """Player headshot, or the club kit when he has no photo · use anywhere a
+    card talks about ONE player. The URL is resolved server-side (see
+    resolve_faces) because Streamlit strips onerror fallbacks from HTML."""
     kit = shirt_html(int(team_code or 1), is_gkp=is_gkp, width=max(40, width - 8))
     photo = player_photo_url(player_code)
     if not photo:
         return kit
-    kit_js = kit.replace('"', "'")
     return (
         f'<img src="{photo}" width="{width}" loading="lazy" '
         f'style="border-radius:10px;display:block;'
-        f'filter:drop-shadow(0 4px 8px rgba(0,0,0,0.45));" '
-        f'onerror="this.outerHTML=\'{kit_js}\';"/>'
+        f'filter:drop-shadow(0 4px 8px rgba(0,0,0,0.45));"/>'
     )

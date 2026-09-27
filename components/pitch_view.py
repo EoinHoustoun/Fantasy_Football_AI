@@ -542,7 +542,7 @@ def _simple_card(row: Dict, stat_label: str = "pts", is_bench: bool = False,
     elif row.get("swap_ok"):
         edge = ("border-color:#00FF87;box-shadow:0 0 0 3px rgba(0,255,135,0.45),"
                 "0 0 18px rgba(0,255,135,0.35),0 6px 16px rgba(0,0,0,0.4);"
-                "animation:fplh-swap-ready 1.1s ease-in-out infinite;")
+                "animation:fplh-swap-ready 1.1s ease-in-out 6;")
     elif is_axed:
         edge = "border-color:#FF4B4B;border-style:dashed;"
     elif row.get("is_new"):

@@ -703,6 +703,14 @@ def _open_card(code: int, gw: int, codes_now) -> None:
         st.session_state[_sk("compare_pair")] = (axed[0], int(c))
         st.rerun()
 
+    # In season the card reads only the live engine and this season's matches
+    # (ui/engine_card). The preseason Draft card mixed a stale board and a Hub
+    # snapshot with the engine and contradicted itself on minutes.
+    if (st.session_state.get("season_phase") or {}).get("phase") == "inseason":
+        from ui import engine_card as EC
+        EC.open_card(int(code), int(gw), owned, on_replace=_replace, on_compare=_compare,
+                     on_captain=_captain)
+        return
     ctx = PC.CardCtx(board=BOARD, proj=PROJ, pts_col=PTS_COL, fix=FIX, defcon=DEFCON,
                      scout=_LIVE["scout"], board_stamp=_LIVE["board_stamp"],
                      on_replace=_replace, on_compare=_compare, on_captain=_captain,

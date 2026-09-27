@@ -772,6 +772,11 @@ def warm_async() -> None:
     def _run():
         try:
             ownership_history(min_own=0.0, top_traded=0)
+            # Faces: resolve which headshot URL exists for everyone owned by
+            # anyone (disk-cached; only new players are checked after the first run).
+            from components.team_identity import resolve_faces
+            _p = inputs()["players"]
+            resolve_faces(_p.loc[_p["ownership"].fillna(0) >= 0.1, "code"].tolist())
             if default_team_id():
                 team(default_team_id())
                 if projections(allow_compute=False) is not None:

@@ -304,7 +304,7 @@ h1, h2, h3, h4 {{ color: {ink} !important; }}
     radial-gradient(120% 42% at 8% -6%,  {glow} 0%, transparent 60%),
     radial-gradient(120% 38% at 96% -4%, {glow} 0%, transparent 58%);
   background-repeat: no-repeat;
-  animation: ffDrift 42s ease-in-out infinite alternate;
+  animation: ffDrift 14s ease-in-out 1 both;
 }}
 /* The pitch, ghosted · a centre circle and a halfway line, nothing more. It is
    the one shape that says football without a single word or emoji. */
@@ -318,7 +318,7 @@ h1, h2, h3, h4 {{ color: {ink} !important; }}
                     {pitch_line} calc(50% - 0.75px),
                     {pitch_line} calc(50% + 0.75px), transparent calc(50% + 0.75px));
   opacity: {pitch_opacity};
-  animation: ffBreathe 16s ease-in-out infinite;
+  animation: ffBreathe 8s ease-in-out 1;
 }}
 @keyframes ffDrift {{
   from {{ transform: translate3d(0, 0, 0) scale(1); }}
