@@ -311,6 +311,51 @@ st.markdown("---")
 _sec("Current Standings")
 _standings_cards(league_df, current_gw)
 
+# ── Rivals on the engine ──────────────────────────────────────────────────────
+# Every rival's current fifteen projected exactly like yours (best XI and
+# captain each week), plus the players that decide a mini-league: the ones
+# most of them own and you do not, and yours that few of them have.
+try:
+    from analytics import service as _svc
+    from components import ff_table as _T
+    from components.team_identity import player_photo_url as _ppu
+    from ui.theme import fill as _fill
+    with st.spinner("Projecting every rival's squad"):
+        _R = _svc.league_rivals(int(league_id), int(team_id), top_n=20)
+except Exception as _e:  # noqa: BLE001
+    _R = None
+    st.caption("Rival projections unavailable: %s" % _e)
+if _R and _R["managers"]:
+    _g = _R["gws"]
+    _sec("Rivals on the engine",
+         "Each squad as it stands, projected over GW%d-%d with its best XI and captain every "
+         "week. Where you finish depends on the players below." % (_g[0], _g[-1]))
+    _ms = sorted(_R["managers"], key=lambda m: m["xp_window"])
+    _o = charts.bar_option([("You · " if m["you"] else "") + str(m["team"])[:22] for m in _ms],
+                           [m["xp_window"] for m in _ms], horizontal=True,
+                           colors=[_fill("gold") if m["you"] else _fill("cyan") for m in _ms])
+    _o["grid"]["left"] = 190
+    _o["series"][0]["label"] = {"show": True, "position": "right", "color": _fill("text"),
+                                "fontSize": 10, "formatter": "{c}"}
+    _o["tooltip"]["formatter"] = "{b}: {c} xP over the window"
+    charts.render(_o, height="%dpx" % (60 + 26 * len(_ms)), key="ml_rivals_%s" % league_id)
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        _sec("Threats", "Owned by at least a fifth of your rivals, not by you. Ranked by league "
+             "ownership times six-week xP.")
+        _T.render([{**t, "sub": t["team"]} for t in _R["threats"]], [
+            _T.col_face("code", url_fn=_ppu), _T.col_player("name", sub="sub"),
+            _T.col_num("league_own", "Rivals own %", fmt="%.0f"),
+            _T.col_num("xp_window", "xP", fmt="%.1f")], key="ml_threats", max_height=380,
+            empty="Nobody your rivals share is missing from your team.")
+    with _c2:
+        _sec("Your swords", "Yours, owned by few rivals (30% or less). If these return, you climb.")
+        _T.render([{**t, "sub": t["team"]} for t in _R["swords"]], [
+            _T.col_face("code", url_fn=_ppu), _T.col_player("name", sub="sub"),
+            _T.col_num("league_own", "Rivals own %", fmt="%.0f"),
+            _T.col_num("xp_window", "xP", fmt="%.1f")], key="ml_swords", max_height=380,
+            empty="Your team looks like everyone else's.")
+
 st.markdown("---")
 
 # ── Charts ─────────────────────────────────────────────────────────────────────

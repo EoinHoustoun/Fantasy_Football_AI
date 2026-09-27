@@ -183,6 +183,15 @@ def fixtures(horizon: int = 6) -> dict:
 
 
 @mcp.tool()
+def rivals(league_id: int, top_n: int = 20, horizon: int = 6) -> dict:
+    """A mini-league on the engine: each rival's current squad projected like the
+    user's (best XI + captain per week), plus THREATS (players many rivals own and
+    the user does not) and SWORDS (the user's players few rivals own). Use it for
+    rank-aware transfer and captain advice. League ids come from my_team."""
+    return S.league_rivals(league_id, None, top_n, horizon)
+
+
+@mcp.tool()
 def save_plan_to_app(week_moves: List[dict]) -> dict:
     """Write a plan into the My Team planner as drafts (user presses Save in the app).
 

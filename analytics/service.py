@@ -669,3 +669,81 @@ def fixture_ticker(horizon: int = 6) -> Dict:
                     "xg_total": round(float(g["xg"].sum()), 2),
                     "cs_total": round(float(g["cs"].sum()), 2)})
     return {"gws": gws, "teams": sorted(out, key=lambda x: -x["xg_total"])}
+
+
+def league_rivals(league_id: int, team_id: Optional[int] = None, top_n: int = 20,
+                  horizon: int = 6) -> Dict:
+    """Your mini-league on the engine: every rival's squad projected like yours.
+
+    For the top `top_n` managers (plus you): the fifteen they hold now (latest
+    public picks), their best-XI-plus-captain xP for the next gameweek and the
+    window, and the league's ownership of every player. That gives the two lists
+    that decide rank in a mini-league: THREATS (owned by many rivals, not by
+    you, weighted by xP) and SWORDS (yours, owned by few of them).
+    Picks are cached with the rest of the memo (10 minutes).
+    """
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    from data.fetchers.fpl_api import HEADERS
+    team_id = int(team_id or default_team_id())
+    long = projections()
+    gws = sorted(int(g) for g in long["gw"].unique())[:int(horizon)]
+    per = long[long["gw"].isin(gws)].pivot_table(index="code", columns="gw", values="xp",
+                                                 aggfunc="sum").fillna(0.0)
+    pos = dict(zip(long["code"], long["position"]))
+    i = inputs()
+    code_of = dict(zip(i["players"]["fpl_id"].astype(int), i["players"]["code"].astype(int)))
+    fin = gameweek_info()["last_finished_gw"]
+
+    def _get(url):
+        r = requests.get(url, headers=HEADERS, timeout=15)
+        r.raise_for_status()
+        return r.json()
+
+    def _load():
+        st_ = _get("https://fantasy.premierleague.com/api/leagues-classic/%d/standings/" % int(league_id))
+        rows = st_.get("standings", {}).get("results", [])[: int(top_n)]
+        if all(int(r["entry"]) != team_id for r in rows):
+            rows.append({"entry": team_id, "entry_name": team(team_id)["team_name"],
+                         "player_name": "You", "rank": None, "total": team(team_id)["overall_points"]})
+
+        def _picks(r):
+            try:
+                d = _get("https://fantasy.premierleague.com/api/entry/%d/event/%d/picks/" % (int(r["entry"]), fin))
+                return r, [code_of.get(int(p["element"])) for p in d.get("picks", [])]
+            except Exception:  # noqa: BLE001
+                return r, []
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            return st_.get("league", {}).get("name"), list(ex.map(_picks, rows))
+
+    name, managers = _memo("league:%d:%d:%d" % (int(league_id), team_id, fin), _load)
+    out, own = [], {}
+    for r, codes in managers:
+        codes = [c for c in codes if c]
+        if len(codes) < 11:
+            continue
+        nxt = team_xp(codes, per[[gws[0]]], pos, bench_weight=0.0)
+        win = team_xp(codes, per, pos, bench_weight=0.0)
+        me = int(r["entry"]) == team_id
+        out.append({"entry": int(r["entry"]), "team": r.get("entry_name"), "manager": r.get("player_name"),
+                    "rank": r.get("rank"), "total": r.get("total"), "xp_next": round(nxt, 2),
+                    "xp_window": round(win, 2), "you": me, "codes": codes})
+        if not me:
+            for c in set(codes):
+                own[c] = own.get(c, 0) + 1
+    n_riv = max(1, sum(1 for m in out if not m["you"]))
+    mine = next((set(m["codes"]) for m in out if m["you"]), set())
+    s = brain.summary(long, gws).set_index("code")
+
+    def _row(c, share):
+        return {"code": int(c), "name": s.at[c, "web_name"] if c in s.index else str(c),
+                "team": s.at[c, "team_short"] if c in s.index else "", "league_own": round(100 * share, 0),
+                "xp_window": round(float(s.at[c, "xp_total"]), 2) if c in s.index else 0.0}
+    threats = sorted([_row(c, k / n_riv) for c, k in own.items() if c not in mine and k / n_riv >= 0.2],
+                     key=lambda x: -(x["league_own"] * x["xp_window"]))[:10]
+    swords = sorted([_row(c, own.get(c, 0) / n_riv) for c in mine if own.get(c, 0) / n_riv <= 0.3],
+                    key=lambda x: -x["xp_window"])[:8]
+    for m in out:
+        m.pop("codes", None)
+    return {"league": name, "gws": gws, "managers": sorted(out, key=lambda m: -m["xp_window"]),
+            "threats": threats, "swords": swords, "n_rivals": n_riv}
