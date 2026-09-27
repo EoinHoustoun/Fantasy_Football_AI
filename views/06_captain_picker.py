@@ -348,7 +348,6 @@ captain_gw  = get_next_gw(bootstrap)
 fixtures_raw = fetch_fixtures()
 fdr_map     = get_next_gw_fdr(bootstrap, fixtures_raw, captain_gw)
 
-st.caption(f"Captain picks for **Gameweek {captain_gw}**")
 
 # ── Sidebar: team ID ────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -408,114 +407,105 @@ if squad_df is not None:
         tc = players_df[["fpl_id", "team_code"]].drop_duplicates()
         squad_scored = squad_scored.merge(tc, on="fpl_id", how="left")
 
-    _sec(f"Your Captain · GW{captain_gw}")
+    _sec(f"Your captain · GW{captain_gw}",
+         "Ranked on the engine's expected points. The goal and goal-or-assist chances are "
+         "the ceiling: a captain is a bet on a haul, not just an average.")
 
-    if not squad_scored.empty:
-        top = squad_scored.iloc[0]
+    import math
+    from components import ff_table as _T
+    from components.team_identity import face_html as _face, player_photo_url as _ppu
+    from ui.theme import var as _V
+    pool = scored[scored["fpl_id"].isin(owned_ids)].head(8).copy()
+    pool["p_goal"] = [1 - math.exp(-float(g)) for g in pool["e_goals"]]
+    pool["p_ga"] = [1 - math.exp(-float(g) - float(a)) for g, a in zip(pool["e_goals"], pool["e_assists"])]
+    if not pool.empty:
+        top = pool.iloc[0]
+        gap = float(top["xp"]) - float(pool.iloc[1]["xp"]) if len(pool) > 1 else 0.0
+        from analytics import service as _svc3
+        _fx = _svc3.fixtures_for(int(top["team_id"]), [int(captain_gw)])[0] if "team_id" in top else ""
+        own = float(top.get("ownership") or 0)
+        stance = ("Owned by %.0f%%: captaining him protects your rank more than it gains it." % own
+                  if own >= 30 else
+                  "Owned by %.0f%%: if he hauls, you gain on most of the field." % own)
         col_hero, col_chart = st.columns([1, 1])
-
         with col_hero:
-            st.markdown(_hero_card(top, rank=1), unsafe_allow_html=True)
-
-            # Reasoning
-            fdr_v = float(top.get("next_gw_fdr", 3.0))
-            reasons = [f"<b>{float(top['xp']):.2f} xP</b> this gameweek"]
-            if len(squad_scored) > 1:
-                _gap = float(top["xp"]) - float(squad_scored.iloc[1]["xp"])
-                reasons.append(f"{_gap:.2f} clear of {squad_scored.iloc[1]['web_name']}"
-                               + (" · close, a coin flip" if _gap < 0.5 else ""))
-            reasons.append(f"{float(top['e_goals']):.2f} expected goals, "
-                           f"{float(top['e_assists']):.2f} assists")
-            reasons.append(f"{float(top['p60']) * 100:.0f}% chance of 60+ minutes")
-            if bool(top.get("has_dgw", False)):
-                reasons.append("Double Gameweek · 2 chances to score")
-
-            st.markdown(
-                f"<div style='margin-top:14px;padding:12px;background:rgba(0,255,135,0.07);"
-                f"border-left:3px solid var(--ff-mint);border-radius:6px;font-size:13px;color:var(--ff-text);'>"
-                f"{'<br>• '.join([''] + reasons)}</div>",
-                unsafe_allow_html=True,
-            )
-
+            st.markdown("".join(x.strip() for x in f"""
+<div class="ff-rise" style="padding:22px;border-radius:18px;background:{_V('card')};
+  border:1px solid {_V('line')};border-top:3px solid {_V('gold')};">
+  <div style="display:flex;gap:16px;align-items:center;">
+    <div class="fplh-captain-pulse" style="width:80px;flex-shrink:0;border-radius:14px;">
+      {_face(int(top['code']), int(top.get('team_code') or 1), top['position'] == 'GKP', 80)}</div>
+    <div style="flex:1;min-width:0;">
+      <div class="ff-display" style="font-size:30px;font-weight:900;color:{_V('text')};">{top['web_name']}</div>
+      <div style="display:flex;gap:8px;align-items:baseline;">
+        <span class="ff-display ff-num" style="font-size:34px;font-weight:900;color:{_V('gold')};">{float(top['xp']):.2f}</span>
+        <span style="font-size:13px;color:{_V('muted')};">xP GW{captain_gw} · {_fx}</span></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px;">
+    <div style="padding:10px;border-radius:10px;background:{_V('row-alt')};"><div style="font-size:10.5px;
+      letter-spacing:0.12em;color:{_V('muted2')};font-weight:700;">GOAL</div>
+      <div class="ff-display ff-num" style="font-size:22px;font-weight:900;color:{_V('mint')};">{100 * top['p_goal']:.0f}%</div></div>
+    <div style="padding:10px;border-radius:10px;background:{_V('row-alt')};"><div style="font-size:10.5px;
+      letter-spacing:0.12em;color:{_V('muted2')};font-weight:700;">GOAL OR ASSIST</div>
+      <div class="ff-display ff-num" style="font-size:22px;font-weight:900;color:{_V('cyan')};">{100 * top['p_ga']:.0f}%</div></div>
+    <div style="padding:10px;border-radius:10px;background:{_V('row-alt')};"><div style="font-size:10.5px;
+      letter-spacing:0.12em;color:{_V('muted2')};font-weight:700;">60+ MINUTES</div>
+      <div class="ff-display ff-num" style="font-size:22px;font-weight:900;color:{_V('text')};">{100 * float(top['p60']):.0f}%</div></div>
+  </div>
+  <div style="font-size:13.5px;color:{_V('muted')};margin-top:12px;line-height:1.5;">
+    {gap:.2f} xP clear of {pool.iloc[1]['web_name'] if len(pool) > 1 else '-'}{' · a coin flip' if gap < 0.3 else ''}. {stance}</div>
+</div>""".splitlines()), unsafe_allow_html=True)
         with col_chart:
-            if len(squad_scored) > 1:
-                score_breakdown_chart(squad_scored, "Where the expected points come from · your squad",
+            if len(pool) > 1:
+                score_breakdown_chart(pool.head(6), "Where the expected points come from",
                                       key="cap_breakdown_squad")
 
-        _sec("Top 5 Captain Options (Your Squad)")
-        cards_html = "".join(
-            _mini_card(squad_scored.iloc[i], i + 1)
-            for i in range(len(squad_scored))
-        )
-        st.markdown(cards_html, unsafe_allow_html=True)
+        _rows = [{"code": int(r["code"]), "web_name": r["web_name"],
+                  "sub": "%s · %s" % (r.get("team_short", ""), r["position"]),
+                  "fx": _svc3.fixtures_for(int(r["team_id"]), [int(captain_gw)])[0],
+                  "xp": float(r["xp"]), "pg": 100 * r["p_goal"], "pga": 100 * r["p_ga"],
+                  "p60": 100 * float(r["p60"]), "own": float(r.get("ownership") or 0)}
+                 for _, r in pool.iterrows()]
+        _T.render(_rows, [
+            _T.col_face("code", url_fn=_ppu), _T.col_player("web_name", sub="sub"),
+            _T.col_text("fx", "Fixture"),
+            _T.col_bar("xp", "xP GW%d" % captain_gw, max_value=max(r["xp"] for r in _rows), fmt="%.2f"),
+            _T.col_num("pg", "Goal %", fmt="%.0f"), _T.col_num("pga", "G or A %", fmt="%.0f"),
+            _T.col_num("p60", "60+ min %", fmt="%.0f"), _T.col_num("own", "Owned %", fmt="%.1f"),
+        ], key="cap_shortlist", max_height=420)
 
     st.markdown("---")
 
-# ── Section 2: Differential Captains ─────────────────────────────────────────
-_sec(f"Differential Captains · GW{captain_gw}")
-st.caption(f"High-ceiling players owned by fewer than {diff_threshold}% · go against the template.")
-
-diffs = scored[scored["ownership"] <= diff_threshold].copy()
-
-# Exclude owned players from differential section
-if squad_df is not None:
-    owned_names = set(squad_df["web_name"].tolist())
-    diffs = diffs[~diffs["web_name"].isin(owned_names)]
-
-diffs = diffs.head(5)
-
+# ── Section 2: Differential captains ──────────────────────────────────────────
+# A differential captain is a rank bet: owned by few, so a haul moves you past
+# most of the field. Shown for anyone, owned or not, from the same engine.
+import math as _m
+from analytics import service as _svc4
+from components import ff_table as _T2
+from components.team_identity import player_photo_url as _ppu2
+_sec(f"Differential captains · GW{captain_gw}",
+     f"Owned by fewer than {diff_threshold}% of managers. If one of these hauls, you gain on "
+     f"almost everyone. Sorted by expected points.")
+diffs = scored[scored["ownership"].fillna(0) <= diff_threshold].head(8).copy()
 if not diffs.empty:
-    # Merge team_code
-    if "team_code" not in diffs.columns:
-        tc = players_df[["fpl_id", "team_code"]].drop_duplicates()
-        diffs = diffs.merge(tc, on="fpl_id", how="left")
-
-    col_d1, col_d2 = st.columns([1, 1])
-    with col_d1:
-        top_diff = diffs.iloc[0]
-        st.markdown(_hero_card(top_diff, rank=1), unsafe_allow_html=True)
-        st.markdown(
-            f"<div style='margin-top:10px;padding:10px 14px;"
-            f"background:rgba(255,105,0,0.07);border-left:3px solid #ff6900;"
-            f"border-radius:6px;font-size:13px;color:var(--ff-text);'>"
-            f"Only <b>{float(top_diff.get('ownership',0)):.1f}%</b> own this player. "
-            f"Captaining a {float(top_diff.get('ownership',0)):.1f}% player gives "
-            f"you massive rank upside if they deliver.</div>",
-            unsafe_allow_html=True,
-        )
-
-    with col_d2:
-        if len(diffs) > 1:
-            score_breakdown_chart(diffs, "Where the expected points come from · differentials",
-                                  key="cap_breakdown_diff")
-
-    _sec("Top 5 Differential Options")
-    diff_cards = "".join(
-        _mini_card(diffs.iloc[i], i + 1)
-        for i in range(len(diffs))
-    )
-    st.markdown(diff_cards, unsafe_allow_html=True)
+    _drows = [{"code": int(r["code"]), "web_name": r["web_name"],
+               "sub": "%s · %s" % (r.get("team_short", ""), r["position"]),
+               "fx": _svc4.fixtures_for(int(r["team_id"]), [int(captain_gw)])[0],
+               "xp": float(r["xp"]),
+               "pg": 100 * (1 - _m.exp(-float(r["e_goals"]))),
+               "pga": 100 * (1 - _m.exp(-float(r["e_goals"]) - float(r["e_assists"]))),
+               "own": float(r.get("ownership") or 0)} for _, r in diffs.iterrows()]
+    _T2.render(_drows, [
+        _T2.col_face("code", url_fn=_ppu2), _T2.col_player("web_name", sub="sub"),
+        _T2.col_text("fx", "Fixture"),
+        _T2.col_bar("xp", "xP GW%d" % captain_gw, max_value=max(r["xp"] for r in _drows), fmt="%.2f"),
+        _T2.col_num("pg", "Goal %", fmt="%.0f"), _T2.col_num("pga", "G or A %", fmt="%.0f"),
+        _T2.col_num("own", "Owned %", fmt="%.1f"),
+    ], key="cap_diffs", max_height=420)
 else:
-    st.info(f"No differential captains found under {diff_threshold}% ownership with fixtures this GW.")
+    st.info(f"No differential captains under {diff_threshold}% ownership with a fixture this week.")
 
-# ── Section 3: If no squad loaded, show global top 5 ─────────────────────────
-if squad_df is None:
-    _sec(f"Top 5 Captain Picks (All Players) · GW{captain_gw}")
-    st.caption("Enter your team ID in the sidebar to see picks from your squad only.")
-    global_top5 = scored.head(5)
-    if "team_code" not in global_top5.columns:
-        tc = players_df[["fpl_id", "team_code"]].drop_duplicates()
-        global_top5 = global_top5.merge(tc, on="fpl_id", how="left")
-
-    if not global_top5.empty:
-        col_g1, col_g2 = st.columns([1, 1])
-        with col_g1:
-            st.markdown(_hero_card(global_top5.iloc[0]), unsafe_allow_html=True)
-        with col_g2:
-            score_breakdown_chart(global_top5, "Where the expected points come from",
-                                  key="cap_breakdown_global")
-        cards_g = "".join(_mini_card(global_top5.iloc[i], i+1) for i in range(len(global_top5)))
-        st.markdown(cards_g, unsafe_allow_html=True)
 
 # ── Consistent player intel across the app ────────────────────────────────────
 try:
