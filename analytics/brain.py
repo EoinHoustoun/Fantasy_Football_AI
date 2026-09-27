@@ -314,3 +314,15 @@ def point_parts(rows: pd.DataFrame) -> pd.DataFrame:
     for c in cols:
         out[c] = (out[c] * scale).round(3)
     return out
+
+
+# ── Why there is no blend with FPL's own xP ───────────────────────────────────
+# Tried and rejected 2026-09-27. The archive's FPL `xp` column (vaastav) looked
+# like the best next-week predictor in the walk-forward (Spearman 0.62 vs the
+# brain's 0.44), and a 30/50 blend scored best over 3 and 6 weeks. It is LEAKED:
+# among regulars it correlates 0.61 with the SAME gameweek's points but only
+# 0.30 with the next one's, and 62% of its zeros are players who then played 0
+# minutes. It was captured after team news / kickoff. The live `ep_next` a
+# manager sees before the deadline is FPL's 30-day form (Groß 11.2 = form 11.2),
+# and a 4-gameweek form mean ranks the next 3 weeks at 0.27 against the brain's
+# 0.48. Do not reintroduce a blend on the archived column.

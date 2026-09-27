@@ -56,7 +56,10 @@ def baselines(season_rows: pd.DataFrame, t: int) -> pd.DataFrame:
     form = per_gw.groupby("code")["total_points"].mean().rename("form")
     played = before[before["minutes"] > 0]
     ppg = played.groupby("code")["total_points"].mean().rename("ppg")
-    # FPL's own published xP for gameweek t (the `ep_next` a page would show).
+    # FPL's published xP for gameweek t as the archive holds it. WARNING: it is
+    # captured after team news / kickoff (0.61 with same-GW points, 0.30 with the
+    # next GW's), so `fpl_xp` and `blend` below are an upper bound, not a
+    # baseline. The honest pre-deadline baseline is `form`.
     at_t = season_rows[season_rows["gw"] == t].groupby("code")["xp"].first().rename("fpl_xp")
     m60 = last4[last4["minutes"] >= 60].groupby("code")["gw"].nunique().rename("n60")
     return pd.concat([form, ppg, at_t, m60], axis=1)
