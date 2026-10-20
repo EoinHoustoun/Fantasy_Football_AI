@@ -1738,3 +1738,23 @@ Ten rounds in one day; CLAUDE.md "One engine, one door" has the detail.
 - Chips page on the engine in season; says Hold when no week stands out.
 - Rejected with evidence: FPL xP blend (leaked), midweek rotation penalty
   (refuted), DEFCON newcomer blend (docs/research/defcon_newcomers.md).
+
+## 2026-10-17 · GW8 three-model check, minutes audit
+
+- GW8 decision compared the engine with fresh FPL Hub (predictions page,
+  search box; the `/auth/access-token` API route now 404s) and Scout
+  rate-my-team (`?first=8&last=13`, logged in through the members area). Rule:
+  act when 2 of 3 agree. Outcome: keep Palmer and Calafiori; Gibbs-White →
+  Mbeumo, De Cuyper → £4.0m DEF, Kinsky → Donnarumma. Scout team news: De
+  Cuyper is playing left wing while Minteh/Mitoma are out, so all three
+  models fade his minutes.
+- **Minutes audit** (walk-forward, 13 folds 2023-24 to 2025-26): the minutes
+  model is calibrated (nailed starters 80.0 predicted vs 78.7 actual). Hub and
+  Scout xMin are roughly conditional on starting, so a gap to them is mostly
+  not a bug. Real flaw: the ewm form window crosses the summer. Added
+  `season_start_rate` and `season_mins_pg` to `prepare()` (better MAE in 9 of
+  13 folds; ever-present starters with a weak May: bias 4.8 → 4.0 min).
+  BRAIN_VERSION 3. Calafiori barely moved; his gap to Hub/Scout is mostly the
+  ARS clean-sheet probability (0.35 v EVE at home): next thing to check
+  against bookmaker odds. Uncommitted; 713 tests pass. Reconnect the `fpl` MCP
+  server and restart the 8510 app to pick it up.

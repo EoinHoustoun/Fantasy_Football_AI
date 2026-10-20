@@ -126,6 +126,24 @@ def test_first_appearance_has_no_history():
     assert first["career_games"] == 0
 
 
+def test_season_form_forgets_last_season():
+    """Six straight starts read as 6 of 6, whatever the previous May looked like.
+
+    The cross-season form window still remembered an injury-hit run-in after a
+    full set of starts, which is how Calafiori came out at 71 expected minutes.
+    """
+    old = _two_team_season("2024-25", n_gw=6)
+    old.loc[old["code"] == 1, ["minutes", "starts"]] = [0, 0]
+    new = _two_team_season("2025-26", n_gw=7)
+    f = prepare(pd.concat([old, new], ignore_index=True))
+    row = f[(f["code"] == 1) & (f["season"] == "2025-26") & (f["gw"] == 7)].iloc[0]
+    assert row["season_start_rate"] == 1.0
+    assert row["season_mins_pg"] == 90.0
+    assert row["ewm_started"] < 1.0          # the summer still leaks into ewm
+    first = f[(f["code"] == 1) & (f["season"] == "2025-26") & (f["gw"] == 1)].iloc[0]
+    assert np.isnan(first["season_start_rate"])   # nothing played yet this season
+
+
 # ── assembly ───────────────────────────────────────────────────────────────────
 
 def _stub_model(**fallbacks):

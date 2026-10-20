@@ -121,7 +121,22 @@ def fetch_players_raw(season: str) -> Optional[pd.DataFrame]:
     Crucially contains `id` (the season-local element id) and `code`
     (the FIFA player code, stable across every season AND the live FPL
     API), which is the join key for cross-season identity.
+
+    The running season reads the live bootstrap instead. Vaastav's copy is a
+    snapshot: in October 2026 it stopped at element 616 while FPL listed 668,
+    and the archive inner-joins on this table, so every later arrival
+    (Barcola, Timber, Affengruber...) lost his history and projected as an
+    unknown ~72-minute starter.
     """
+    if season == CURRENT_SEASON:
+        try:
+            from data.fetchers.fpl_api import fetch_bootstrap
+            live = pd.DataFrame(fetch_bootstrap().get("elements", []))
+            if not live.empty:
+                return live
+        except Exception as exc:  # noqa: BLE001 · offline falls back to vaastav
+            logger.warning(f"players_raw: live bootstrap unavailable ({exc}), using vaastav")
+
     key = f"players_raw_{season.replace('-', '_')}"
     if _is_fresh(key, season):
         return pd.read_parquet(_cache_path(key))

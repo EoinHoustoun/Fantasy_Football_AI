@@ -230,6 +230,7 @@ _RATE_SOURCES = [
 
 PLAYER_FEATURES: List[str] = [
     "ewm_minutes", "ewm_started", "ewm_points", "mins_last", "started_last",
+    "season_start_rate", "season_mins_pg",
     "career_ppg", "career_mins", "season_games", "career_games",
     "ewm_goals90", "ewm_assists90", "ewm_saves90", "ewm_bonus90", "ewm_bps90",
     "ewm_xg90", "ewm_xa90", "ewm_yellow90", "ewm_dc90",
@@ -245,7 +246,8 @@ PLAYER_FEATURES: List[str] = [
 # halflife window. Correct in-season, and in August it describes last May.
 FORM_FEATURES: List[str] = [f for f in PLAYER_FEATURES
                             if f.startswith("ewm_") or f in
-                            ("mins_last", "started_last", "season_games")]
+                            ("mins_last", "started_last", "season_games",
+                             "season_start_rate", "season_mins_pg")]
 
 # The subset that survives a summer: whole prior seasons, plus the fixture and
 # position facts that are known before a ball is kicked. Use this feature set
@@ -364,6 +366,17 @@ def prepare(gw_df: pd.DataFrame) -> pd.DataFrame:
         lambda s: s.shift(1).expanding().mean())
     df["career_games"] = g.cumcount()
     df["season_games"] = df.groupby(["code", "season_ord"], sort=False).cumcount()
+
+    # This season only. The form window above runs across the summer, so after
+    # six straight starts it still remembers an injury-hit May: Calafiori read
+    # ewm_started 0.89 and 71 expected minutes in October 2026 having started
+    # 6 of 6. Walk-forward (13 folds, 2023-24 to 2025-26) these two cut minutes
+    # MAE in 9 folds and narrowed the under-forecast for ever-present starters.
+    gs = df.groupby(["code", "season_ord"], sort=False)
+    df["season_start_rate"] = gs["started"].transform(
+        lambda s: s.shift(1).expanding().mean())
+    df["season_mins_pg"] = gs["minutes"].transform(
+        lambda s: s.shift(1).expanding().mean())
 
     # Per-90 rates, averaged over APPEARANCES only. A blank week is silence
     # about a player's scoring rate, not evidence of a zero rate · it is the

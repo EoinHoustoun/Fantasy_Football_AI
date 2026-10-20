@@ -29,6 +29,7 @@ No Streamlit imports: pages, the MCP server and scripts all call this.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import pickle
@@ -46,7 +47,8 @@ logger = logging.getLogger(__name__)
 
 HORIZON = 8
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
-BRAIN_VERSION = 2   # 2: live-season prices patched from real weekly history
+BRAIN_VERSION = 4   # 2: live-season prices patched from real weekly history; 3: this-season minutes features;
+                    # 4: live player lookup from the bootstrap + doubtful starters' injury blanks dropped
 
 # Columns that describe the FIXTURE, so they legitimately differ week to week.
 FIXTURE_COLS = ["was_home_f", "team_att", "team_def", "opp_att", "opp_def",
@@ -115,9 +117,17 @@ def project(history: pd.DataFrame, upcoming: pd.DataFrame,
 
 # ── Live build + disk cache ───────────────────────────────────────────────────
 
-def _cache_path(season: str, first_gw: int, last_finished: int) -> Path:
-    return CACHE_DIR / ("brain_v%d_%s_gw%d_fin%d.pkl"
-                        % (BRAIN_VERSION, season, first_gw, last_finished))
+def _cache_path(season: str, first_gw: int, last_finished: int,
+                players_df: Optional[pd.DataFrame] = None) -> Path:
+    """The build depends on who is flagged doubtful (`drop_injury_gap`), so the
+    key carries a short hash of that list and a new flag rebuilds."""
+    tag = ""
+    if players_df is not None and "status" in players_df.columns:
+        d = sorted(int(c) for c in players_df.loc[
+            players_df["status"].astype(str).str.lower() == "d", "code"])
+        tag = "_d" + hashlib.md5(",".join(map(str, d)).encode()).hexdigest()[:6]
+    return CACHE_DIR / ("brain_v%d_%s_gw%d_fin%d%s.pkl"
+                        % (BRAIN_VERSION, season, first_gw, last_finished, tag))
 
 
 def _last_finished(bootstrap: dict) -> int:
@@ -129,6 +139,50 @@ def _last_finished(bootstrap: dict) -> int:
 def _next_gw(bootstrap: dict) -> int:
     nxt = [int(e["id"]) for e in bootstrap.get("events", []) if e.get("is_next")]
     return nxt[0] if nxt else _last_finished(bootstrap) + 1
+
+
+MAX_INJURY_GAP = 2   # blanks; longer absences are priced from history as they stand
+
+
+def drop_injury_gap(history: pd.DataFrame, players_df: pd.DataFrame,
+                    season: str) -> pd.DataFrame:
+    """Remove a doubtful starter's trailing injury blanks from the live season.
+
+    Frozen features copy a player's last match onto every future week, so a
+    starter who missed one game through injury read `mins_last = 0` for the
+    whole horizon, and `with_availability` then charged the same injury again
+    via the FPL flag. Gibbs-White, 6 of 6 starts at 90 minutes then injured,
+    projected 33 minutes and ~2 points a week for six weeks.
+
+    History says the fit-state is right: nailed players who missed a match
+    averaged 78 minutes when they returned. So for a player flagged doubtful
+    ('d') whose season ends in 1-2 blanks straight after a start, the blanks
+    are dropped and the flag alone prices the doubt. Available players keep
+    their blanks (a blank without a flag may be a dropping), as do injured
+    ('i') players, long absences and anyone not starting before the gap.
+    """
+    if history is None or history.empty or players_df is None or players_df.empty:
+        return history
+    doubtful = set(players_df.loc[players_df["status"].astype(str).str.lower() == "d", "code"])
+    if not doubtful:
+        return history
+    live = history[(history["season"] == season) & history["code"].isin(doubtful)]
+    drop = []
+    for _, rows in live.sort_values("gw").groupby("code", sort=False):
+        mins = rows["minutes"].fillna(0).values
+        n = 0
+        while n < len(mins) and mins[len(mins) - 1 - n] == 0:
+            n += 1
+        if n == 0 or n > MAX_INJURY_GAP or n == len(mins):
+            continue
+        # An established starter: 2 of the last 3 matches before the gap. One
+        # start after a run of cameos (Isidor) is not a place in the side.
+        before = rows.iloc[max(0, len(mins) - n - 3):len(mins) - n]
+        started = before["starts"].where(before["starts"].notna(),
+                                         (before["minutes"] >= 60).astype(float))
+        if (started >= 1).sum() >= min(2, len(before)):
+            drop.extend(rows.index[len(mins) - n:])
+    return history.drop(index=drop) if drop else history
 
 
 def build(players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
@@ -145,6 +199,7 @@ def build(players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
         # Never train on the rows we are about to predict.
         history = history[~((history["season"] == season) & (history["gw"] >= first_gw))]
     history = patch_live_prices(history, season)
+    history = drop_injury_gap(history, players_df, season)
     gws = [g for g in range(int(first_gw), int(first_gw) + int(horizon)) if g <= 38]
     up = upcoming_long(players_df, fixtures_df, season, gws)
     long = project(history, up)
@@ -196,7 +251,7 @@ def load(bootstrap: dict, players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
     """
     season = cm.active_season()
     first, fin = _next_gw(bootstrap), _last_finished(bootstrap)
-    path = _cache_path(season, first, fin)
+    path = _cache_path(season, first, fin, players_df)
     if path.exists():
         try:
             with open(path, "rb") as f:
@@ -226,7 +281,7 @@ def warm_async(bootstrap: dict, players_df: pd.DataFrame,
                fixtures_df: pd.DataFrame) -> None:
     """Build the cache in a daemon thread if it is missing. Never raises."""
     season = cm.active_season()
-    path = _cache_path(season, _next_gw(bootstrap), _last_finished(bootstrap))
+    path = _cache_path(season, _next_gw(bootstrap), _last_finished(bootstrap), players_df)
     if path.exists() or _LOCK.locked():
         return
 
