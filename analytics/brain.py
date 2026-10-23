@@ -82,16 +82,16 @@ def freeze_future_features(frame: pd.DataFrame, is_future: pd.Series,
     return frame
 
 
-def project(history: pd.DataFrame, upcoming: pd.DataFrame,
-            min_career_games: int = 3,
-            tree_params: Optional[Dict] = None) -> pd.DataFrame:
-    """Fit on every played row, score every upcoming row, sum doubles.
+def fit_frame(history: pd.DataFrame, upcoming: pd.DataFrame,
+              min_career_games: int = 3, tree_params: Optional[Dict] = None):
+    """Prepare, freeze and fit: returns (model, test rows, team-rate inputs).
 
-    Returns one row per (code, gw) with the model components and `fixtures`
-    (0 rows = blank, 2 = double).
+    The team-rate inputs are (rate, n_team, n_opp) per test row from
+    `team_rates`, fitted on the played sides only; `project` blends them in at
+    `config.TEAM_RATE_BLEND`. Split out so a benchmark can score several blend
+    weights off one fit.
     """
-    if upcoming is None or upcoming.empty:
-        return pd.DataFrame(columns=["code", "gw"] + COMPONENTS)
+    from analytics import team_rates as TR
     combined = pd.concat([history, upcoming], ignore_index=True, sort=False)
     frame = cm.prepare(combined)
     is_future = frame["minutes"].isna() & frame["total_points"].isna()
@@ -102,7 +102,33 @@ def project(history: pd.DataFrame, upcoming: pd.DataFrame,
     train = train[train["career_games"] >= min_career_games]
     test = frame[is_future].copy()
     model.fit(train)
-    comps = model.predict(test)
+
+    sides = TR.fixture_sides(combined)
+    played = sides["conceded"].notna()
+    rates = TR.fit(sides[played])
+    keyed = sides.set_index(["season", "fixture", "was_home"])[["team_key", "opp_key"]]
+    k = pd.MultiIndex.from_arrays([test["season"], test["fixture"], test["was_home"].astype(bool)])
+    names = keyed.reindex(k)
+    rate, n_t, n_o = [], [], []
+    for (team, opp), home in zip(names[["team_key", "opp_key"]].itertuples(index=False),
+                                 test["was_home"].astype(bool)):
+        r = rates.conceded(team, opp, home) if isinstance(team, str) and isinstance(opp, str) else None
+        rate.append(np.nan if r is None else r)
+        n_t.append(rates.matches(team) if isinstance(team, str) else 0)
+        n_o.append(rates.matches(opp) if isinstance(opp, str) else 0)
+    return model, test, (np.array(rate), np.array(n_t), np.array(n_o))
+
+
+def score_frame(model, test: pd.DataFrame, rate_inputs, blend: float,
+                min_career_games: int = 3) -> pd.DataFrame:
+    """Predict the test rows at one team-rate blend weight and sum doubles."""
+    from analytics import team_rates as TR
+    rate, n_t, n_o = rate_inputs
+    if blend > 0:
+        weight = np.array([TR.blend_weight(blend, a, b) for a, b in zip(n_t, n_o)])
+        comps = model.predict(test, conceded_rate=rate, rate_weight=weight)
+    else:
+        comps = model.predict(test)
     per_fx = pd.concat([test[["code", "gw", "career_games"]].reset_index(drop=True),
                         comps.reset_index(drop=True)], axis=1)
     per_fx["thin_history"] = per_fx["career_games"] < min_career_games
@@ -116,7 +142,24 @@ def project(history: pd.DataFrame, upcoming: pd.DataFrame,
     return out
 
 
-# ── Live build + disk cache ───────────────────────────────────────────────────
+def project(history: pd.DataFrame, upcoming: pd.DataFrame,
+            min_career_games: int = 3,
+            tree_params: Optional[Dict] = None,
+            rate_blend: Optional[float] = None) -> pd.DataFrame:
+    """Fit on every played row, score every upcoming row, sum doubles.
+
+    Returns one row per (code, gw) with the model components and `fixtures`
+    (0 rows = blank, 2 = double). `rate_blend` defaults to
+    `config.TEAM_RATE_BLEND` (0 = the incumbent conceded model alone).
+    """
+    if upcoming is None or upcoming.empty:
+        return pd.DataFrame(columns=["code", "gw"] + COMPONENTS)
+    if rate_blend is None:
+        from config import TEAM_RATE_BLEND
+        rate_blend = TEAM_RATE_BLEND
+    model, test, rate_inputs = fit_frame(history, upcoming, min_career_games, tree_params)
+    return score_frame(model, test, rate_inputs, rate_blend, min_career_games)
+
 
 def _cache_path(season: str, first_gw: int, last_finished: int,
                 players_df: Optional[pd.DataFrame] = None,
@@ -132,6 +175,9 @@ def _cache_path(season: str, first_gw: int, last_finished: int,
     if confirmed:
         c = ",".join(map(str, sorted(int(x) for x in confirmed)))
         tag += "_c" + hashlib.md5(c.encode()).hexdigest()[:6]
+    from config import TEAM_RATE_BLEND
+    if TEAM_RATE_BLEND > 0:
+        tag += "_rb%03d" % int(round(TEAM_RATE_BLEND * 100))
     return CACHE_DIR / ("brain_v%d_%s_gw%d_fin%d%s.pkl"
                         % (BRAIN_VERSION, season, first_gw, last_finished, tag))
 

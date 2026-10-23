@@ -526,7 +526,12 @@ class ComponentPointsModel(object):
             return m.predict_proba(X)[:, 1]
         return np.clip(m.predict(X), 0, None)
 
-    def predict(self, rows: pd.DataFrame) -> pd.DataFrame:
+    def predict(self, rows: pd.DataFrame,
+                conceded_rate: Optional[np.ndarray] = None,
+                rate_weight: Optional[np.ndarray] = None) -> pd.DataFrame:
+        """`conceded_rate` / `rate_weight` (per row) blend an outside
+        goals-conceded rate into the team model's, geometrically
+        (`team_rates.blend`). Absent, the prediction is the model's own."""
         if not self.fitted:
             raise RuntimeError("ComponentPointsModel.predict before fit")
         X = rows[self.features]
@@ -554,6 +559,9 @@ class ComponentPointsModel(object):
             lam = np.clip(self.models["conceded"].predict(rows[tf]), 0.05, 6.0)
         else:
             lam = np.full(len(rows), float(self.fallbacks.get("conceded", 1.35)))
+        if conceded_rate is not None and rate_weight is not None:
+            from analytics import team_rates
+            lam = team_rates.blend(lam, conceded_rate, rate_weight)
 
         p_cs = np.exp(-lam)
         # E[floor(conceded / 2)] under Poisson(lam), summed out to MAX_CONCEDED.

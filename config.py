@@ -206,6 +206,14 @@ PERFECT_SEASON = {
 #
 #   FF_COMPONENT_MODEL=1 streamlit run app.py --server.port 8510
 #   python3 scripts/benchmark_points_models.py            # the evidence
+# Weight of the opponent-adjusted team rate (analytics/team_rates.py) in the
+# brain's goals-conceded rate, which prices clean sheets and the conceded
+# penalty. 0 = off, the incumbent exactly. Team-level walk-forward favoured
+# 0.5, and the player-level check (15 folds) found it positive for DEF+GK in
+# every season (docs/research/fpred_team_rates.md). Live at 0.5 since 23 Oct
+# 2026 with Eoin's sign-off; FF_TEAM_RATE_BLEND=0 restores the incumbent.
+TEAM_RATE_BLEND = float(os.getenv("FF_TEAM_RATE_BLEND", "0.5") or 0)
+
 COMPONENT_MODEL = {
     "enabled": os.getenv("FF_COMPONENT_MODEL", "0") == "1",
     # Seasons the model may train on. More history is the point of it, but a
