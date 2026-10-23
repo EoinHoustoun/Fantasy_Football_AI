@@ -1,0 +1,142 @@
+{
+ "rows": 3941,
+ "espn_names": 14682,
+ "unmatched_names": 2164,
+ "by_group": {
+  "started": {
+   "n": 2041,
+   "pred_p60": 0.73,
+   "actual_p60": 0.689,
+   "pred_mins": 66.6,
+   "actual_mins": 65.0
+  },
+  "sub": {
+   "n": 651,
+   "pred_p60": 0.688,
+   "actual_p60": 0.737,
+   "pred_mins": 63.1,
+   "actual_mins": 68.6
+  },
+  "unused": {
+   "n": 444,
+   "pred_p60": 0.706,
+   "actual_p60": 0.797,
+   "pred_mins": 64.6,
+   "actual_mins": 71.0
+  },
+  "absent": {
+   "n": 805,
+   "pred_p60": 0.688,
+   "actual_p60": 0.414,
+   "pred_mins": 62.9,
+   "actual_mins": 37.7
+  }
+ },
+ "by_group_next_week": {
+  "started": {
+   "n": 379,
+   "pred_p60": 0.735,
+   "actual_p60": 0.681,
+   "pred_mins": 67.4,
+   "actual_mins": 65.4
+  },
+  "sub": {
+   "n": 126,
+   "pred_p60": 0.705,
+   "actual_p60": 0.77,
+   "pred_mins": 64.8,
+   "actual_mins": 72.0
+  },
+  "unused": {
+   "n": 94,
+   "pred_p60": 0.708,
+   "actual_p60": 0.809,
+   "pred_mins": 64.8,
+   "actual_mins": 72.8
+  },
+  "absent": {
+   "n": 154,
+   "pred_p60": 0.624,
+   "actual_p60": 0.571,
+   "pred_mins": 57.3,
+   "actual_mins": 52.0
+  }
+ },
+ "leave_one_season_out": {
+  "2023-24": {
+   "p60_shift": {
+    "started": 0.005,
+    "sub": 0.114,
+    "unused": 0.133,
+    "absent": -0.182
+   },
+   "mins_mult": {
+    "started": 1.034,
+    "sub": 1.169,
+    "unused": 1.149,
+    "absent": 0.688
+   },
+   "n": 1214,
+   "incumbent": {
+    "mins_mae": 29.283,
+    "p60_brier": 0.2166,
+    "xp_spearman": 0.3066
+   },
+   "adjusted": {
+    "mins_mae": 27.12,
+    "p60_brier": 0.1954,
+    "xp_spearman": 0.3895
+   }
+  },
+  "2024-25": {
+   "p60_shift": {
+    "started": 0.034,
+    "sub": 0.103,
+    "unused": 0.145,
+    "absent": -0.255
+   },
+   "mins_mult": {
+    "started": 1.063,
+    "sub": 1.163,
+    "unused": 1.18,
+    "absent": 0.587
+   },
+   "n": 1343,
+   "incumbent": {
+    "mins_mae": 27.901,
+    "p60_brier": 0.2156,
+    "xp_spearman": 0.2506
+   },
+   "adjusted": {
+    "mins_mae": 27.246,
+    "p60_brier": 0.2071,
+    "xp_spearman": 0.3283
+   }
+  },
+  "2025-26": {
+   "p60_shift": {
+    "started": 0.015,
+    "sub": 0.108,
+    "unused": 0.174,
+    "absent": -0.214
+   },
+   "mins_mult": {
+    "started": 1.04,
+    "sub": 1.165,
+    "unused": 1.208,
+    "absent": 0.647
+   },
+   "n": 1384,
+   "incumbent": {
+    "mins_mae": 26.594,
+    "p60_brier": 0.2126,
+    "xp_spearman": 0.261
+   },
+   "adjusted": {
+    "mins_mae": 25.925,
+    "p60_brier": 0.2,
+    "xp_spearman": 0.3847
+   }
+  }
+ }
+}
