@@ -1,0 +1,149 @@
+{
+ "rows": 19844,
+ "by_flag": {
+  "none": {
+   "n": 14293,
+   "pred_mins": 65.6,
+   "actual_mins": 61.4,
+   "mins_ratio": 0.936,
+   "pred_p60": 0.716,
+   "actual_p60": 0.667
+  },
+  "before": {
+   "n": 3287,
+   "pred_mins": 65.0,
+   "actual_mins": 60.5,
+   "mins_ratio": 0.931,
+   "pred_p60": 0.711,
+   "actual_p60": 0.651
+  },
+  "after": {
+   "n": 1610,
+   "pred_mins": 64.9,
+   "actual_mins": 59.6,
+   "mins_ratio": 0.919,
+   "pred_p60": 0.708,
+   "actual_p60": 0.642
+  },
+  "both": {
+   "n": 654,
+   "pred_mins": 65.5,
+   "actual_mins": 61.8,
+   "mins_ratio": 0.944,
+   "pred_p60": 0.717,
+   "actual_p60": 0.662
+  }
+ },
+ "by_flag_next_week": {
+  "none": {
+   "n": 2418,
+   "pred_mins": 65.8,
+   "actual_mins": 66.7,
+   "mins_ratio": 1.013,
+   "pred_p60": 0.719,
+   "actual_p60": 0.73
+  },
+  "before": {
+   "n": 511,
+   "pred_mins": 64.8,
+   "actual_mins": 63.5,
+   "mins_ratio": 0.98,
+   "pred_p60": 0.709,
+   "actual_p60": 0.671
+  },
+  "after": {
+   "n": 229,
+   "pred_mins": 64.9,
+   "actual_mins": 64.4,
+   "mins_ratio": 0.992,
+   "pred_p60": 0.717,
+   "actual_p60": 0.707
+  },
+  "both": {
+   "n": 242,
+   "pred_mins": 64.1,
+   "actual_mins": 67.0,
+   "mins_ratio": 1.046,
+   "pred_p60": 0.694,
+   "actual_p60": 0.727
+  }
+ },
+ "by_rest": {
+  "<=3": {
+   "n": 6524,
+   "mins_ratio": 0.925,
+   "p60_gap": -0.065
+  },
+  "4-5": {
+   "n": 4577,
+   "mins_ratio": 0.937,
+   "p60_gap": -0.05
+  },
+  "6-8": {
+   "n": 6260,
+   "mins_ratio": 0.93,
+   "p60_gap": -0.049
+  },
+  "9+": {
+   "n": 2483,
+   "mins_ratio": 0.963,
+   "p60_gap": -0.031
+  }
+ },
+ "leave_one_season_out": {
+  "2023-24": {
+   "rel_multiplier": {
+    "none": 1.005,
+    "before": 0.993,
+    "after": 0.978,
+    "both": 0.991
+   },
+   "incumbent": {
+    "mins_mae": 27.336,
+    "p60_brier": 0.201,
+    "xp_spearman": 0.314
+   },
+   "adjusted": {
+    "mins_mae": 27.322,
+    "p60_brier": 0.2013,
+    "xp_spearman": 0.3137
+   }
+  },
+  "2024-25": {
+   "rel_multiplier": {
+    "none": 1.002,
+    "before": 1.002,
+    "after": 0.976,
+    "both": 1.001
+   },
+   "incumbent": {
+    "mins_mae": 26.29,
+    "p60_brier": 0.2005,
+    "xp_spearman": 0.313
+   },
+   "adjusted": {
+    "mins_mae": 26.274,
+    "p60_brier": 0.2006,
+    "xp_spearman": 0.3133
+   }
+  },
+  "2025-26": {
+   "rel_multiplier": {
+    "none": 0.999,
+    "before": 0.994,
+    "after": 1.001,
+    "both": 1.062
+   },
+   "incumbent": {
+    "mins_mae": 26.584,
+    "p60_brier": 0.2017,
+    "xp_spearman": 0.2832
+   },
+   "adjusted": {
+    "mins_mae": 26.588,
+    "p60_brier": 0.2023,
+    "xp_spearman": 0.2827
+   }
+  }
+ }
+}

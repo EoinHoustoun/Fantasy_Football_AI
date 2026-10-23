@@ -83,3 +83,17 @@ def test_solver_makes_the_one_clear_upgrade_and_holds_otherwise():
     assert res["weeks"][1]["in"] == []
     held = solve(xp, players, owned, 0.0, 1, {}, [1, 2], hold=True)
     assert held["xp_total"] < res["xp_total"]
+
+
+def test_spare_transfer_cost_stops_a_marginal_move_only_on_the_last_free_transfer():
+    players, xp = _toy()
+    owned = [1, 2, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 16, 17, 18]
+    xp = xp[[1]]
+    xp.loc[4, 1] = 10.0                # an owned captain, so the armband is not in play
+    xp.loc[19] = [4.0]                 # +3 over an owned forward, +1 after friction
+    base = {"time_limit": 20, "ft_value": 0.0}
+    buys = lambda r, ft: solve(xp, players, owned, 0.0, ft, {}, [1],
+                               settings=dict(base, reserve=r))["weeks"][0]["in"]
+    assert buys(0.0, 1) == [19]        # worth it when a spare transfer is free
+    assert buys(1.5, 1) == []          # not when it spends the only one
+    assert buys(1.5, 2) == [19]        # fine again with one left in hand

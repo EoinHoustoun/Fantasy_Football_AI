@@ -17,6 +17,12 @@ Design choices, each borrowed from practice that has been tested elsewhere
   sacrificing the near term for a far-off fixture swing.
 - **Terminal value of banked free transfers** (default 1.5 pts each). Otherwise
   the last week of the horizon spends every FT because nothing values keeping one.
+- **A free transfer kept in hand** (default 1.5 pts for each week the plan
+  spends every FT it has). A regular starter plays 0 minutes in 11.6% of his
+  weeks, so an XI loses one in 74% of weeks; without a spare transfer the
+  autosub covers at about 1.15 pts less. That is 1.46 pts a week on 10 seasons
+  (worst season 1.71), from `scripts/research_ft_reserve.py`. It is a one-week
+  cost because the next week brings a new free transfer.
 - **Bench weight** (default 0.1). Bench points only arrive via autosubs.
 - **Alternatives** come from no-good cuts on the first week's moves, so the
   top-N plans differ in what you actually do THIS gameweek.
@@ -49,6 +55,7 @@ DEFAULTS = {
     "friction": 2.0,
     "decay": 0.9,
     "ft_value": 1.5,
+    "reserve": 1.5,
     "bench_weight": 0.1,
     "max_transfers_per_gw": 3,
     "max_hits_per_gw": 1,
@@ -138,6 +145,7 @@ def solve(xp: pd.DataFrame, players: pd.DataFrame, owned: List[int], bank: float
     ft = pulp.LpVariable.dicts("ft", range(len(G) + 1), lowBound=0, upBound=FT_CAP, cat="Integer")
     paid = pulp.LpVariable.dicts("paid", G, lowBound=0, upBound=s["max_hits_per_gw"], cat="Integer")
     money = pulp.LpVariable.dicts("bank", G, lowBound=0)
+    dry = pulp.LpVariable.dicts("dry", G, cat=B)  # 1 = every free transfer spent this week
 
     prob += ft[0] == int(min(FT_CAP, max(0, free_transfers)))
     for k, g in enumerate(G):
@@ -167,6 +175,8 @@ def solve(xp: pd.DataFrame, players: pd.DataFrame, owned: List[int], bank: float
         # Free transfers: spend some, bank one more, cap at FT_CAP.
         prob += ft[k + 1] <= ft[k] - (n_in - paid[g]) + 1
         prob += ft[k + 1] >= 1
+        # Unused free transfers this week; none left means no cover for a late shock.
+        prob += ft[k] - (n_in - paid[g]) >= 1 - dry[g]
 
         # Budget: sell at selling price (owned) or current price, buy at current.
         spent = pulp.lpSum(tin[p][g] * price[p] for p in P)
@@ -191,9 +201,12 @@ def solve(xp: pd.DataFrame, players: pd.DataFrame, owned: List[int], bank: float
     bw = s["bench_weight"]
     prob += (pulp.lpSum(w[g] * (X[p, g] * (xi[p][g] + cp[p][g]) + bw * X[p, g] * (sq[p][g] - xi[p][g]))
                         for p in P for g in G)
-             - pulp.lpSum(w[g] * (HIT * paid[g] + s["friction"] * pulp.lpSum(tin[p][g] for p in P))
+             - pulp.lpSum(w[g] * (HIT * paid[g] + s["friction"] * pulp.lpSum(tin[p][g] for p in P)
+                                  + s["reserve"] * dry[g])
                           for g in G)
-             + s["ft_value"] * ft[len(G)])
+             + s["ft_value"] * ft[len(G)]
+             # Tie-break only: never let a banked transfer quietly lapse mid-plan.
+             + 0.01 * pulp.lpSum(ft[k] for k in range(1, len(G) + 1)))
 
     t0 = time.time()
     status = prob.solve(pulp.PULP_CBC_CMD(msg=False, timeLimit=int(s["time_limit"]),
@@ -223,6 +236,7 @@ def solve(xp: pd.DataFrame, players: pd.DataFrame, owned: List[int], bank: float
             "bench_xp": round(bench, 2), "hits": int(round(paid[g].varValue or 0)),
             "ft_before": int(round(ft[k].varValue or 0)),
             "bank_after": round(money[g].varValue or 0, 1),
+            "spare_ft": not v(dry[g]),
         })
     total = sum(wk["xp"] - HIT * wk["hits"] for wk in weeks)
     return {"status": pulp.LpStatus[status], "secs": round(secs, 1),
@@ -257,13 +271,13 @@ def hold_plan(xp: pd.DataFrame, players: pd.DataFrame, owned: List[int],
         cap = max(xi, key=lambda c: xs[c]) if xi else None
         pts = sum(xs[c] for c in xi) + (xs[cap] if cap else 0.0)
         bench = sum(xs[c] for c in owned if c not in xi)
-        obj += (s["decay"] ** k) * (pts + s["bench_weight"] * bench)
+        obj += (s["decay"] ** k) * (pts + s["bench_weight"] * bench - (s["reserve"] if ft == 0 else 0.0))
         total += pts
         weeks.append({"gw": g, "in": [], "out": [], "in_names": [], "out_names": [],
                       "squad": list(owned), "xi": xi, "captain": cap,
                       "captain_name": name.get(cap), "xp": round(pts, 2),
                       "bench_xp": round(bench, 2), "hits": 0, "ft_before": ft,
-                      "bank_after": None})
+                      "bank_after": None, "spare_ft": ft > 0})
         ft = min(FT_CAP, ft + 1)
     obj += s["ft_value"] * ft
     return {"status": "Optimal", "secs": 0.0, "objective": round(obj, 2),

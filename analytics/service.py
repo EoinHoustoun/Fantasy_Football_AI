@@ -393,7 +393,7 @@ def optimise(team_id: Optional[int] = None, horizon: int = 6,
             return p
         return {"xp_total": p["xp_total"], "objective": p["objective"], "ft_end": p["ft_end"],
                 "weeks": [{k: w[k] for k in ("gw", "in_names", "out_names", "captain_name",
-                                             "xp", "hits", "ft_before", "bank_after")}
+                                             "xp", "hits", "ft_before", "bank_after", "spare_ft")}
                           for w in p["weeks"]]}
     return {"team": t["team_name"], "free_transfers_used_as": ft, "bank": t["bank"],
             "gws": [int(g) for g in gws], "gain_vs_hold": res.get("gain_vs_hold"),
