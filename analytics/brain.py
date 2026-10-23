@@ -30,6 +30,7 @@ No Streamlit imports: pages, the MCP server and scripts all call this.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import pickle
@@ -118,14 +119,19 @@ def project(history: pd.DataFrame, upcoming: pd.DataFrame,
 # ── Live build + disk cache ───────────────────────────────────────────────────
 
 def _cache_path(season: str, first_gw: int, last_finished: int,
-                players_df: Optional[pd.DataFrame] = None) -> Path:
-    """The build depends on who is flagged doubtful (`drop_injury_gap`), so the
-    key carries a short hash of that list and a new flag rebuilds."""
+                players_df: Optional[pd.DataFrame] = None,
+                confirmed: Optional[set] = None) -> Path:
+    """The build depends on who is flagged doubtful and who is confirmed to
+    start (`drop_injury_gap`), so the key carries a short hash of both lists
+    and a new flag or confirmation rebuilds."""
     tag = ""
     if players_df is not None and "status" in players_df.columns:
         d = sorted(int(c) for c in players_df.loc[
             players_df["status"].astype(str).str.lower() == "d", "code"])
         tag = "_d" + hashlib.md5(",".join(map(str, d)).encode()).hexdigest()[:6]
+    if confirmed:
+        c = ",".join(map(str, sorted(int(x) for x in confirmed)))
+        tag += "_c" + hashlib.md5(c.encode()).hexdigest()[:6]
     return CACHE_DIR / ("brain_v%d_%s_gw%d_fin%d%s.pkl"
                         % (BRAIN_VERSION, season, first_gw, last_finished, tag))
 
@@ -142,10 +148,27 @@ def _next_gw(bootstrap: dict) -> int:
 
 
 MAX_INJURY_GAP = 2   # blanks; longer absences are priced from history as they stand
+CONFIRMED_PATH = Path(__file__).resolve().parent.parent / "data" / "confirmed_starters.json"
+
+
+def load_confirmed(next_gw: int) -> set:
+    """Codes confirmed to start the upcoming gameweek, from team news.
+
+    `data/confirmed_starters.json` is `{"gw": 8, "codes": [...]}`. It only
+    counts while that gameweek is the next one, so a stale list never lingers;
+    once the match is played the blank is no longer trailing anyway.
+    """
+    try:
+        raw = json.loads(CONFIRMED_PATH.read_text())
+    except (OSError, ValueError):
+        return set()
+    if int(raw.get("gw", -1)) != int(next_gw):
+        return set()
+    return {int(c) for c in raw.get("codes", [])}
 
 
 def drop_injury_gap(history: pd.DataFrame, players_df: pd.DataFrame,
-                    season: str) -> pd.DataFrame:
+                    season: str, confirmed: Optional[set] = None) -> pd.DataFrame:
     """Remove a doubtful starter's trailing injury blanks from the live season.
 
     Frozen features copy a player's last match onto every future week, so a
@@ -160,10 +183,14 @@ def drop_injury_gap(history: pd.DataFrame, players_df: pd.DataFrame,
     are dropped and the flag alone prices the doubt. Available players keep
     their blanks (a blank without a flag may be a dropping), as do injured
     ('i') players, long absences and anyone not starting before the gap.
+
+    `confirmed` codes (team news says they start) are treated like doubtful
+    ones: once a flag clears to 'a' the blank would otherwise come back.
     """
     if history is None or history.empty or players_df is None or players_df.empty:
         return history
     doubtful = set(players_df.loc[players_df["status"].astype(str).str.lower() == "d", "code"])
+    doubtful |= set(confirmed or ())
     if not doubtful:
         return history
     live = history[(history["season"] == season) & history["code"].isin(doubtful)]
@@ -187,7 +214,8 @@ def drop_injury_gap(history: pd.DataFrame, players_df: pd.DataFrame,
 
 def build(players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
           first_gw: int, horizon: int = HORIZON,
-          season: Optional[str] = None) -> pd.DataFrame:
+          season: Optional[str] = None,
+          confirmed: Optional[set] = None) -> pd.DataFrame:
     """Uncached live projection for first_gw .. first_gw+horizon-1."""
     season = season or cm.active_season()
     history = cm.build_history(season)
@@ -199,7 +227,7 @@ def build(players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
         # Never train on the rows we are about to predict.
         history = history[~((history["season"] == season) & (history["gw"] >= first_gw))]
     history = patch_live_prices(history, season)
-    history = drop_injury_gap(history, players_df, season)
+    history = drop_injury_gap(history, players_df, season, confirmed)
     gws = [g for g in range(int(first_gw), int(first_gw) + int(horizon)) if g <= 38]
     up = upcoming_long(players_df, fixtures_df, season, gws)
     long = project(history, up)
@@ -251,7 +279,8 @@ def load(bootstrap: dict, players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
     """
     season = cm.active_season()
     first, fin = _next_gw(bootstrap), _last_finished(bootstrap)
-    path = _cache_path(season, first, fin, players_df)
+    confirmed = load_confirmed(first)
+    path = _cache_path(season, first, fin, players_df, confirmed)
     if path.exists():
         try:
             with open(path, "rb") as f:
@@ -265,7 +294,7 @@ def load(bootstrap: dict, players_df: pd.DataFrame, fixtures_df: pd.DataFrame,
             with open(path, "rb") as f:
                 return pickle.load(f)["long"]
         t0 = time.time()
-        long = build(players_df, fixtures_df, first, horizon, season)
+        long = build(players_df, fixtures_df, first, horizon, season, confirmed)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         with open(tmp, "wb") as f:
@@ -281,7 +310,9 @@ def warm_async(bootstrap: dict, players_df: pd.DataFrame,
                fixtures_df: pd.DataFrame) -> None:
     """Build the cache in a daemon thread if it is missing. Never raises."""
     season = cm.active_season()
-    path = _cache_path(season, _next_gw(bootstrap), _last_finished(bootstrap), players_df)
+    first = _next_gw(bootstrap)
+    path = _cache_path(season, first, _last_finished(bootstrap), players_df,
+                       load_confirmed(first))
     if path.exists() or _LOCK.locked():
         return
 

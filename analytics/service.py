@@ -79,6 +79,73 @@ def gameweek_info() -> Dict[str, Any]:
             "last_finished_gw": max(fin) if fin else 0}
 
 
+# ── Freshness and team news ───────────────────────────────────────────────────
+
+DEADLINE_DAY_MAX_AGE_MIN = 60   # bootstrap carries injury news; within 24 h of a deadline it must be this new
+NORMAL_MAX_AGE_MIN = 240
+
+
+def _parse_ts(ts: str) -> float:
+    from datetime import datetime
+    return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+
+
+def _source_files() -> Dict[str, Any]:
+    from data.fetchers.fpl_api import _cache_path as fpl_cache
+    return {"bootstrap": fpl_cache("fpl_bootstrap"), "fixtures": fpl_cache("fpl_fixtures")}
+
+
+def freshness(refresh: bool = False, now: Optional[float] = None) -> Dict[str, Any]:
+    """How old each live source is, and which are too old to plan on.
+
+    Run before every plan. On deadline day the bootstrap (injury flags, news,
+    prices) must be under an hour old; `refresh=True` deletes the cached files
+    and the in-process memos so the next call refetches everything.
+    """
+    files = _source_files()
+    if refresh:
+        for f in files.values():
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        _MEMO.clear()
+    now = time.time() if now is None else now
+    bs = inputs()["bootstrap"]
+    nxt = next((e for e in bs.get("events", []) if e.get("is_next")), None)
+    hours_left = (_parse_ts(nxt["deadline_time"]) - now) / 3600 if nxt else None
+    limit = DEADLINE_DAY_MAX_AGE_MIN if hours_left is not None and hours_left < 24 else NORMAL_MAX_AGE_MIN
+    sources, stale = {}, []
+    for name, f in files.items():
+        age = (now - f.stat().st_mtime) / 60 if f.exists() else None
+        sources[name] = {"age_min": None if age is None else round(age)}
+        if name == "bootstrap" and (age is None or age > limit):
+            stale.append(name)
+    news = [e.get("news_added") for e in bs.get("elements", []) if e.get("news_added")]
+    gw = nxt["id"] if nxt else None
+    return {"sources": sources, "stale": stale, "max_age_min": limit,
+            "hours_to_deadline": None if hours_left is None else round(hours_left, 1),
+            "latest_news": max(news) if news else None,
+            "confirmed_starters": sorted(brain.load_confirmed(gw)) if gw else [],
+            "note": "Transfers made for the open gameweek are private until its deadline, "
+                    "so my_team shows the squad before them."}
+
+
+def set_confirmed_starters(names: List[str], gw: Optional[int] = None) -> Dict[str, Any]:
+    """Record team news: these players start `gw` (default the next one).
+
+    The brain then drops their trailing injury blank, as it does for doubtful
+    starters, and rebuilds (the confirmation is part of its cache key).
+    Replaces the previous list; pass every confirmed name each time.
+    """
+    import json
+    gw = int(gw or gameweek_info()["next_gw"])
+    codes = sorted(set(find_players(names)))
+    brain.CONFIRMED_PATH.write_text(json.dumps({"gw": gw, "codes": codes}))
+    _MEMO.pop("projections", None)
+    return {"gw": gw, "codes": codes}
+
+
 # ── The manager's team ────────────────────────────────────────────────────────
 
 def free_transfers(history: Dict, next_gw: int) -> int:

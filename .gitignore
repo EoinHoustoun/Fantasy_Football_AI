@@ -20,3 +20,6 @@ data/cache/*
 
 # Analysis folders that read paid snapshots (Scout, Hub) · never commit
 docs/research/2026-09-22_gw5_review/
+
+# Weekly team news for the engine (brain.load_confirmed), not source
+data/confirmed_starters.json

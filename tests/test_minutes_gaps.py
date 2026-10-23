@@ -107,3 +107,36 @@ def test_other_players_untouched():
     out = drop_injury_gap(h, _players("d", code=7), "2026-27")
     assert len(out[out["code"] == 8]) == 2
     assert len(out[out["code"] == 7]) == 1
+
+
+def test_confirmed_starter_loses_his_blank_after_the_flag_clears():
+    # Gibbs-White, Oct 2026: 6 of 6 starts, injured for GW7, flag cleared to
+    # 'a' and confirmed to start GW8. Without the flag the blank came back and
+    # he projected 42 minutes for six weeks.
+    h = _hist([90, 90, 90, 0], [1, 1, 1, 0])
+    out = drop_injury_gap(h, _players("a"), "2026-27", confirmed={7})
+    assert list(out["gw"]) == [1, 2, 3]
+
+
+def test_confirmed_bench_player_still_keeps_his_blank():
+    # Team news does not invent a starter who was not starting before the gap.
+    h = _hist([10, 0, 15, 0], [0, 0, 0, 0])
+    assert len(drop_injury_gap(h, _players("a"), "2026-27", confirmed={7})) == 4
+
+
+def test_confirmed_starters_file_expires_after_its_gameweek(tmp_path, monkeypatch):
+    import json
+    import analytics.brain as B
+    p = tmp_path / "confirmed_starters.json"
+    p.write_text(json.dumps({"gw": 8, "codes": [222531]}))
+    monkeypatch.setattr(B, "CONFIRMED_PATH", p)
+    assert B.load_confirmed(next_gw=8) == {222531}
+    assert B.load_confirmed(next_gw=9) == set()
+
+
+def test_cache_key_moves_when_a_starter_is_confirmed():
+    import analytics.brain as B
+    players = pd.DataFrame({"code": [7], "status": ["a"]})
+    a = B._cache_path("2026-27", 8, 7, players)
+    b = B._cache_path("2026-27", 8, 7, players, confirmed={7})
+    assert a != b

@@ -46,7 +46,8 @@ mcp = FastMCP(
     "fpl",
     instructions=(
         "Eoin's Fantasy Premier League analytics engine (the same one his FPL "
-        "Analytics app runs). Projections are per player per gameweek expected "
+        "Analytics app runs). Always call `status` first: if its freshness "
+        "check lists stale sources, call `status(refresh=True)` before planning. Projections are per player per gameweek expected "
         "points (xP) from a component model (minutes, goals, assists, clean "
         "sheets, bonus, DEFCON) scaled by current injury news. Start with "
         "`status`, then `my_team`. For transfers call `optimise_transfers` and "
@@ -60,12 +61,27 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def status() -> dict:
-    """Season clock: next gameweek, deadline, last finished GW, and whether projections are ready."""
+def status(refresh: bool = False) -> dict:
+    """Season clock plus the freshness check: next gameweek, deadline, whether
+    projections are ready, each source's age, which are `stale`, the latest
+    injury-news time and the confirmed starters. If `stale` is not empty, call
+    again with refresh=True before planning."""
+    fresh = S.freshness(refresh=refresh)
     gwi = S.gameweek_info()
     ready = S.projections(allow_compute=False) is not None
     return {**gwi, "projections_ready": ready, "team_id": S.default_team_id(),
-            "app": "http://localhost:8510"}
+            "freshness": fresh, "app": "http://localhost:8510"}
+
+
+@mcp.tool()
+def confirm_starters(names: List[str], gw: Optional[int] = None) -> dict:
+    """Team news: these players are confirmed to start `gw` (default the next).
+
+    Use when a press conference or confirmed lineup says a player starts but
+    the engine still fades him for a recent injury blank (his flag has cleared
+    to available). Replaces the previous list, so pass every confirmed name.
+    The engine rebuilds on the next call (about a minute)."""
+    return S.set_confirmed_starters(names, gw)
 
 
 @mcp.tool()
